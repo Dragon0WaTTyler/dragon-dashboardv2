@@ -1,0 +1,10 @@
+{% extends "layouts/app.html" if current_user.is_authenticated else "layouts/auth.html" %}
+{% block title %}{{ status }} · Dragon{% endblock %}
+{% block content %}
+<section class="error-state">
+  <span class="error-state__code">{{ status }}</span>
+  <h1>{{ title }}</h1>
+  <p>The request could not be completed. Return to a safe page and try again.</p>
+  <a class="button button--primary" href="{{ url_for('core.index') if current_user.is_authenticated else url_for('auth.login') }}">Return to Dragon</a>
+</section>
+{% endblock %}

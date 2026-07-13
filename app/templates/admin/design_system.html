@@ -1,0 +1,111 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, button, content_row, empty_state, notice %}
+{% block title %}Design system · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/design-system.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/design-system.js') }}" defer></script>{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <span class="eyebrow">Production primitives</span>
+    <h1>Design system</h1>
+    <p>The same components used by Dragon pages, shown across their important states.</p>
+  </div>
+  {{ badge('M1 baseline', 'accent') }}
+</header>
+
+<div class="design-layout">
+  <nav class="design-index" aria-label="Design system sections">
+    <a href="#color">Color</a>
+    <a href="#type">Typography</a>
+    <a href="#actions">Actions</a>
+    <a href="#forms">Forms</a>
+    <a href="#feedback">Feedback</a>
+    <a href="#content">Content</a>
+  </nav>
+
+  <div class="design-sections">
+    <section class="design-section" id="color" aria-labelledby="color-title">
+      <div class="section-heading"><span class="eyebrow">01 · Foundation</span><h2 id="color-title">Color</h2></div>
+      <div class="swatch-grid">
+        {% for token, label in [('bg','Canvas'),('surface','Surface'),('muted','Muted surface'),('text','Text'),('accent','Accent'),('success','Success'),('warning','Warning'),('error','Error')] %}
+        <div class="swatch"><span class="swatch__color swatch__color--{{ token }}"></span><strong>{{ label }}</strong><code>--color-{{ token }}</code></div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="design-section" id="type" aria-labelledby="type-title">
+      <div class="section-heading"><span class="eyebrow">02 · Hierarchy</span><h2 id="type-title">Typography</h2></div>
+      <div class="type-specimen">
+        <p class="type-display">One useful next step.</p>
+        <p class="type-title">A calm personal workspace</p>
+        <p>Dragon keeps media, reading, and training close without turning the day into a dashboard.</p>
+        <code>2026-07-13T22:00:00Z · req_01J...</code>
+      </div>
+    </section>
+
+    <section class="design-section" id="actions" aria-labelledby="actions-title">
+      <div class="section-heading"><span class="eyebrow">03 · Control</span><h2 id="actions-title">Actions</h2></div>
+      <div class="component-row">
+        {{ button('Save changes', 'primary') }}
+        {{ button('Review details') }}
+        {{ button('Quiet action', 'quiet') }}
+        {{ button('Delete item', 'danger') }}
+        {{ button('Unavailable', disabled=true) }}
+        <button class="button button--secondary is-loading" type="button" aria-busy="true"><span class="spinner" aria-hidden="true"></span>Saving</button>
+      </div>
+    </section>
+
+    <section class="design-section" id="forms" aria-labelledby="forms-title">
+      <div class="section-heading"><span class="eyebrow">04 · Input</span><h2 id="forms-title">Forms</h2></div>
+      <div class="form-grid">
+        <label class="field"><span>Search</span><input type="search" placeholder="Search your workspace"></label>
+        <label class="field"><span>Status</span><select><option>All statuses</option><option>Watching</option></select></label>
+        <label class="field"><span>Title</span><input type="text" value="A very long title remains readable across narrow layouts"></label>
+        <label class="field field--invalid"><span>Required field</span><input type="text" aria-invalid="true" aria-describedby="field-error"><small id="field-error" class="field__error">Add a value before continuing.</small></label>
+      </div>
+      <div class="component-row">
+        <label class="check-field"><input type="checkbox" checked><span>Saved</span></label>
+        <label class="check-field"><input type="radio" name="view" checked><span>Grid</span></label>
+        <label class="check-field"><input type="radio" name="view"><span>List</span></label>
+      </div>
+    </section>
+
+    <section class="design-section" id="feedback" aria-labelledby="feedback-title">
+      <div class="section-heading"><span class="eyebrow">05 · State</span><h2 id="feedback-title">Feedback</h2></div>
+      <div class="notice-stack">
+        {{ notice('Everything is current', 'Using the latest valid local snapshot.', 'success') }}
+        {{ notice('Showing cached results', 'Reading was last refreshed two days ago.', 'warning') }}
+        {{ notice('Sync did not finish', 'Your previous local snapshot is still active.', 'error') }}
+      </div>
+      <div class="component-row">
+        {{ badge('Watching', 'accent') }}{{ badge('Current', 'success') }}{{ badge('Stale', 'warning') }}{{ badge('Failed', 'error') }}{{ badge('Draft') }}
+      </div>
+      <div class="component-row">
+        <button class="button button--secondary" type="button" data-toast-demo>Show toast</button>
+        <button class="button button--secondary" type="button" data-dialog-open="confirm-demo">Open dialog</button>
+      </div>
+    </section>
+
+    <section class="design-section" id="content" aria-labelledby="content-title">
+      <div class="section-heading"><span class="eyebrow">06 · Records</span><h2 id="content-title">Content</h2></div>
+      <div class="content-list">
+        {{ content_row('Continue', 'Example movie title', '48 minutes left · local progress', 'Resume') }}
+        {{ content_row('Reading', 'A saved article with a clear, descriptive title', 'Reader · 8 min', 'Read') }}
+      </div>
+      {{ empty_state('Nothing here yet', 'Import or create the first record when this domain is available.', 'Review setup') }}
+      <nav class="pagination" aria-label="Pagination">
+        <button class="icon-button" type="button" disabled aria-label="Previous page">←</button>
+        <span>1–20 of 64</span>
+        <button class="icon-button" type="button" aria-label="Next page">→</button>
+      </nav>
+    </section>
+  </div>
+</div>
+
+<dialog class="confirm-dialog" id="confirm-demo" aria-labelledby="confirm-title">
+  <div class="dialog__header"><div><span class="eyebrow">Confirm action</span><h2 id="confirm-title">Remove this local record?</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close dialog">×</button></div>
+  <p>This preview changes nothing. Production confirmations describe local and remote effects separately.</p>
+  <div class="dialog__actions"><button class="button button--secondary" type="button" data-dialog-close>Cancel</button><button class="button button--danger" type="button" data-dialog-close>Remove record</button></div>
+</dialog>
+<div class="toast" data-toast role="status" aria-live="polite" hidden>Component state updated.</div>
+{% endblock %}

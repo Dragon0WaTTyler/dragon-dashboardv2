@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f7f2">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  <title>{% block title %}Dragon{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/base.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
+  {% block styles %}{% endblock %}
+  <script src="{{ url_for('static', filename='js/core.js') }}" defer></script>
+  {% block scripts %}{% endblock %}
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="app-header">
+    <div class="app-bar">
+      <a class="brand" href="{{ url_for('core.index') }}" aria-label="Dragon home">
+        <span class="brand__mark" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span>Dragon</span>
+      </a>
+      <button class="command-trigger" type="button" data-dialog-open="command-dialog" aria-haspopup="dialog">
+        <span>Search or open a section</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+      <div class="app-actions">
+        <span class="system-status"><span aria-hidden="true"></span>Local</span>
+        <details class="account-menu">
+          <summary aria-label="Open account menu">{{ current_user.username[:1]|upper }}</summary>
+          <div class="account-menu__panel">
+            <strong>{{ current_user.username }}</strong>
+            <span>Local administrator</span>
+            <form method="post" action="{{ url_for('auth.logout') }}">
+              {{ logout_form.hidden_tag() }}
+              <button class="button button--quiet button--full" type="submit">Sign out</button>
+            </form>
+          </div>
+        </details>
+      </div>
+    </div>
+    <nav class="module-nav" aria-label="Primary navigation">
+      <a href="{{ url_for('core.index') }}"{% if active_module == 'today' %} aria-current="page"{% endif %}>Today</a>
+      <span aria-disabled="true">Movies</span>
+      <span aria-disabled="true">YouTube</span>
+      <span aria-disabled="true">Reading</span>
+      <span aria-disabled="true">Books</span>
+      <span aria-disabled="true">Chess</span>
+      <a href="{{ url_for('admin.design_system') }}"{% if active_module == 'more' %} aria-current="page"{% endif %}>More</a>
+    </nav>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+    <div class="flash-region" aria-live="polite">
+      {% for category, message in messages %}
+      <div class="notice notice--{{ category }}" role="status">{{ message }}</div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  {% endwith %}
+
+  <main id="main-content" class="page-frame" tabindex="-1">
+    {% block content %}{% endblock %}
+  </main>
+
+  <nav class="mobile-nav" aria-label="Mobile navigation">
+    <a href="{{ url_for('core.index') }}"{% if active_module == 'today' %} aria-current="page"{% endif %}><span aria-hidden="true">○</span>Today</a>
+    <span aria-disabled="true"><span aria-hidden="true">□</span>Movies</span>
+    <span aria-disabled="true"><span aria-hidden="true">▷</span>YouTube</span>
+    <span aria-disabled="true"><span aria-hidden="true">≡</span>Reading</span>
+    <a href="{{ url_for('admin.design_system') }}"{% if active_module == 'more' %} aria-current="page"{% endif %}><span aria-hidden="true">•••</span>More</a>
+  </nav>
+
+  <dialog class="command-dialog" id="command-dialog" aria-labelledby="command-title">
+    <div class="dialog__header">
+      <div>
+        <span class="eyebrow">Quick access</span>
+        <h2 id="command-title">Where do you want to go?</h2>
+      </div>
+      <button class="icon-button" type="button" data-dialog-close aria-label="Close command menu">×</button>
+    </div>
+    <label class="field">
+      <span>Search actions</span>
+      <input type="search" data-command-search placeholder="Type a section or action" autocomplete="off">
+    </label>
+    <div class="command-list" data-command-list>
+      <a href="{{ url_for('core.index') }}"><span>Today</span><small>Open your daily workspace</small></a>
+      <a href="{{ url_for('admin.design_system') }}"><span>Design system</span><small>Review production components</small></a>
+      <button type="button" disabled><span>Movies</span><small>Available in M3</small></button>
+      <button type="button" disabled><span>YouTube</span><small>Available in M4</small></button>
+    </div>
+  </dialog>
+</body>
+</html>

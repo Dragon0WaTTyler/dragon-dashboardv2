@@ -1,0 +1,31 @@
+name: M1 guardrails
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -e ".[dev,production]"
+      - name: Install browser
+        run: python -m playwright install --with-deps chromium
+      - name: Upgrade empty database
+        env:
+          DRAGON_ENV: testing
+          DRAGON_SECRET_KEY: ci-only-secret
+        run: flask --app app:create_app db upgrade
+      - name: Lint
+        run: ruff check .
+      - name: Test
+        run: pytest --cov=app --cov-report=term-missing
+      - name: Scan tracked files
+        run: python scripts/check_tracked_secrets.py

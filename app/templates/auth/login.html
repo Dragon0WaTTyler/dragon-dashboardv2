@@ -1,0 +1,39 @@
+{% extends "layouts/auth.html" %}
+{% block content %}
+<section class="auth-intro" aria-labelledby="login-title">
+  <a class="brand brand--large" href="{{ url_for('auth.login') }}">
+    <span class="brand__mark" aria-hidden="true"><span></span><span></span><span></span></span>
+    <span>Dragon</span>
+  </a>
+  <div>
+    <span class="eyebrow">Private workspace</span>
+    <h1 id="login-title">Welcome back.</h1>
+    <p>Sign in to open your local library, learning, and training workspace.</p>
+  </div>
+  <p class="auth-intro__note">Your workspace stays local. External services run only when you request them.</p>
+</section>
+
+<section class="auth-form-panel" aria-label="Sign in form">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}
+    <div class="notice notice--{{ category }}" role="status">{{ message }}</div>
+    {% endfor %}
+  {% endwith %}
+  <form method="post" novalidate>
+    {{ form.hidden_tag() }}
+    <label class="field">
+      <span>{{ form.username.label.text }}</span>
+      {{ form.username(autofocus=true) }}
+      {% for error in form.username.errors %}<small class="field__error">{{ error }}</small>{% endfor %}
+    </label>
+    <label class="field">
+      <span>{{ form.password.label.text }}</span>
+      {{ form.password() }}
+      {% for error in form.password.errors %}<small class="field__error">{{ error }}</small>{% endfor %}
+    </label>
+    <label class="check-field">{{ form.remember() }}<span>{{ form.remember.label.text }}</span></label>
+    {{ form.submit(class_='button button--primary button--full') }}
+  </form>
+  <p class="form-help">No account yet? Run <code>flask admin create</code> in the DragonV2 environment.</p>
+</section>
+{% endblock %}

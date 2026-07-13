@@ -1,0 +1,49 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, empty_state, notice %}
+{% block title %}Today · Dragon{% endblock %}
+{% block content %}
+<header class="page-header page-header--today">
+  <div>
+    <span class="eyebrow">Foundation ready</span>
+    <h1>Today</h1>
+    <p>Choose one useful next step. Your personal content arrives in later milestones.</p>
+  </div>
+  {{ badge('Local workspace', 'success') }}
+</header>
+
+<section class="focus-strip" aria-label="Workspace status">
+  <div>
+    <span class="focus-strip__index">M1</span>
+    <div>
+      <strong>The foundation is running.</strong>
+      <p>Authentication, local persistence, security guardrails, and the new interface system are active.</p>
+    </div>
+  </div>
+  <a class="button button--secondary" href="{{ url_for('admin.design_system') }}">Review components</a>
+</section>
+
+<div class="today-grid">
+  <section class="today-main" aria-labelledby="next-title">
+    <div class="section-heading">
+      <div>
+        <span class="eyebrow">Next step</span>
+        <h2 id="next-title">Your workspace is intentionally empty</h2>
+      </div>
+    </div>
+    {{ empty_state('No personal data has been added', 'M1 proves the product shell without copying legacy records. Migration inventory begins in M2.') }}
+  </section>
+
+  <aside class="today-aside" aria-labelledby="guardrails-title">
+    <div class="section-heading">
+      <span class="eyebrow">Guardrails</span>
+      <h2 id="guardrails-title">Safe by default</h2>
+    </div>
+    <ul class="check-list">
+      <li><span aria-hidden="true">✓</span>Local database</li>
+      <li><span aria-hidden="true">✓</span>Protected mutations</li>
+      <li><span aria-hidden="true">✓</span>No external calls on GET</li>
+      <li><span aria-hidden="true">✓</span>Feature flags default off</li>
+    </ul>
+  </aside>
+</div>
+{% endblock %}
