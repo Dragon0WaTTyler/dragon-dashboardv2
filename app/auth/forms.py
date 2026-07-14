@@ -11,7 +11,7 @@ class LoginForm(FlaskForm):
     )
     password = PasswordField(
         "Password",
-        validators=[DataRequired(), Length(min=12, max=256)],
+        validators=[DataRequired(), Length(max=256)],
         render_kw={"autocomplete": "current-password"},
     )
     remember = BooleanField("Keep me signed in on this device")

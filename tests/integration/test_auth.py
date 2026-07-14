@@ -49,6 +49,26 @@ def test_invalid_login_has_safe_message(client, admin_user):
     assert b"Username or password is incorrect" in response.data
 
 
+def test_login_accepts_existing_short_password(client, app):
+    with app.app_context():
+        user = User(username="legacy-user", password_hash="")
+        user.set_password("159654")
+        db.session.add(user)
+        db.session.commit()
+
+    page = client.get("/auth/login")
+    response = client.post(
+        "/auth/login",
+        data={
+            "username": "legacy-user",
+            "password": "159654",
+            "csrf_token": csrf_from(page),
+        },
+    )
+    assert response.status_code == 302
+    assert response.headers["Location"] == "/"
+
+
 def test_design_system_is_protected(authenticated_client):
     response = authenticated_client.get("/admin/design-system")
     assert response.status_code == 200
