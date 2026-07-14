@@ -284,3 +284,85 @@ dialog::backdrop {
   background: var(--color-text);
   color: #fff;
 }
+
+.back-link {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  margin-bottom: var(--space-4);
+  color: var(--color-text-muted);
+  text-decoration: none;
+}
+
+.data-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border-block: 1px solid var(--color-border);
+}
+
+.data-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.data-table th {
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.definition-grid,
+.compact-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  margin: 0;
+  border-block: 1px solid var(--color-border);
+}
+
+.definition-grid div,
+.compact-stats div {
+  padding: var(--space-4) var(--space-6) var(--space-4) 0;
+}
+
+.definition-grid dt,
+.compact-stats dt {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+.definition-grid dd,
+.compact-stats dd {
+  margin: var(--space-1) 0 0;
+  font-weight: 600;
+}
+
+.report-section {
+  margin-top: var(--space-10);
+}
+
+.muted {
+  color: var(--color-text-muted);
+}
+
+.operation-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: var(--space-4);
+  align-items: end;
+  padding-block: var(--space-5);
+  border-block: 1px solid var(--color-border);
+}
+
+@media (max-width: 720px) {
+  .operation-form { grid-template-columns: 1fr; }
+}

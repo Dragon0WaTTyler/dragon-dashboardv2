@@ -1,0 +1,37 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, notice %}
+{% block title %}Operation report · Dragon{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('admin.operations') }}">← Operations</a>
+<header class="page-header">
+  <div>
+    <span class="eyebrow">{{ operation.domain|replace('_', ' ') }} · {{ operation.kind|replace('_', ' ') }}</span>
+    <h1>Operation report</h1>
+    <p><code>{{ operation.id }}</code></p>
+  </div>
+  {{ badge(operation.status|replace('_', ' '), 'error' if operation.status == 'failed' else 'success') }}
+</header>
+
+{% if operation.safe_error %}{{ notice('Operation failed', operation.safe_error, 'error') }}{% endif %}
+<dl class="definition-grid">
+  <div><dt>Scope</dt><dd>{{ operation.scope }}</dd></div>
+  <div><dt>Started</dt><dd>{{ operation.started_at or 'Not started' }}</dd></div>
+  <div><dt>Completed</dt><dd>{{ operation.completed_at or 'In progress' }}</dd></div>
+</dl>
+
+<section class="report-section" aria-labelledby="counts-title">
+  <h2 id="counts-title">Counts</h2>
+  {% if operation.counts %}
+  <dl class="compact-stats">
+    {% for label, value in operation.counts.items() %}<div><dt>{{ label|replace('_', ' ') }}</dt><dd>{{ value }}</dd></div>{% endfor %}
+  </dl>
+  {% else %}<p class="muted">No count data was recorded.</p>{% endif %}
+</section>
+
+{% if operation.warnings %}
+<section class="report-section" aria-labelledby="warnings-title">
+  <h2 id="warnings-title">Warnings</h2>
+  <ul>{% for warning in operation.warnings %}<li>{{ warning }}</li>{% endfor %}</ul>
+</section>
+{% endif %}
+{% endblock %}

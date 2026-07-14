@@ -5,6 +5,7 @@ from flask_login import login_required
 from sqlalchemy import text
 
 from app.extensions import db
+from app.today.services import TodayService
 
 bp = Blueprint("core", __name__)
 
@@ -18,4 +19,6 @@ def healthz():
 @bp.get("/")
 @login_required
 def index():
-    return render_template("today.html", active_module="today")
+    return render_template(
+        "today.html", active_module="today", workspace=TodayService.workspace()
+    )

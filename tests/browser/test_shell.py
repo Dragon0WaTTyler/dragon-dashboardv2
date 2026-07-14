@@ -66,3 +66,38 @@ def test_login_and_design_system_semantics(page, live_app):
     page.goto(f"{live_app}/admin/design-system")
     assert page.get_by_role("heading", name="Design system", level=1).count() == 1
     assert page.locator("[style]").count() == 0
+
+
+@pytest.mark.parametrize(
+    ("path", "heading"),
+    [
+        ("/", "Today"),
+        ("/movies", "Movies"),
+        ("/youtube", "YouTube"),
+        ("/reading", "Reading"),
+        ("/books", "Books"),
+        ("/chess", "Chess"),
+        ("/german", "German"),
+        ("/history", "History"),
+        ("/admin", "Admin"),
+        ("/ai/workspace", "Movie Curation"),
+    ],
+)
+def test_primary_pages_mobile_accessibility_and_overflow(page, live_app, path, heading):
+    page.set_viewport_size({"width": 390, "height": 844})
+    sign_in(page, live_app)
+    page.goto(f"{live_app}{path}")
+    assert page.get_by_role("heading", name=heading, level=1).count() == 1
+    assert page.locator("main").count() == 1
+    assert page.locator("[style]").count() == 0
+    metrics = page.evaluate(
+        """() => ({
+          scrollWidth: document.documentElement.scrollWidth,
+          clientWidth: document.documentElement.clientWidth,
+          unlabeled: [...document.querySelectorAll('input:not([type=hidden]), select, textarea')]
+            .filter((element) => !element.closest('label') && !element.getAttribute('aria-label'))
+            .length,
+        })"""
+    )
+    assert metrics["scrollWidth"] == metrics["clientWidth"]
+    assert metrics["unlabeled"] == 0

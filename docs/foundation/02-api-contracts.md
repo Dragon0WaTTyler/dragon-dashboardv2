@@ -1,7 +1,6 @@
-# Initial API v1 contracts
+# API v1 contracts
 
-Status: approved as the M0 contract baseline on 2026-07-14. M1 implements and
-tests the common envelopes and health contract only.
+Status: implemented and contract-tested through M9 on 2026-07-14.
 
 ## Principles
 
@@ -10,8 +9,8 @@ tests the common envelopes and health contract only.
   only. A GET endpoint never refreshes, syncs, extracts, enriches, or mutates.
 - JSON uses `snake_case`, UTF-8, ISO 8601 UTC timestamps with `Z`, stable string
   IDs, and explicit `null` for unavailable optional values.
-- Collection endpoints use offset pagination. Default `limit` is 20; maximum is
-  100. Invalid filters return `400`, not silent coercion.
+- Collection endpoints use offset pagination with a maximum `limit` of 100.
+  Invalid semantic filters return `422`, not silent coercion.
 - Unknown resources return a stable `404` error contract. Missing/malformed local
   data is represented as freshness or availability metadata when the request can
   still succeed.
@@ -126,25 +125,23 @@ Operation status is `queued`, `running`, `completed`,
 | GET | `/books/{book_id}` | Book detail with quote summary |
 | GET | `/articles` | Filtered article collection |
 | GET | `/articles/{article_id}` | Cached article detail |
-| GET | `/youtube/videos` | Videos across a selected source/section/group |
+| GET | `/youtube` | Videos across a selected source/section/group |
+| GET | `/youtube/{video_id}` | Cached video detail |
 | GET | `/youtube/sections` | Watch Later and PocketTube navigation |
-| GET | `/youtube/sections/{section_id}` | Section/group detail |
-| GET | `/chess/home` | Chess dashboard projection |
+| GET | `/articles/{article_id}/fulltext-status` | Read-only extraction/cache status |
+| GET | `/chess` | Chess dashboard projection |
 | GET | `/chess/games` | Imported games |
 | GET | `/chess/games/{game_id}` | Game detail |
-| GET | `/chess/train-today` | Current training recommendation |
-| GET | `/chess/openings` | Opening collection |
-| GET | `/chess/courses` | Course collection |
-| GET | `/chess/progress` | Progress projection |
-| GET | `/playback-progress/{media_type}/{item_id}` | Current local progress |
-| PUT | `/playback-progress/{media_type}/{item_id}` | Idempotent progress update |
+| GET | `/chess/puzzles` | Local puzzle/training queue |
+| GET | `/german` | German learning workspace |
+| GET | `/history` | Unified local progress history |
+| GET | `/playback-progress/movie/{movie_id}` | Current local movie progress |
+| PUT | `/playback-progress/movie/{movie_id}` | Conflict-aware progress update |
 | GET | `/freshness` | All-domain freshness |
 | GET | `/freshness/{domain}` | One-domain freshness |
 | GET | `/operations/{operation_id}` | Status/report for an explicit operation |
 
-The existing legacy aliases `/api/v1/youtube`, `/api/v1/me`, and
-`/api/v1/articles/{id}` can be supported during migration, but the contracts
-above are the canonical surface.
+The contracts above are the canonical surface. Legacy aliases are not exposed.
 
 ## First contract: Home
 

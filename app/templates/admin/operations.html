@@ -1,0 +1,34 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, empty_state %}
+{% block title %}Operations · Dragon{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <span class="eyebrow">Administration</span>
+    <h1>Operations</h1>
+    <p>Refresh, synchronization, repair, and migration reports stored locally.</p>
+  </div>
+  {{ badge(operations|length ~ ' recent', 'neutral') }}
+</header>
+
+{% if operations %}
+<div class="data-table-wrap" tabindex="0" role="region" aria-label="Operation reports">
+  <table class="data-table">
+    <thead><tr><th>Operation</th><th>Domain</th><th>Status</th><th>Created</th><th></th></tr></thead>
+    <tbody>
+      {% for operation in operations %}
+      <tr>
+        <td><strong>{{ operation.kind|replace('_', ' ')|title }}</strong><br><code>{{ operation.id[:8] }}</code></td>
+        <td>{{ operation.domain|replace('_', ' ')|title }}</td>
+        <td><span class="badge badge--{% if operation.status == 'failed' %}error{% elif operation.warnings %}warning{% else %}success{% endif %}">{{ operation.status|replace('_', ' ') }}</span></td>
+        <td>{{ operation.created_at.strftime('%Y-%m-%d %H:%M') }}</td>
+        <td><a class="button button--quiet" href="{{ url_for('admin.operation_detail', operation_id=operation.id) }}">View report</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+{{ empty_state('No operations yet', 'Explicit refresh, sync, repair, and migration actions will appear here.') }}
+{% endif %}
+{% endblock %}

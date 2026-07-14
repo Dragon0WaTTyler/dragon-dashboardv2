@@ -1,7 +1,7 @@
 # Migration safety and implementation milestones
 
-Status: M0 approved on 2026-07-14; M1 authorized and delivered. No personal data
-has been copied.
+Status: M0–M9 delivered on 2026-07-14; the non-destructive M10 dry run is
+complete. No personal data has been copied.
 
 ## Safety invariants
 
@@ -94,28 +94,20 @@ All of `instance/` is ignored except a documented `.gitkeep` if needed.
 - Experimental magnet runtime memory, sessions, analytics, and derived forecasts
   are not imported by default.
 
-## Proposed migration commands
+## Migration commands
 
-Commands are designs for the later implementation, not currently available.
+Inventory and dry-run commands are implemented. Apply and verify remain gated.
 
 ```powershell
 flask --app app:create_app migrate inventory `
   --source "C:\Users\walid\Desktop\FlaskDashboard"
 
 flask --app app:create_app migrate dry-run `
-  --source "C:\Users\walid\Desktop\FlaskDashboard" `
-  --domains movies,books,reading,youtube,chess
-
-flask --app app:create_app migrate apply `
-  --source "C:\Users\walid\Desktop\FlaskDashboard" `
-  --report-id migration_01... `
-  --apply
-
-flask --app app:create_app migrate verify --migration-id migration_01...
+  --source "C:\Users\walid\Desktop\FlaskDashboard"
 ```
 
 The source path is always explicit. There is no command that defaults to scanning
-the user's Desktop.
+the user's Desktop, and there is currently no command that imports records.
 
 ## Validation and reconciliation rules
 

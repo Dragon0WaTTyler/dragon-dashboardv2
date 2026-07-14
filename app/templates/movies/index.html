@@ -1,0 +1,62 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, empty_state %}
+{% block title %}Movies · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <span class="eyebrow">Local library</span>
+    <h1>Movies</h1>
+    <p>Search and shape your watch queue from normalized local data.</p>
+  </div>
+  {{ badge(total ~ ' titles', 'accent') }}
+</header>
+<nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index', status='want_to_watch') }}">Watch next</a><a href="{{ url_for('movies.index', status='watching') }}">Continue watching</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a><a href="{{ url_for('movies.index', status='watched', sort='recently_updated') }}">Recently watched</a></nav>
+
+<form class="filter-bar" method="get" aria-label="Filter movies">
+  <label class="field filter-bar__search"><span>Search</span><input name="q" type="search" value="{{ filters.q }}" placeholder="Title or original title"></label>
+  <label class="field"><span>Status</span><select name="status"><option value="">All</option>{% for value in filter_options.statuses %}<option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ value|replace('_', ' ')|title }}</option>{% endfor %}</select></label>
+  <label class="field"><span>Genre</span><select name="genre"><option value="">All</option>{% for value in filter_options.genres %}<option value="{{ value }}"{% if filters.genre == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+  <label class="field"><span>Sort</span><select name="sort"><option value="recently_updated"{% if filters.sort == 'recently_updated' %} selected{% endif %}>Recently updated</option><option value="title_asc"{% if filters.sort == 'title_asc' %} selected{% endif %}>Title A–Z</option><option value="year_desc"{% if filters.sort == 'year_desc' %} selected{% endif %}>Newest year</option><option value="score_desc"{% if filters.sort == 'score_desc' %} selected{% endif %}>Top rated</option></select></label>
+  <label class="field"><span>View</span><select name="view"><option value="grid"{% if filters.view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if filters.view == 'list' %} selected{% endif %}>Compact list</option></select></label>
+  <details class="filter-more">
+    <summary class="button button--secondary">More filters</summary>
+    <div class="filter-more__panel">
+      <label class="field"><span>Category</span><select name="category"><option value="">All</option>{% for value in filter_options.categories %}<option value="{{ value }}"{% if filters.category == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for value in filter_options.sources %}<option value="{{ value }}"{% if filters.source == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Year from</span><input name="year_min" inputmode="numeric" value="{{ filters.year_min or '' }}"></label>
+      <label class="field"><span>Year to</span><input name="year_max" inputmode="numeric" value="{{ filters.year_max or '' }}"></label>
+      <label class="field"><span>Score from</span><input name="score_min" inputmode="decimal" value="{{ filters.score_min if filters.score_min is not none else '' }}"></label>
+      <label class="field"><span>Score to</span><input name="score_max" inputmode="decimal" value="{{ filters.score_max if filters.score_max is not none else '' }}"></label>
+    </div>
+  </details>
+  <button class="button button--primary" type="submit">Apply</button>
+  <a class="button button--quiet" href="{{ url_for('movies.index') }}">Reset</a>
+</form>
+{% if filter_errors %}<div class="notice notice--error" role="alert">Some filters are invalid. Reset them or enter supported values.</div>{% endif %}
+
+{% if movies %}
+<div class="movie-grid{% if filters.view == 'list' %} movie-grid--list{% endif %}" aria-label="Movie results">
+  {% for movie in movies %}
+  <article class="movie-tile">
+    <a class="movie-tile__poster" href="{{ url_for('movies.detail', movie_id=movie.id) }}">
+      {% if movie.poster_url %}<img src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="300" height="450">{% else %}<span aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+    </a>
+    <div class="movie-tile__body">
+      <h2><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h2>
+      <p>{{ movie.year or 'Year unknown' }}{% if movie.personal_score is not none %} · {{ '%.1f'|format(movie.personal_score) }}/5{% endif %}</p>
+      <div>{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}</div>
+      {% if movie.progress %}<progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>{% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+<nav class="pagination" aria-label="Movie results pages">
+  {% if has_previous %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page-1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Previous</a>{% endif %}
+  <span>Page {{ page }}</span>
+  {% if has_next %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page+1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Next</a>{% endif %}
+</nav>
+{% else %}
+{{ empty_state('No movies match this view', 'Import data later or loosen the current filters. Page rendering remains fully local.') }}
+{% endif %}
+{% endblock %}

@@ -275,6 +275,11 @@
   gap: var(--space-16);
 }
 
+.today-main,
+.today-aside {
+  min-width: 0;
+}
+
 .today-aside {
   padding-left: var(--space-6);
   border-left: 1px solid var(--color-border);

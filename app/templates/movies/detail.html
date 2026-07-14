@@ -1,0 +1,49 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+{% block title %}{{ movie.title }} · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
+<article class="movie-detail">
+  <div class="movie-detail__poster">
+    {% if movie.poster_url %}<img src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630">{% else %}<span aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+  </div>
+  <div class="movie-detail__content">
+    <header>
+      <span class="eyebrow">{{ movie.media_type|title }}{% if movie.year %} · {{ movie.year }}{% endif %}</span>
+      <h1>{{ movie.title }}</h1>
+      {% if movie.original_title and movie.original_title != movie.title %}<p class="muted">{{ movie.original_title }}</p>{% endif %}
+      {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
+    </header>
+    {% if movie.overview %}<p class="movie-detail__overview">{{ movie.overview }}</p>{% endif %}
+    <dl class="definition-grid">
+      <div><dt>Score</dt><dd>{{ '%.1f / 5'|format(movie.personal_score) if movie.personal_score is not none else 'Not rated' }}</dd></div>
+      <div><dt>Runtime</dt><dd>{{ movie.runtime_minutes ~ ' min' if movie.runtime_minutes else 'Unknown' }}</dd></div>
+      <div><dt>Genres</dt><dd>{{ movie.genres|map(attribute='name')|join(', ') if movie.genres else 'Unknown' }}</dd></div>
+      <div><dt>Source</dt><dd>{{ movie.source }}</dd></div>
+    </dl>
+    {% if movie.progress %}<section class="detail-section"><h2>Playback progress</h2><progress class="progress-track" value="{{ movie.progress.percent }}" max="100">{{ movie.progress.percent }}%</progress><p class="muted">{{ movie.progress.percent }}% watched</p></section>{% endif %}
+    <section class="detail-section" aria-labelledby="actions-title">
+      <h2 id="actions-title">Your library</h2>
+      <div class="detail-actions">
+        <form method="post" action="{{ url_for('movies.update_status', movie_id=movie.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="field"><span>Status</span><select name="status"><option value="want_to_watch"{% if movie.status == 'want_to_watch' %} selected{% endif %}>Want to watch</option><option value="watching"{% if movie.status == 'watching' %} selected{% endif %}>Watching</option><option value="finished"{% if movie.status == 'finished' %} selected{% endif %}>Finished</option><option value="watched"{% if movie.status == 'watched' %} selected{% endif %}>Watched</option></select></label>
+          <button class="button button--primary" type="submit">Save status</button>
+        </form>
+        <form method="post" action="{{ url_for('movies.update_score', movie_id=movie.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="field"><span>Personal score (0–5)</span><input name="score" type="number" min="0" max="5" step="0.5" value="{{ movie.personal_score if movie.personal_score is not none else '' }}"></label>
+          <button class="button button--secondary" type="submit">Save score</button>
+        </form>
+      </div>
+    </section>
+    {% if movie.directors or movie.cast %}<section class="detail-section"><h2>Credits</h2>{% if movie.directors %}<p><strong>Directed by</strong> {{ movie.directors|map(attribute='name')|join(', ') }}</p>{% endif %}{% if movie.cast %}<p><strong>Cast</strong> {{ movie.cast|map(attribute='name')|join(', ') }}</p>{% endif %}</section>{% endif %}
+    <div class="detail-actions">
+      {% if movie.trailer_url %}<a class="button button--secondary" href="{{ movie.trailer_url }}" rel="noreferrer">Open trailer</a>{% endif %}
+      <a class="button button--secondary" href="{{ url_for('ai.workspace', mode='film_analysis', context_type='movie', context_id=movie.id) }}">Ask AI</a>
+      {% if feature_flags.playback_enabled %}<a class="button button--secondary" href="{{ url_for('playback.movie', movie_id=movie.id) }}">Playback sources</a>{% endif %}
+    </div>
+  </div>
+</article>
+{% endblock %}

@@ -1,28 +1,27 @@
 # DragonV2
 
-DragonV2 is a private, local-first personal workspace for media, reading,
-learning, training, history, and optional contextual AI.
+Dragon is a private, local-first personal workspace for movies, YouTube,
+reading, books, chess, German learning, history, optional AI, and protected
+administration. It is a new Flask application with a light editorial interface;
+it does not reuse the legacy Cinema Prive frontend or monolithic architecture.
 
-## Current status
+## Release status
 
-M0 is approved and M1 (production skeleton and guardrails) is complete. This is
-a new Flask application, not a refactor of the legacy monolith. The legacy
-project at `C:\Users\walid\Desktop\FlaskDashboard` remains read-only, and no
-personal data or secrets have been copied into this repository.
+The M1–M9 application surface and the non-destructive part of M10 are complete.
+The application includes normalized local persistence, atomic snapshots,
+freshness and operation reports, versioned APIs, responsive primary pages, and
+disabled-by-default integration/playback boundaries.
 
-The implemented surface is intentionally small: authentication, the protected
-application shell, a protected production-component gallery, and health checks.
-Feature domains, data migration, snapshots, external integrations, dark mode,
-and API tokens remain deferred to later approved milestones.
+The legacy project at `C:\Users\walid\Desktop\FlaskDashboard` remains read-only.
+A schema-only dry run completed successfully, but **no personal records were
+imported**. Dragon deliberately has no `migrate apply` command until a reviewed
+importer/reconciliation report and explicit user approval exist.
 
-## Requirements
+## Requirements and setup
 
-- Python 3.13 (the supported baseline is `>=3.13,<3.14`)
+- Python 3.13 (`>=3.13,<3.14`)
 - Git
-- A local Chromium-based browser for browser smoke tests, or Playwright's
-  bundled Chromium
-
-## Local setup
+- A Chromium-based browser for browser tests
 
 From PowerShell:
 
@@ -36,53 +35,100 @@ flask --app app:create_app admin create
 flask --app app:create_app run
 ```
 
-The admin command prompts interactively for a username and a password of at
-least 12 characters. There is no default account or environment-based
-credential bootstrap. Only a Werkzeug scrypt password hash is stored in the
-ignored local SQLite database under `instance/`.
-
-To rotate the password later:
+The administrator command prompts for a username and a password of at least 12
+characters. There are no default credentials. To rotate the password:
 
 ```powershell
 flask --app app:create_app admin set-password
 ```
 
-## Routes delivered in M1
+## Product surface
 
-- `GET /healthz` — minimal deployment liveness response
-- `GET /api/v1/health` — versioned JSON envelope with a request ID
-- `GET|POST /auth/login` — local administrator login
-- `POST /auth/logout` — authenticated, CSRF-protected logout
-- `GET /` — protected Today shell
-- `GET /admin/design-system` — protected production component gallery
+- **Today** — continue watching/reading, a local movie recommendation, latest
+  Watch Later videos, current book, chess queue, and freshness warnings.
+- **Movies** — search, filters, sorting, pagination, grid/list views, details,
+  status, score, and conflict-aware playback progress.
+- **YouTube** — separate Watch Later and PocketTube projections, groups,
+  shuffle modes, details, related cached videos, watched/removal history.
+- **Reading** — source health, article list/detail, progress, read-only
+  extraction status, and explicit adapter-backed full-text extraction.
+- **Books** — library/details, progress, linked quotes, and local metadata state.
+- **Chess** — imported games, puzzle attempts/review state, courses, and APIs.
+- **German** — extensible resources, lesson progress, and vocabulary review.
+- **History** — a local unified progress timeline with no external analytics.
+- **AI** — lazy contextual workspaces that stay disabled without configuration.
+- **Admin** — protected explicit refresh/sync/repair/diagnostic actions,
+  freshness, source health, snapshot inspection, and operation reports.
+- **Playback** — an isolated, optional local-source/magnet review registry. It
+  never launches a player or torrent client automatically.
 
-Future feature links are visible as disabled placeholders; they are not partial
-implementations.
+Normal page GET requests use the local database/snapshots and make no external
+calls. External-facing operations are explicit, CSRF-protected, feature-gated,
+and return a report when no provider adapter is configured.
 
-## Configuration
+## API
 
-Copy `.env.example` to an ignored `.env` only when local overrides are needed.
-Development creates an ignored local secret key. Production fails fast unless
-`DRAGON_SECRET_KEY` is supplied. All integration and mutation-related feature
-flags default to off.
+The protected `/api/v1` surface provides consistent item or paginated envelopes
+for home, movies, playback progress, YouTube/sections, articles, books, chess,
+German, history, freshness, operations, and health.
+
+Collection envelopes contain `ok`, `api_version`, `items`, `count`, `total`,
+`limit`, `offset`, `has_more`, and `next_offset`. Mutations require the current
+authenticated session and CSRF token; a future native-client token scheme can be
+added without changing these resource contracts.
+
+## Configuration and safety
+
+Copy `.env.example` to an ignored `.env` only for local overrides. Development
+creates an ignored instance secret; production fails fast without
+`DRAGON_SECRET_KEY`. These flags default to off:
+
+- `DRAGON_AI_ENABLED`
+- `DRAGON_PLAYBACK_ENABLED`
+- `DRAGON_MAGNETS_ENABLED`
+- `DRAGON_EXTERNAL_SYNC_ENABLED`
+- `DRAGON_NOTION_WRITEBACK_ENABLED`
+- `DRAGON_YOUTUBE_DELETE_ENABLED`
+- `DRAGON_READING_TTS_ENABLED`
+
+Runtime databases, snapshots, reports, OAuth files, secrets, caches, and
+personal exports are ignored by Git.
+
+## Safe migration inventory
+
+The available commands inspect schemas and write reports only under ignored
+Dragon instance storage:
+
+```powershell
+flask --app app:create_app migrate inventory `
+  --source "C:\Users\walid\Desktop\FlaskDashboard"
+
+flask --app app:create_app migrate dry-run `
+  --source "C:\Users\walid\Desktop\FlaskDashboard"
+```
+
+Sensitive files are classified without hashing or parsing their contents. These
+commands never write to the source and import zero records.
 
 ## Verification
 
 ```powershell
 ruff check .
 pytest -q
+pytest -q --cov=app --cov-report=term-missing
 flask --app app:create_app db upgrade
 python scripts/check_tracked_secrets.py
 ```
 
-Browser smoke tests cover desktop and a 390 px mobile viewport. CI repeats
-Ruff, pytest, a migration upgrade from an empty database, and the tracked-file
-secret scan.
+The current release gate is recorded in
+[`docs/milestones/M10.md`](docs/milestones/M10.md).
 
 ## Documentation
 
 - [Legacy audit and target architecture](docs/foundation/00-audit-and-architecture.md)
 - [Product UX, design system, and wireframes](docs/foundation/01-ux-and-wireframes.md)
-- [Initial API v1 contracts](docs/foundation/02-api-contracts.md)
-- [Migration safety and implementation milestones](docs/foundation/03-migration-and-milestones.md)
+- [API v1 contracts](docs/foundation/02-api-contracts.md)
+- [Migration safety and milestones](docs/foundation/03-migration-and-milestones.md)
 - [M1 delivery record](docs/milestones/M1.md)
+- [M2–M9 delivery record](docs/milestones/M2-M9.md)
+- [M10 release report](docs/milestones/M10.md)

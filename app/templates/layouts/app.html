@@ -43,11 +43,11 @@
     </div>
     <nav class="module-nav" aria-label="Primary navigation">
       <a href="{{ url_for('core.index') }}"{% if active_module == 'today' %} aria-current="page"{% endif %}>Today</a>
-      <span aria-disabled="true">Movies</span>
-      <span aria-disabled="true">YouTube</span>
-      <span aria-disabled="true">Reading</span>
-      <span aria-disabled="true">Books</span>
-      <span aria-disabled="true">Chess</span>
+      <a href="{{ url_for('movies.index') }}"{% if active_module == 'movies' %} aria-current="page"{% endif %}>Movies</a>
+      <a href="{{ url_for('youtube.index') }}"{% if active_module == 'youtube' %} aria-current="page"{% endif %}>YouTube</a>
+      <a href="{{ url_for('reading.index') }}"{% if active_module == 'reading' %} aria-current="page"{% endif %}>Reading</a>
+      <a href="{{ url_for('books.index') }}"{% if active_module == 'books' %} aria-current="page"{% endif %}>Books</a>
+      <a href="{{ url_for('chess.index') }}"{% if active_module == 'chess' %} aria-current="page"{% endif %}>Chess</a>
       <a href="{{ url_for('admin.design_system') }}"{% if active_module == 'more' %} aria-current="page"{% endif %}>More</a>
     </nav>
   </header>
@@ -68,9 +68,9 @@
 
   <nav class="mobile-nav" aria-label="Mobile navigation">
     <a href="{{ url_for('core.index') }}"{% if active_module == 'today' %} aria-current="page"{% endif %}><span aria-hidden="true">○</span>Today</a>
-    <span aria-disabled="true"><span aria-hidden="true">□</span>Movies</span>
-    <span aria-disabled="true"><span aria-hidden="true">▷</span>YouTube</span>
-    <span aria-disabled="true"><span aria-hidden="true">≡</span>Reading</span>
+    <a href="{{ url_for('movies.index') }}"{% if active_module == 'movies' %} aria-current="page"{% endif %}><span aria-hidden="true">□</span>Movies</a>
+    <a href="{{ url_for('youtube.index') }}"{% if active_module == 'youtube' %} aria-current="page"{% endif %}><span aria-hidden="true">▷</span>YouTube</a>
+    <a href="{{ url_for('reading.index') }}"{% if active_module == 'reading' %} aria-current="page"{% endif %}><span aria-hidden="true">≡</span>Reading</a>
     <a href="{{ url_for('admin.design_system') }}"{% if active_module == 'more' %} aria-current="page"{% endif %}><span aria-hidden="true">•••</span>More</a>
   </nav>
 
@@ -88,9 +88,16 @@
     </label>
     <div class="command-list" data-command-list>
       <a href="{{ url_for('core.index') }}"><span>Today</span><small>Open your daily workspace</small></a>
+      <a href="{{ url_for('movies.index') }}"><span>Movies</span><small>Search your local library</small></a>
+      <a href="{{ url_for('youtube.index') }}"><span>YouTube</span><small>Watch Later and PocketTube</small></a>
+      <a href="{{ url_for('reading.index') }}"><span>Reading</span><small>Articles and source health</small></a>
+      <a href="{{ url_for('books.index') }}"><span>Books</span><small>Reading progress and quotes</small></a>
+      <a href="{{ url_for('chess.index') }}"><span>Chess</span><small>Games, puzzles, and courses</small></a>
+      <a href="{{ url_for('german.index') }}"><span>German</span><small>Resources and vocabulary</small></a>
+      <a href="{{ url_for('history.index') }}"><span>History</span><small>Your local progress timeline</small></a>
+      <a href="{{ url_for('ai.workspace') }}"><span>AI workspaces</span><small>Optional contextual assistance</small></a>
+      <a href="{{ url_for('admin.index') }}"><span>Admin</span><small>Refresh, health, and reports</small></a>
       <a href="{{ url_for('admin.design_system') }}"><span>Design system</span><small>Review production components</small></a>
-      <button type="button" disabled><span>Movies</span><small>Available in M3</small></button>
-      <button type="button" disabled><span>YouTube</span><small>Available in M4</small></button>
     </div>
   </dialog>
 </body>
