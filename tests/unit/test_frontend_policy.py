@@ -15,3 +15,13 @@ def test_frontend_has_no_inline_styles_scripts_or_important_rules():
         content = path.read_text(encoding="utf-8")
         assert "!important" not in content, path
         assert "http://" not in content and "https://" not in content, path
+
+
+def test_library_uses_logical_rtl_styles_and_global_auto_direction():
+    library_css = (ROOT / "app" / "static" / "css" / "pages" / "library.css").read_text(
+        encoding="utf-8"
+    )
+    core_js = (ROOT / "app" / "static" / "js" / "core.js").read_text(encoding="utf-8")
+
+    assert "border-inline-start" in library_css
+    assert 'setAttribute("dir", "auto")' in core_js

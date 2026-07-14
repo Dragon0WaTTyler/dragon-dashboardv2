@@ -1,6 +1,12 @@
 (() => {
   window.requestAnimationFrame(() => document.body.classList.add("is-ready"));
 
+  document.querySelectorAll(
+    "main h1, main h2, main h3, main p, main blockquote, main dd, main td, main li"
+  ).forEach((element) => {
+    if (!element.hasAttribute("dir")) element.setAttribute("dir", "auto");
+  });
+
   document.addEventListener(
     "error",
     (event) => {

@@ -2,6 +2,10 @@ import re
 
 import pytest
 
+from app.books.models import Book
+from app.extensions import db
+from app.reading.models import Article, ReadingSource
+
 pytestmark = pytest.mark.browser
 
 
@@ -66,6 +70,49 @@ def test_login_and_design_system_semantics(page, live_app):
     page.goto(f"{live_app}/admin/design-system")
     assert page.get_by_role("heading", name="Design system", level=1).count() == 1
     assert page.locator("[style]").count() == 0
+
+
+def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
+    image = (
+        "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
+        "width='40' height='60'%3E%3Crect width='40' height='60' fill='%23b51f32'/%3E%3C/svg%3E"
+    )
+    with app.app_context():
+        source = ReadingSource(name="مجلة", feed_url="https://example.test/feed")
+        db.session.add_all(
+            [
+                Book(
+                    title="كتاب عربي",
+                    normalized_title="كتاب عربي",
+                    authors=["كاتب"],
+                    cover_url=image,
+                ),
+                Article(
+                    source=source,
+                    title="مقال عربي",
+                    url="https://example.test/article",
+                    image_url=image,
+                ),
+            ]
+        )
+        db.session.commit()
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/books")
+    display = page.locator(".book-grid").evaluate(
+        "element => getComputedStyle(element).display"
+    )
+    assert display == "grid"
+    assert page.locator(".book-cover img").is_visible()
+    assert page.locator(".book-card h2").evaluate(
+        "element => getComputedStyle(element).direction"
+    ) == "rtl"
+
+    page.goto(f"{live_app}/reading")
+    assert page.locator(".article-card__image img").is_visible()
+    assert page.locator(".article-card h2").evaluate(
+        "element => getComputedStyle(element).direction"
+    ) == "rtl"
 
 
 @pytest.mark.parametrize(

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.extensions import db
@@ -15,10 +15,11 @@ class YouTubeVideo(db.Model):
     __table_args__ = (
         Index("ix_youtube_source_position", "source", "position"),
         Index("ix_youtube_group_channel", "group_name", "channel_title"),
+        UniqueConstraint("source", "external_id", name="uq_youtube_source_external_id"),
     )
 
     id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("ytv"))
-    external_id: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    external_id: Mapped[str] = mapped_column(String(80), nullable=False)
     playlist_item_id: Mapped[str] = mapped_column(String(100), default="", nullable=False)
     source: Mapped[str] = mapped_column(String(30), nullable=False, index=True)
     group_name: Mapped[str] = mapped_column(String(160), default="", nullable=False)

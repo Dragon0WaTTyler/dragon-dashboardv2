@@ -34,6 +34,13 @@ def _local_secret(instance_path: Path) -> str:
     return value
 
 
+def _private_setting(instance_path: Path, name: str) -> str:
+    path = instance_path / "secrets" / name
+    if not path.exists():
+        return ""
+    return path.read_text(encoding="utf-8").strip()
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     environment: str
@@ -46,6 +53,9 @@ class Settings:
     external_sync_enabled: bool
     notion_writeback_enabled: bool
     youtube_delete_enabled: bool
+    youtube_sync_enabled: bool
+    youtube_api_key: str
+    youtube_watch_later_playlist_id: str
     reading_tts_enabled: bool
 
     @classmethod
@@ -69,7 +79,8 @@ class Settings:
                 raise RuntimeError("DRAGON_SECRET_KEY is required in production.")
             secret_key = "dragon-test-secret" if is_testing else _local_secret(Path(instance_path))
 
-        default_db_path = Path(instance_path) / "dragon.sqlite3"
+        instance_root = Path(instance_path)
+        default_db_path = instance_root / "dragon.sqlite3"
         database_url = str(
             override_map.get("SQLALCHEMY_DATABASE_URI")
             or override_map.get("DATABASE_URL")
@@ -85,6 +96,20 @@ class Settings:
                 value = os.getenv(f"DRAGON_{name}")
             return parse_bool(value, default=default)
 
+        youtube_api_key = str(
+            override_map.get("YOUTUBE_API_KEY")
+            or override_map.get("DRAGON_YOUTUBE_API_KEY")
+            or os.getenv("DRAGON_YOUTUBE_API_KEY", "")
+            or os.getenv("YOUTUBE_API_KEY", "")
+            or _private_setting(instance_root, "youtube_api_key")
+        ).strip()
+        youtube_watch_later_playlist_id = str(
+            override_map.get("YOUTUBE_WATCH_LATER_PLAYLIST_ID")
+            or override_map.get("DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID")
+            or os.getenv("DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID", "")
+            or _private_setting(instance_root, "youtube_watch_later_playlist_id")
+        ).strip()
+
         return cls(
             environment=environment,
             secret_key=secret_key,
@@ -96,6 +121,12 @@ class Settings:
             external_sync_enabled=feature("EXTERNAL_SYNC_ENABLED", False),
             notion_writeback_enabled=feature("NOTION_WRITEBACK_ENABLED", False),
             youtube_delete_enabled=feature("YOUTUBE_DELETE_ENABLED", False),
+            youtube_sync_enabled=feature(
+                "YOUTUBE_SYNC_ENABLED",
+                bool(youtube_api_key and youtube_watch_later_playlist_id),
+            ),
+            youtube_api_key=youtube_api_key,
+            youtube_watch_later_playlist_id=youtube_watch_later_playlist_id,
             reading_tts_enabled=feature("READING_TTS_ENABLED", False),
         )
 
@@ -119,13 +150,21 @@ class Settings:
             "DRAGON_EXTERNAL_SYNC_ENABLED": self.external_sync_enabled,
             "DRAGON_NOTION_WRITEBACK_ENABLED": self.notion_writeback_enabled,
             "DRAGON_YOUTUBE_DELETE_ENABLED": self.youtube_delete_enabled,
+            "DRAGON_YOUTUBE_SYNC_ENABLED": self.youtube_sync_enabled,
+            "DRAGON_YOUTUBE_API_KEY": self.youtube_api_key,
+            "DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID": self.youtube_watch_later_playlist_id,
             "DRAGON_READING_TTS_ENABLED": self.reading_tts_enabled,
         }
         mapping.update(overrides or {})
         return mapping
 
     def safe_summary(self) -> dict[str, Any]:
-        hidden = {"secret_key", "database_url"}
+        hidden = {
+            "secret_key",
+            "database_url",
+            "youtube_api_key",
+            "youtube_watch_later_playlist_id",
+        }
         return {
             field.name: getattr(self, field.name)
             for field in fields(self)

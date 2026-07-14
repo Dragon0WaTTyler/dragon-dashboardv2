@@ -22,6 +22,11 @@ body {
   text-rendering: optimizeLegibility;
 }
 
+[dir="auto"], [dir="rtl"] {
+  text-align: start;
+  unicode-bidi: plaintext;
+}
+
 button,
 input,
 select,

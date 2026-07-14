@@ -14,6 +14,9 @@ bp = Blueprint("books", __name__, url_prefix="/books")
 def index():
     q = str(request.args.get("q") or "")
     status = str(request.args.get("status") or "")
+    view = str(request.args.get("view") or "grid")
+    if view not in {"grid", "list"}:
+        view = "grid"
     books = BookRepository.list(q=q, status=status)
     return render_template(
         "books/index.html",
@@ -21,6 +24,7 @@ def index():
         books=[book_item(book) for book in books],
         q=q,
         status=status,
+        view=view,
     )
 
 

@@ -48,11 +48,13 @@ flask --app app:create_app admin set-password
   Watch Later videos, current book, chess queue, and freshness warnings.
 - **Movies** — search, filters, sorting, pagination, grid/list views, details,
   status, score, and conflict-aware playback progress.
-- **YouTube** — separate Watch Later and PocketTube projections, groups,
-  shuffle modes, details, related cached videos, watched/removal history.
-- **Reading** — source health, article list/detail, progress, read-only
+- **YouTube** — separate Watch Later and PocketTube projections, paginated
+  playlists, thumbnails, explicit public-playlist sync, shuffle modes, details,
+  related cached videos, and watched/removal history.
+- **Reading** — source health, thumbnail-backed article list/detail, progress, read-only
   extraction status, and explicit adapter-backed full-text extraction.
-- **Books** — library/details, progress, linked quotes, and local metadata state.
+- **Books** — responsive grid/list library, details, progress, linked quotes,
+  and local metadata state.
 - **Chess** — imported games, puzzle attempts/review state, courses, and APIs.
 - **German** — extensible resources, lesson progress, and vocabulary review.
 - **History** — a local unified progress timeline with no external analytics.
@@ -89,7 +91,13 @@ creates an ignored instance secret; production fails fast without
 - `DRAGON_EXTERNAL_SYNC_ENABLED`
 - `DRAGON_NOTION_WRITEBACK_ENABLED`
 - `DRAGON_YOUTUBE_DELETE_ENABLED`
+- `DRAGON_YOUTUBE_SYNC_ENABLED`
 - `DRAGON_READING_TTS_ENABLED`
+
+Public YouTube playlist synchronization also requires
+`DRAGON_YOUTUBE_API_KEY` and `DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID`. It runs
+only from the protected Admin operation; normal YouTube page requests remain
+local-only.
 
 Runtime databases, snapshots, reports, OAuth files, secrets, caches, and
 personal exports are ignored by Git.
@@ -121,7 +129,7 @@ flask --app app:create_app migrate apply `
 The apply step is idempotent. It maps supported movie, PocketTube, reading, books,
 quotes, chess, and learning records into SQLAlchemy models; archives unsupported raw datasets under
 `instance/legacy-import`; merges environment entries into the ignored local `.env`;
-and copies OAuth files into `instance/secrets`. Its safe, value-free report is written
+and copies OAuth/YouTube configuration into `instance/secrets`. Its safe, value-free report is written
 to `instance/migration/legacy-import-report.json`.
 
 ## Verification

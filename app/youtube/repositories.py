@@ -12,6 +12,15 @@ class YouTubeRepository:
         return db.session.get(YouTubeVideo, video_id)
 
     @staticmethod
+    def get_by_source_external_id(source: str, external_id: str) -> YouTubeVideo | None:
+        return db.session.scalar(
+            db.select(YouTubeVideo).where(
+                YouTubeVideo.source == source,
+                YouTubeVideo.external_id == external_id,
+            )
+        )
+
+    @staticmethod
     def list(
         *, source: str, group: str = "", q: str = "", limit: int = 50, offset: int = 0
     ) -> tuple[list[YouTubeVideo], int]:

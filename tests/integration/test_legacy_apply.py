@@ -22,6 +22,10 @@ def test_legacy_apply_imports_supported_records_and_keeps_secrets_local(app, tmp
     target.mkdir()
     (source / ".env").write_text("TMDB_API_KEY=private-test-value\n", encoding="utf-8")
     (source / "client_secret.json").write_text('{"web":{"client_id":"private"}}')
+    (source / "check_playlist.py").write_text(
+        'API_KEY = "private-youtube-key"\nPLAYLIST_ID = "PL-test-playlist-123"\n',
+        encoding="utf-8",
+    )
     _write_json(
         source / "cache_data.json",
         {
@@ -154,9 +158,14 @@ def test_legacy_apply_imports_supported_records_and_keeps_secrets_local(app, tmp
     assert "private-test-value" in (target / ".env").read_text(encoding="utf-8")
     assert (target / "instance" / "secrets" / "client_secret.json").exists()
     assert (
+        target / "instance" / "secrets" / "youtube_watch_later_playlist_id"
+    ).read_text(encoding="utf-8") == "PL-test-playlist-123"
+    assert (target / "instance" / "secrets" / "youtube_api_key").exists()
+    assert (
         target / "instance" / "legacy-import" / "raw" / "cache" / "books_snapshot.json"
     ).exists()
     assert "private-test-value" not in json.dumps(first)
+    assert "private-youtube-key" not in json.dumps(first)
     assert before == {
         path.relative_to(source).as_posix(): path.read_bytes()
         for path in source.rglob("*")

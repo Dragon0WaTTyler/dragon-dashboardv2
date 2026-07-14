@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import shutil
 import sqlite3
 from collections import Counter
@@ -40,6 +41,9 @@ RAW_FILES = (
     "domains/youtube/data/pockettube_registry.json",
 )
 SECRET_FILES = ("client_secret.json", "youtube_token.json")
+LEGACY_YOUTUBE_SETTING = re.compile(
+    r"(?m)^\s*(API_KEY|PLAYLIST_ID)\s*=\s*['\"]([^'\"]+)['\"]\s*(?:#.*)?$"
+)
 
 
 def _json(path: Path, default: Any) -> Any:
@@ -222,6 +226,22 @@ def _copy_private_files(source: Path, project_root: Path) -> Counter[str]:
         if source_path.exists():
             shutil.copy2(source_path, secret_root / name)
             counts["secret_files_copied"] += 1
+    legacy_playlist_script = source / "check_playlist.py"
+    if legacy_playlist_script.exists():
+        values = {
+            name: value.strip()
+            for name, value in LEGACY_YOUTUBE_SETTING.findall(
+                legacy_playlist_script.read_text(encoding="utf-8-sig")
+            )
+        }
+        for source_name, target_name in (
+            ("API_KEY", "youtube_api_key"),
+            ("PLAYLIST_ID", "youtube_watch_later_playlist_id"),
+        ):
+            value = values.get(source_name, "")
+            if value:
+                (secret_root / target_name).write_text(value, encoding="utf-8")
+                counts["youtube_settings_copied"] += 1
     counts["environment_keys_migrated"] = _merge_dotenv(source / ".env", project_root / ".env")
     return counts
 
@@ -489,7 +509,10 @@ def _import_pockettube(source: Path, counts: Counter[str]) -> None:
                 continue
             seen.add(external_id)
             item = db.session.scalar(
-                select(YouTubeVideo).where(YouTubeVideo.external_id == external_id)
+                select(YouTubeVideo).where(
+                    YouTubeVideo.source == "pockettube",
+                    YouTubeVideo.external_id == external_id,
+                )
             )
             created = item is None
             if item is None:

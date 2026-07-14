@@ -77,3 +77,48 @@ def test_explicit_fulltext_extraction_uses_injected_adapter(app):
         assert article.content_text == "Full local article text."
         assert article.fulltext_state == "cached"
         assert article.status == "reading"
+
+
+def test_watch_later_sync_keeps_pockettube_membership_separate(app):
+    class Client:
+        def fetch_playlist(self, playlist_id, *, maximum):
+            assert playlist_id == "PL-test-playlist-123"
+            assert maximum == 5000
+            return [
+                {
+                    "id": "playlist-item-1",
+                    "snippet": {
+                        "title": "درس عربي",
+                        "description": "وصف",
+                        "position": 0,
+                        "resourceId": {"videoId": "shared-video"},
+                        "videoOwnerChannelTitle": "Channel",
+                        "thumbnails": {
+                            "high": {"url": "https://images.example.test/video.jpg"}
+                        },
+                    },
+                }
+            ]
+
+    with app.app_context():
+        db.session.add(
+            YouTubeVideo(
+                external_id="shared-video",
+                source="pockettube",
+                group_name="Learning",
+                title="PocketTube copy",
+            )
+        )
+        db.session.commit()
+
+        counts = YouTubeService.sync_watch_later(Client(), "PL-test-playlist-123")
+        rows = list(
+            db.session.scalars(
+                db.select(YouTubeVideo).where(YouTubeVideo.external_id == "shared-video")
+            )
+        )
+
+        assert counts == {"created": 1, "updated": 0, "removed": 0, "videos": 1}
+        assert {row.source for row in rows} == {"pockettube", "watch_later"}
+        watch_later = next(row for row in rows if row.source == "watch_later")
+        assert watch_later.thumbnail_url == "https://images.example.test/video.jpg"

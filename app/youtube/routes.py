@@ -9,6 +9,13 @@ from app.youtube.services import ORDERS, SOURCES, YouTubeService, video_detail
 bp = Blueprint("youtube", __name__, url_prefix="/youtube")
 
 
+def _positive_int(value: str | None, default: int, maximum: int) -> int:
+    try:
+        return max(1, min(int(value or default), maximum))
+    except (TypeError, ValueError):
+        return default
+
+
 @bp.get("")
 @login_required
 def index():
@@ -16,6 +23,8 @@ def index():
     group = str(request.args.get("group") or "")
     q = str(request.args.get("q") or "")
     order = str(request.args.get("order") or "normal")
+    page = _positive_int(request.args.get("page"), 1, 100000)
+    per_page = _positive_int(request.args.get("per_page"), 50, 100)
     errors = {}
     if source not in SOURCES:
         errors["source"] = "Unknown source."
@@ -23,7 +32,15 @@ def index():
     if order not in ORDERS:
         errors["order"] = "Unknown order."
         order = "normal"
-    feed = YouTubeService.feed(source=source, group=group, q=q, order=order)
+    offset = (page - 1) * per_page
+    feed = YouTubeService.feed(
+        source=source,
+        group=group,
+        q=q,
+        order=order,
+        limit=per_page,
+        offset=offset,
+    )
     return render_template(
         "youtube/index.html",
         active_module="youtube",
@@ -34,6 +51,10 @@ def index():
         order=order,
         groups=YouTubeRepository.groups(),
         errors=errors,
+        page=page,
+        per_page=per_page,
+        has_previous=page > 1,
+        has_next=offset + len(feed["items"]) < feed["total"],
     )
 
 
