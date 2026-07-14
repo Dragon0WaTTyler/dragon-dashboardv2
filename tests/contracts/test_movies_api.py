@@ -9,7 +9,14 @@ def add_movie(app) -> str:
             title="Perfect Days",
             normalized_title="perfect days",
             year=2023,
+            runtime_minutes=124,
             status="want_to_watch",
+            category="movie",
+            source="My library",
+            overview="A Tokyo cleaner finds beauty in his precise daily rituals.",
+            poster_url="https://example.test/perfect-days.jpg",
+            genres=[{"name": "Drama"}],
+            directors=[{"name": "Wim Wenders"}],
         )
         db.session.add(movie)
         db.session.commit()
@@ -30,6 +37,18 @@ def test_movie_collection_contract(authenticated_client, app):
     home = authenticated_client.get("/api/v1/home").get_json()["item"]
     assert home["continue_watching"] == []
     assert isinstance(home["freshness_warnings"], list)
+
+
+def test_movie_recommendation_contract(authenticated_client, app):
+    movie_id = add_movie(app)
+    response = authenticated_client.get("/api/v1/movies/recommendations")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["api_version"] == "v1"
+    assert payload["item"]["summary"]["eligible"] == 1
+    assert payload["item"]["items"][0]["id"] == movie_id
+    assert payload["item"]["items"][0]["recommendation_reason"]
 
 
 def test_playback_progress_contract_and_conflict(authenticated_client, app):

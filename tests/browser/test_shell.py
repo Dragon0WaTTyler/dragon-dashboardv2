@@ -4,6 +4,7 @@ import pytest
 
 from app.books.models import Book
 from app.extensions import db
+from app.movies.models import Movie
 from app.reading.models import Article, ReadingSource
 
 pytestmark = pytest.mark.browser
@@ -113,6 +114,76 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
     assert page.locator(".article-card h2").evaluate(
         "element => getComputedStyle(element).direction"
     ) == "rtl"
+
+
+def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app):
+    with app.app_context():
+        db.session.add_all(
+            [
+                Movie(
+                    title="In the Mood for Love",
+                    normalized_title="in the mood for love",
+                    status="finished",
+                    personal_score=8,
+                    category="movie",
+                    source="My library",
+                    directors=[{"name": "Wong Kar-wai"}],
+                    genres=[{"name": "Drama"}],
+                ),
+                Movie(
+                    title="Chungking Express",
+                    normalized_title="chungking express",
+                    year=1994,
+                    runtime_minutes=102,
+                    status="want_to_watch",
+                    category="movie",
+                    source="My library",
+                    overview="Two stories of love and chance in Hong Kong.",
+                    poster_url="https://example.test/chungking.jpg",
+                    directors=[{"name": "Wong Kar-wai"}],
+                    genres=[{"name": "Drama"}],
+                ),
+                Movie(
+                    title="Happy Together",
+                    normalized_title="happy together",
+                    year=1997,
+                    runtime_minutes=96,
+                    status="want_to_watch",
+                    category="movie",
+                    source="My library",
+                    overview="A relationship shifts during a journey to Argentina.",
+                    poster_url="https://example.test/happy-together.jpg",
+                    directors=[{"name": "Wong Kar-wai"}],
+                    genres=[{"name": "Drama"}],
+                ),
+            ]
+        )
+        db.session.commit()
+
+    page.set_viewport_size({"width": 1440, "height": 900})
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies")
+    page.locator(".filter-more summary").click()
+    layout = page.evaluate(
+        """() => {
+          const panel = document.querySelector('.filter-more__panel');
+          const results = document.querySelector('.movie-grid');
+          return {
+            position: getComputedStyle(panel).position,
+            panelBottom: panel.getBoundingClientRect().bottom,
+            resultsTop: results.getBoundingClientRect().top,
+          };
+        }"""
+    )
+    assert layout["position"] == "static"
+    assert layout["panelBottom"] <= layout["resultsTop"]
+
+    page.get_by_role("button", name="What should I watch?").click()
+    recommendation = page.locator("[data-recommendation-card]")
+    recommendation.wait_for(state="visible")
+    first_title = recommendation.locator("h2").inner_text()
+    page.get_by_role("button", name="Try another").click()
+    assert recommendation.locator("h2").inner_text() != first_title
 
 
 @pytest.mark.parametrize(

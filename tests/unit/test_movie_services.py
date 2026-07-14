@@ -61,3 +61,47 @@ def test_status_and_score_validation(app):
         assert movie.personal_score == 4.5
         with pytest.raises(ValueError):
             MovieService.set_score(movie, 7)
+
+
+def test_recommendation_pool_uses_profile_and_excludes_watched(app):
+    with app.app_context():
+        liked = Movie(
+            title="In the Mood for Love",
+            normalized_title="in the mood for love",
+            status="finished",
+            personal_score=8,
+            category="movie",
+            source="My library",
+            directors=[{"name": "Wong Kar-wai"}],
+            genres=[{"name": "Drama"}],
+        )
+        candidate = Movie(
+            title="Chungking Express",
+            normalized_title="chungking express",
+            year=1994,
+            runtime_minutes=102,
+            status="want_to_watch",
+            category="movie",
+            source="My library",
+            overview="Two stories of love and chance in Hong Kong.",
+            poster_url="https://example.test/chungking.jpg",
+            directors=[{"name": "Wong Kar-wai"}],
+            genres=[{"name": "Drama"}],
+        )
+        watched = Movie(
+            title="Fallen Angels",
+            normalized_title="fallen angels",
+            status="watched",
+            category="movie",
+            source="My library",
+        )
+        db.session.add_all([liked, candidate, watched])
+        db.session.commit()
+
+        result = MovieService.recommendation_pool()
+
+        assert [item["id"] for item in result["items"]] == [candidate.id]
+        assert result["items"][0]["tier"] == 0
+        assert result["items"][0]["recommendation_explanation"]["confidence"] == "high"
+        assert "Same director" in result["items"][0]["recommendation_reason"]
+        assert result["summary"]["excluded_watched"] == 2

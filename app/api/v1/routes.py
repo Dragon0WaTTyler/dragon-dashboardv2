@@ -90,6 +90,17 @@ def movies_collection():
     )
 
 
+@bp.get("/movies/recommendations")
+@login_required
+def movie_recommendations():
+    return item_response(
+        MovieService.recommendation_pool(
+            category=str(request.args.get("category") or ""),
+            source=str(request.args.get("source") or ""),
+        )
+    )
+
+
 @bp.get("/movies/<movie_id>")
 @login_required
 def movie_api_detail(movie_id: str):

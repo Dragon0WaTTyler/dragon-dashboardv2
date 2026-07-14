@@ -2,6 +2,7 @@
 {% from "components/ui.html" import badge, empty_state %}
 {% block title %}Movies · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}" defer></script>{% endblock %}
 {% block content %}
 <header class="page-header">
   <div>
@@ -11,7 +12,41 @@
   </div>
   {{ badge(total ~ ' titles', 'accent') }}
 </header>
-<nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index', status='want_to_watch') }}">Watch next</a><a href="{{ url_for('movies.index', status='watching') }}">Continue watching</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a><a href="{{ url_for('movies.index', status='watched', sort='recently_updated') }}">Recently watched</a></nav>
+<div class="movie-actions">
+  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index', status='want_to_watch') }}">Watch next</a><a href="{{ url_for('movies.index', status='watching') }}">Continue watching</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a><a href="{{ url_for('movies.index', status='watched', sort='recently_updated') }}">Recently watched</a></nav>
+  <button class="button button--primary movie-actions__recommend" type="button" data-recommendation-load aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>
+</div>
+
+<section
+  id="movie-recommendation"
+  class="movie-recommendation"
+  data-movie-recommendation
+  data-endpoint="{{ url_for('api_v1.movie_recommendations') }}"
+  data-details-prefix="{{ url_for('movies.index') }}"
+  data-category="{{ filters.category }}"
+  data-source="{{ filters.source }}"
+  aria-labelledby="movie-recommendation-title"
+  hidden
+>
+  <div class="movie-recommendation__status" data-recommendation-status role="status" aria-live="polite">Finding a strong match from your watch-next library…</div>
+  <article class="movie-recommendation__card" data-recommendation-card hidden>
+    <a class="movie-recommendation__poster" data-recommendation-details data-media-frame href="{{ url_for('movies.index') }}">
+      <img data-recommendation-poster data-media-image alt="" width="360" height="540" hidden>
+      <span class="media-fallback" data-recommendation-fallback aria-hidden="true">D</span>
+    </a>
+    <div class="movie-recommendation__body">
+      <span class="eyebrow">Tonight's main pick · <span data-recommendation-confidence>Curated</span></span>
+      <h2 id="movie-recommendation-title"><a data-recommendation-title data-recommendation-details href="{{ url_for('movies.index') }}">Movie recommendation</a></h2>
+      <p class="movie-recommendation__meta" data-recommendation-meta></p>
+      <p class="movie-recommendation__reason" data-recommendation-reason></p>
+      <p class="movie-recommendation__detail" data-recommendation-detail hidden></p>
+      <div class="movie-recommendation__controls">
+        <a class="button button--primary" data-recommendation-details href="{{ url_for('movies.index') }}">View details</a>
+        <button class="button button--secondary" type="button" data-recommendation-next>Try another</button>
+      </div>
+    </div>
+  </article>
+</section>
 
 <form class="filter-bar" method="get" aria-label="Filter movies">
   <label class="field filter-bar__search"><span>Search</span><input name="q" type="search" value="{{ filters.q }}" placeholder="Title or original title"></label>
@@ -19,19 +54,21 @@
   <label class="field"><span>Genre</span><select name="genre"><option value="">All</option>{% for value in filter_options.genres %}<option value="{{ value }}"{% if filters.genre == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
   <label class="field"><span>Sort</span><select name="sort"><option value="recently_updated"{% if filters.sort == 'recently_updated' %} selected{% endif %}>Recently updated</option><option value="title_asc"{% if filters.sort == 'title_asc' %} selected{% endif %}>Title A–Z</option><option value="year_desc"{% if filters.sort == 'year_desc' %} selected{% endif %}>Newest year</option><option value="score_desc"{% if filters.sort == 'score_desc' %} selected{% endif %}>Top rated</option></select></label>
   <label class="field"><span>View</span><select name="view"><option value="grid"{% if filters.view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if filters.view == 'list' %} selected{% endif %}>Compact list</option></select></label>
-  <details class="filter-more">
-    <summary class="button button--secondary">More filters</summary>
-    <div class="filter-more__panel">
-      <label class="field"><span>Category</span><select name="category"><option value="">All</option>{% for value in filter_options.categories %}<option value="{{ value }}"{% if filters.category == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
-      <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for value in filter_options.sources %}<option value="{{ value }}"{% if filters.source == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
-      <label class="field"><span>Year from</span><input name="year_min" inputmode="numeric" value="{{ filters.year_min or '' }}"></label>
-      <label class="field"><span>Year to</span><input name="year_max" inputmode="numeric" value="{{ filters.year_max or '' }}"></label>
-      <label class="field"><span>Score from</span><input name="score_min" inputmode="decimal" value="{{ filters.score_min if filters.score_min is not none else '' }}"></label>
-      <label class="field"><span>Score to</span><input name="score_max" inputmode="decimal" value="{{ filters.score_max if filters.score_max is not none else '' }}"></label>
-    </div>
-  </details>
-  <button class="button button--primary" type="submit">Apply</button>
-  <a class="button button--quiet" href="{{ url_for('movies.index') }}">Reset</a>
+  <div class="filter-bar__actions">
+    <details class="filter-more">
+      <summary class="button button--secondary">More filters</summary>
+      <div class="filter-more__panel">
+        <label class="field"><span>Category</span><select name="category"><option value="">All</option>{% for value in filter_options.categories %}<option value="{{ value }}"{% if filters.category == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for value in filter_options.sources %}<option value="{{ value }}"{% if filters.source == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Year from</span><input name="year_min" inputmode="numeric" value="{{ filters.year_min or '' }}"></label>
+        <label class="field"><span>Year to</span><input name="year_max" inputmode="numeric" value="{{ filters.year_max or '' }}"></label>
+        <label class="field"><span>Score from</span><input name="score_min" inputmode="decimal" value="{{ filters.score_min if filters.score_min is not none else '' }}"></label>
+        <label class="field"><span>Score to</span><input name="score_max" inputmode="decimal" value="{{ filters.score_max if filters.score_max is not none else '' }}"></label>
+      </div>
+    </details>
+    <button class="button button--primary" type="submit">Apply</button>
+    <a class="button button--quiet" href="{{ url_for('movies.index') }}">Reset</a>
+  </div>
 </form>
 {% if filter_errors %}<div class="notice notice--error" role="alert">Some filters are invalid. Reset them or enter supported values.</div>{% endif %}
 
