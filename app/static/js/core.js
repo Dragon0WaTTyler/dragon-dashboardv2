@@ -1,4 +1,6 @@
 (() => {
+  window.requestAnimationFrame(() => document.body.classList.add("is-ready"));
+
   const focusableSelector = [
     "a[href]",
     "button:not([disabled])",
@@ -87,4 +89,5 @@
       });
     });
   }
+
 })();

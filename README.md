@@ -2,20 +2,20 @@
 
 Dragon is a private, local-first personal workspace for movies, YouTube,
 reading, books, chess, German learning, history, optional AI, and protected
-administration. It is a new Flask application with a light editorial interface;
+administration. It is a new Flask application with a black-and-crimson luxury interface;
 it does not reuse the legacy Cinema Prive frontend or monolithic architecture.
 
 ## Release status
 
-The M1–M9 application surface and the non-destructive part of M10 are complete.
+The M1–M11 application surface, approved local import, and release hardening are complete.
 The application includes normalized local persistence, atomic snapshots,
 freshness and operation reports, versioned APIs, responsive primary pages, and
 disabled-by-default integration/playback boundaries.
 
 The legacy project at `C:\Users\walid\Desktop\FlaskDashboard` remains read-only.
-A schema-only dry run completed successfully, but **no personal records were
-imported**. Dragon deliberately has no `migrate apply` command until a reviewed
-importer/reconciliation report and explicit user approval exist.
+After an inventory and dry run, the approved importer populated supported Dragon
+models and archived the remaining private source files under ignored instance
+storage. Credential values and personal records never enter Git.
 
 ## Requirements and setup
 
@@ -94,7 +94,7 @@ creates an ignored instance secret; production fails fast without
 Runtime databases, snapshots, reports, OAuth files, secrets, caches, and
 personal exports are ignored by Git.
 
-## Safe migration inventory
+## Safe legacy migration
 
 The available commands inspect schemas and write reports only under ignored
 Dragon instance storage:
@@ -110,6 +110,20 @@ flask --app app:create_app migrate dry-run `
 Sensitive files are classified without hashing or parsing their contents. These
 commands never write to the source and import zero records.
 
+After reviewing the dry-run report and explicitly approving a private local copy:
+
+```powershell
+flask --app app:create_app migrate apply `
+  --source "C:\Users\walid\Desktop\FlaskDashboard" `
+  --confirm-private-import
+```
+
+The apply step is idempotent. It maps supported movie, reading, chess, and learning
+records into SQLAlchemy models; archives unsupported raw datasets under
+`instance/legacy-import`; merges environment entries into the ignored local `.env`;
+and copies OAuth files into `instance/secrets`. Its safe, value-free report is written
+to `instance/migration/legacy-import-report.json`.
+
 ## Verification
 
 ```powershell
@@ -121,7 +135,7 @@ python scripts/check_tracked_secrets.py
 ```
 
 The current release gate is recorded in
-[`docs/milestones/M10.md`](docs/milestones/M10.md).
+[`docs/milestones/M11.md`](docs/milestones/M11.md).
 
 ## Documentation
 
@@ -132,3 +146,4 @@ The current release gate is recorded in
 - [M1 delivery record](docs/milestones/M1.md)
 - [M2–M9 delivery record](docs/milestones/M2-M9.md)
 - [M10 release report](docs/milestones/M10.md)
+- [M11 luxury redesign and approved import](docs/milestones/M11.md)

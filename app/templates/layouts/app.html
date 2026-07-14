@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f7f7f2">
+  <meta name="theme-color" content="#080808">
   <meta name="csrf-token" content="{{ csrf_token() }}">
   <title>{% block title %}Dragon{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/tokens.css') }}">
@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='css/components.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/layout.css') }}">
   {% block styles %}{% endblock %}
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/luxury.css') }}">
   <script src="{{ url_for('static', filename='js/core.js') }}" defer></script>
   {% block scripts %}{% endblock %}
 </head>
@@ -20,7 +21,7 @@
     <div class="app-bar">
       <a class="brand" href="{{ url_for('core.index') }}" aria-label="Dragon home">
         <span class="brand__mark" aria-hidden="true"><span></span><span></span><span></span></span>
-        <span>Dragon</span>
+        <span class="brand__wordmark">Dragon<small>Private index</small></span>
       </a>
       <button class="command-trigger" type="button" data-dialog-open="command-dialog" aria-haspopup="dialog">
         <span>Search or open a section</span>

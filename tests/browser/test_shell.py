@@ -59,7 +59,7 @@ def test_mobile_shell_has_no_overflow_and_safe_targets(page, live_app):
 def test_login_and_design_system_semantics(page, live_app):
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(f"{live_app}/auth/login")
-    assert page.get_by_role("heading", name="Welcome back.", level=1).count() == 1
+    assert page.get_by_role("heading", name="Enter the archive.", level=1).count() == 1
     assert page.get_by_label("Username").count() == 1
     assert page.get_by_label("Password").count() == 1
     sign_in(page, live_app)

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dragon-v2"
-version = "0.10.0"
+version = "0.11.0"
 description = "A private, local-first personal workspace."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"

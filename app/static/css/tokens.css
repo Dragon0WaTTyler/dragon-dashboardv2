@@ -23,22 +23,25 @@
 }
 
 :root {
-  --color-bg: #f7f7f2;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f0f0ea;
-  --color-text: #171714;
-  --color-text-muted: #68685f;
-  --color-border: #e2e2da;
-  --color-border-strong: #c9c9bf;
-  --color-accent: #315cf5;
-  --color-accent-hover: #2449ce;
-  --color-accent-soft: #e8edff;
-  --color-success: #218358;
-  --color-success-soft: #e5f3ec;
-  --color-warning: #9b6514;
-  --color-warning-soft: #fff1d6;
-  --color-error: #c93c37;
-  --color-error-soft: #fbe8e6;
+  --color-bg: #080808;
+  --color-surface: #101010;
+  --color-surface-elevated: #171313;
+  --color-surface-muted: #1c1718;
+  --color-text: #f4f0e9;
+  --color-text-muted: #aaa19d;
+  --color-border: #2e2929;
+  --color-border-strong: #554244;
+  --color-accent: #c52f3f;
+  --color-accent-hover: #e14451;
+  --color-accent-soft: #2b1116;
+  --color-success: #55a77b;
+  --color-success-soft: #10251b;
+  --color-warning: #c79b5e;
+  --color-warning-soft: #2a2115;
+  --color-error: #df4450;
+  --color-error-soft: #301218;
+  --color-metal: #c7b8a1;
+  --color-shadow: rgb(45 0 8 / 46%);
   --font-interface: "IBM Plex Sans", "Segoe UI", sans-serif;
   --font-technical: "IBM Plex Mono", "Cascadia Mono", monospace;
   --space-1: 4px;
@@ -50,9 +53,10 @@
   --space-10: 40px;
   --space-12: 48px;
   --space-16: 64px;
-  --radius-control: 8px;
-  --radius-container: 12px;
-  --content-width: 1200px;
-  --motion-control: 160ms;
-  --motion-panel: 200ms;
+  --radius-control: 6px;
+  --radius-container: 14px;
+  --content-width: 1320px;
+  --motion-control: 180ms;
+  --motion-panel: 280ms;
+  --ease-luxury: cubic-bezier(0.22, 1, 0.36, 1);
 }

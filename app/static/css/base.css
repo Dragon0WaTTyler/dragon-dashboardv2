@@ -6,12 +6,12 @@
 
 html {
   min-width: 320px;
-  color-scheme: light;
+  color-scheme: dark;
   scroll-behavior: smooth;
 }
 
 body {
-  min-height: 100vh;
+  min-height: 100dvh;
   margin: 0;
   overflow-x: hidden;
   background: var(--color-bg);
@@ -91,8 +91,8 @@ kbd {
 }
 
 :focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
+  outline: 2px solid var(--color-accent-hover);
+  outline-offset: 3px;
 }
 
 ::selection {

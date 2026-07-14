@@ -10,6 +10,7 @@ from flask.cli import with_appcontext
 
 from app.extensions import db
 from app.migration.inventory import build_inventory, write_inventory
+from app.migration.legacy import apply_legacy_import
 from app.shared.models import MigrationRun
 from app.shared.time import utc_now
 
@@ -17,7 +18,7 @@ from app.shared.time import utc_now
 @click.group("migrate")
 @with_appcontext
 def migration_cli() -> None:
-    """Inventory legacy data without changing the source project."""
+    """Inspect or import approved legacy data without changing the source project."""
 
 
 def _run_inventory(source: Path, *, mode: str) -> tuple[MigrationRun, dict]:
@@ -85,3 +86,34 @@ def dry_run_command(source: Path) -> None:
             sort_keys=True,
         )
     )
+
+
+@migration_cli.command("apply")
+@click.option(
+    "--source",
+    type=click.Path(path_type=Path, exists=True, file_okay=False, resolve_path=True),
+    required=True,
+)
+@click.option(
+    "--confirm-private-import",
+    is_flag=True,
+    help="Confirm that private records and local secret files may be copied into DragonV2.",
+)
+def apply_command(source: Path, confirm_private_import: bool) -> None:
+    """Import approved legacy records and private configuration into DragonV2."""
+    if not confirm_private_import:
+        raise click.UsageError("Pass --confirm-private-import to authorize the local copy.")
+    project_root = Path(current_app.root_path).parent
+    report = apply_legacy_import(source, project_root)
+    run = MigrationRun(
+        id=str(uuid4()),
+        mode="apply",
+        status="completed",
+        source_root=str(source.resolve()),
+        report_path=str(project_root / "instance" / "migration" / "legacy-import-report.json"),
+        counts=report["counts"],
+        completed_at=utc_now(),
+    )
+    db.session.add(run)
+    db.session.commit()
+    click.echo(json.dumps({"ok": True, **report}, sort_keys=True))
