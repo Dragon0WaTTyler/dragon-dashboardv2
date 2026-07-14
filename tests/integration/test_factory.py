@@ -35,3 +35,4 @@ def test_security_headers_and_request_ids(client):
     assert response.headers["X-Frame-Options"] == "DENY"
     assert response.headers["X-Request-ID"].startswith("req_")
     assert "default-src 'self'" in response.headers["Content-Security-Policy"]
+    assert "img-src 'self' data: https:" in response.headers["Content-Security-Policy"]

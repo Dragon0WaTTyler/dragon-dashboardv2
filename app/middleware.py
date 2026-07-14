@@ -24,7 +24,7 @@ def install_request_middleware(app: Flask) -> None:
             "script-src 'self'; "
             "style-src 'self'; "
             "font-src 'self'; "
-            "img-src 'self' data:; "
+            "img-src 'self' data: https:; "
             "connect-src 'self'; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
