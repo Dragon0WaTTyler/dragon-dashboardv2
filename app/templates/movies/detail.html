@@ -5,8 +5,8 @@
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
-  <div class="movie-detail__poster">
-    {% if movie.poster_url %}<img src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630">{% else %}<span aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+  <div class="movie-detail__poster" data-media-frame>
+    {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
   </div>
   <div class="movie-detail__content">
     <header>

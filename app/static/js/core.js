@@ -1,6 +1,17 @@
 (() => {
   window.requestAnimationFrame(() => document.body.classList.add("is-ready"));
 
+  document.addEventListener(
+    "error",
+    (event) => {
+      if (!(event.target instanceof HTMLImageElement) || !event.target.matches("[data-media-image]")) {
+        return;
+      }
+      event.target.closest("[data-media-frame]")?.classList.add("image-failed");
+    },
+    true
+  );
+
   const focusableSelector = [
     "a[href]",
     "button:not([disabled])",

@@ -8,9 +8,11 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy import select
 
+from app.books.models import Book, Quote
 from app.chess.models import ChessCourse, ChessGame, ChessPuzzle, PuzzleAttempt
 from app.extensions import db
 from app.german.models import GermanResource
@@ -20,6 +22,7 @@ from app.playback.models import PlaybackSource
 from app.reading.models import Article, ReadingSource
 from app.shared.models import LegacyIdMap
 from app.shared.time import utc_iso, utc_now
+from app.youtube.models import YouTubeVideo
 
 RAW_FILES = (
     "admin_data.json",
@@ -30,6 +33,11 @@ RAW_FILES = (
     "playlists.json",
     "youtube_duration_cache.json",
     "chat_history.db",
+    "cache/books_snapshot.json",
+    "cache/quotes_snapshot.json",
+    "cache/youtube_latest_snapshot.json",
+    "cache/youtube_latest_sync_status.json",
+    "domains/youtube/data/pockettube_registry.json",
 )
 SECRET_FILES = ("client_secret.json", "youtube_token.json")
 
@@ -92,6 +100,30 @@ def _named_items(value: Any) -> list[dict[str, str]]:
         if name:
             result.append({"name": name})
     return result
+
+
+def _string_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        values = [part.strip() for part in value.split(",")]
+    elif isinstance(value, list):
+        values = value
+    elif value:
+        values = [value]
+    else:
+        values = []
+    return [text for item in values if (text := _text(item, limit=500))]
+
+
+def _normalize_poster_url(value: Any) -> str:
+    url = _text(value, limit=1000)
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.netloc.lower() in {"www.themoviedb.org", "media.themoviedb.org"}:
+        filename = Path(parsed.path).name
+        if filename:
+            return f"https://image.tmdb.org/t/p/w500/{filename}"
+    return url
 
 
 def _checksum(value: Any) -> str:
@@ -181,7 +213,9 @@ def _copy_private_files(source: Path, project_root: Path) -> Counter[str]:
     for name in RAW_FILES:
         source_path = source / name
         if source_path.exists():
-            shutil.copy2(source_path, raw_root / name)
+            target_path = raw_root / name
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_path, target_path)
             counts["raw_files_archived"] += 1
     for name in SECRET_FILES:
         source_path = source / name
@@ -225,7 +259,7 @@ def _import_movies(source: Path, counts: Counter[str]) -> None:
         movie.category = _text(record.get("category"), limit=120)
         movie.source = _text(record.get("source"), limit=80) or "legacy"
         movie.overview = _text(record.get("overview"))
-        movie.poster_url = _text(record.get("poster"), limit=1000)
+        movie.poster_url = _normalize_poster_url(record.get("poster"))
         movie.trailer_url = _text(record.get("trailer"), limit=1000)
         movie.runtime_minutes = _integer(record.get("runtime")) or None
         movie.genres = _named_items(record.get("genre_entries") or record.get("genres"))
@@ -345,6 +379,151 @@ def _import_reading(source: Path, counts: Counter[str]) -> None:
         item.history = [{"event": "legacy_import", "at": utc_iso()}]
         _remember("article", external_id, item.id, record)
         counts["articles_created" if created else "articles_updated"] += 1
+
+
+def _book_status(value: Any) -> str:
+    return {
+        "want to read": "want_to_read",
+        "read": "finished",
+        "not finished": "paused",
+        "reading": "reading",
+    }.get(_text(value).casefold(), "want_to_read")
+
+
+def _mapped_entity(entity_type: str, source_id: str, model):
+    mapping = db.session.scalar(
+        select(LegacyIdMap).where(
+            LegacyIdMap.source_system == "FlaskDashboard",
+            LegacyIdMap.entity_type == entity_type,
+            LegacyIdMap.source_id == source_id[:255],
+        )
+    )
+    return db.session.get(model, mapping.target_id) if mapping else None
+
+
+def _import_books(source: Path, counts: Counter[str]) -> None:
+    books_payload = _json(source / "cache" / "books_snapshot.json", {})
+    quotes_payload = _json(source / "cache" / "quotes_snapshot.json", {})
+    book_by_source: dict[str, Book] = {}
+    for record in books_payload.get("entries", []):
+        title = _text(record.get("title"), limit=500)
+        source_id = _text(record.get("notion_page_id") or record.get("id"), limit=255)
+        if not title or not source_id:
+            counts["books_skipped"] += 1
+            continue
+        normalized = " ".join(title.casefold().split())
+        book = _mapped_entity("book", source_id, Book)
+        if book is None:
+            book = db.session.scalar(select(Book).where(Book.normalized_title == normalized))
+        created = book is None
+        if book is None:
+            book = Book(title=title, normalized_title=normalized)
+            db.session.add(book)
+            db.session.flush()
+        book.title = title
+        book.normalized_title = normalized
+        book.authors = _string_list(record.get("authors") or record.get("authors_display"))
+        book.description = _text(
+            record.get("content") or record.get("excerpt") or record.get("history")
+        )
+        book.cover_url = _normalize_poster_url(record.get("cover_url"))
+        book.status = _book_status(record.get("status"))
+        book.personal_score = _float(record.get("rating"))
+        book.source = "notion_legacy_snapshot"
+        book.external_ids = {"notion_page_id": source_id}
+        book.metadata_state = {
+            "tags": _string_list(record.get("tags")),
+            "decision": _text(record.get("decision"), limit=240),
+            "kind": _text(record.get("kinde"), limit=120),
+            "pinned": bool(record.get("pinned")),
+            "date_finished": _text(record.get("date_finished"), limit=80),
+        }
+        history_items = _string_list(
+            record.get("history_paragraphs") or record.get("history")
+        )
+        book.history = [{"event": "legacy_note", "text": item} for item in history_items]
+        book_by_source[source_id] = book
+        book_by_source[_text(record.get("id"), limit=255)] = book
+        _remember("book", source_id, book.id, record)
+        counts["books_created" if created else "books_updated"] += 1
+
+    for record in quotes_payload.get("entries", []):
+        source_id = _text(record.get("notion_page_id") or record.get("id"), limit=255)
+        quote_text = _text(record.get("quote"))
+        relations = _string_list(
+            record.get("book_relation_ids") or record.get("book_page_id")
+        )
+        book = next((book_by_source.get(relation) for relation in relations if relation), None)
+        if not source_id or not quote_text or book is None:
+            counts["quotes_skipped"] += 1
+            continue
+        quote = _mapped_entity("quote", source_id, Quote)
+        created = quote is None
+        if quote is None:
+            quote = Quote(book_id=book.id, text=quote_text)
+            db.session.add(quote)
+            db.session.flush()
+        quote.book_id = book.id
+        quote.text = quote_text
+        quote.page = _integer(record.get("page")) or None
+        quote.note = _text(record.get("chapter"))
+        _remember("quote", source_id, quote.id, record)
+        counts["quotes_created" if created else "quotes_updated"] += 1
+
+
+def _import_pockettube(source: Path, counts: Counter[str]) -> None:
+    payload = _json(source / "cache" / "youtube_latest_snapshot.json", {})
+    durations = _json(source / "youtube_duration_cache.json", {})
+    seen: set[str] = set()
+    position = 0
+    for group_key, group in sorted(payload.get("groups", {}).items()):
+        group_name = _text(group.get("group_name") or group_key, limit=160)
+        for record in group.get("videos", []):
+            external_id = _text(record.get("video_id"), limit=80)
+            title = _text(record.get("title"), limit=500)
+            if not external_id or not title:
+                counts["pockettube_skipped"] += 1
+                continue
+            if external_id in seen:
+                counts["pockettube_duplicates"] += 1
+                continue
+            seen.add(external_id)
+            item = db.session.scalar(
+                select(YouTubeVideo).where(YouTubeVideo.external_id == external_id)
+            )
+            created = item is None
+            if item is None:
+                item = YouTubeVideo(external_id=external_id, source="pockettube", title=title)
+                db.session.add(item)
+                db.session.flush()
+            duration = durations.get(external_id, {})
+            item.source = "pockettube"
+            item.group_name = group_name
+            item.channel_id = _text(record.get("channel_id"), limit=100)
+            item.channel_title = _text(
+                record.get("channel_title") or record.get("channel_name"), limit=240
+            )
+            item.title = title
+            item.thumbnail_url = _text(
+                record.get("thumbnail_url")
+                or record.get("thumbnail")
+                or record.get("image_url"),
+                limit=1000,
+            )
+            item.published_at = _datetime(record.get("published_at"))
+            item.duration_seconds = _integer(
+                duration.get("seconds") if isinstance(duration, dict) else 0
+            )
+            item.position = position
+            item.local_history = [
+                {
+                    "event": "legacy_snapshot_import",
+                    "group_names": _string_list(record.get("group_names")),
+                }
+            ]
+            position += 1
+            _remember("youtube_video", external_id, item.id, record)
+            counts["pockettube_created" if created else "pockettube_updated"] += 1
 
 
 def _participant(value: Any) -> str:
@@ -551,6 +730,8 @@ def apply_legacy_import(source: str | Path, project_root: str | Path) -> dict[st
     counts["archived_chat_messages"] = _chat_count(source_root)
     _import_movies(source_root, counts)
     _import_reading(source_root, counts)
+    _import_books(source_root, counts)
+    _import_pockettube(source_root, counts)
     _import_chess(source_root, counts)
     _import_learning_and_history(source_root, counts)
     db.session.commit()

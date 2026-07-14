@@ -118,8 +118,8 @@ flask --app app:create_app migrate apply `
   --confirm-private-import
 ```
 
-The apply step is idempotent. It maps supported movie, reading, chess, and learning
-records into SQLAlchemy models; archives unsupported raw datasets under
+The apply step is idempotent. It maps supported movie, PocketTube, reading, books,
+quotes, chess, and learning records into SQLAlchemy models; archives unsupported raw datasets under
 `instance/legacy-import`; merges environment entries into the ignored local `.env`;
 and copies OAuth files into `instance/secrets`. Its safe, value-free report is written
 to `instance/migration/legacy-import-report.json`.

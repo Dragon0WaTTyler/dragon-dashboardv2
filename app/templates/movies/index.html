@@ -39,8 +39,8 @@
 <div class="movie-grid{% if filters.view == 'list' %} movie-grid--list{% endif %}" aria-label="Movie results">
   {% for movie in movies %}
   <article class="movie-tile">
-    <a class="movie-tile__poster" href="{{ url_for('movies.detail', movie_id=movie.id) }}">
-      {% if movie.poster_url %}<img src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="300" height="450">{% else %}<span aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+    <a class="movie-tile__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}">
+      {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="300" height="450"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
     </a>
     <div class="movie-tile__body">
       <h2><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h2>
