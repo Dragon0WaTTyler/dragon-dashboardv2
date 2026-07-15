@@ -17,7 +17,12 @@ from app.reading.text import article_paragraphs, normalize_article_text
 from app.shared.text import text_direction
 from app.today.services import TodayService
 from app.youtube.models import YouTubeVideo
-from app.youtube.services import YouTubeService, format_duration, video_item
+from app.youtube.services import (
+    YouTubeService,
+    description_view,
+    format_duration,
+    video_item,
+)
 
 
 def test_content_direction_detects_arabic_and_mixed_titles():
@@ -40,6 +45,26 @@ def test_youtube_duration_labels_are_compact_and_tabular():
     assert video_item(YouTubeVideo(title="Timed", duration_seconds=767))[
         "duration_label"
     ] == "12:47"
+
+
+def test_youtube_description_separates_chapters_and_preserves_rtl():
+    shaped = description_view(
+        "ملخص عربي للحلقة\n\n00:00 المقدمة\n03:15 الفصل الأول\nhttps://example.test/notes"
+    )
+
+    assert shaped["paragraphs"] == [
+        {"text": "ملخص عربي للحلقة", "direction": "rtl"},
+        {"text": "https://example.test/notes", "direction": "ltr"},
+    ]
+    assert shaped["chapters"] == [
+        {"label": "المقدمة", "stamp": "00:00", "seconds": 0, "direction": "rtl"},
+        {
+            "label": "الفصل الأول",
+            "stamp": "03:15",
+            "seconds": 195,
+            "direction": "rtl",
+        },
+    ]
 
 
 def test_watch_later_removal_preserves_local_history(app):

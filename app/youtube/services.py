@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 from datetime import UTC, datetime
 from typing import Any
@@ -16,6 +17,10 @@ from app.youtube.repositories import YouTubeRepository
 
 SOURCES = {"watch_later", "pockettube"}
 ORDERS = {"normal", "shuffle", "shuffle_video"}
+
+_CHAPTER_RE = re.compile(
+    r"^\s*(?P<stamp>(?:(?:\d{1,2}):)?[0-5]?\d:[0-5]\d)\s*(?:[-–—|:]\s*)?(?P<label>.*)$"
+)
 
 
 def _published_at(value: object) -> datetime | None:
@@ -54,6 +59,46 @@ def format_duration(value: object) -> str:
     return f"{minutes}:{seconds:02d}"
 
 
+def _timestamp_seconds(value: str) -> int:
+    parts = [int(part) for part in value.split(":")]
+    if len(parts) == 2:
+        return (parts[0] * 60) + parts[1]
+    if len(parts) == 3:
+        return (parts[0] * 3600) + (parts[1] * 60) + parts[2]
+    return 0
+
+
+def description_view(value: object) -> dict[str, list[dict[str, object]]]:
+    """Shape cached YouTube text for a readable, safe detail view."""
+    paragraphs: list[dict[str, object]] = []
+    chapters: list[dict[str, object]] = []
+    seen_chapters: set[int] = set()
+
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    for raw_line in text.split("\n"):
+        line = raw_line.strip()
+        if not line:
+            continue
+        chapter = _CHAPTER_RE.match(line)
+        if chapter:
+            seconds = _timestamp_seconds(chapter.group("stamp"))
+            label = chapter.group("label").strip() or f"Chapter at {chapter.group('stamp')}"
+            if seconds not in seen_chapters:
+                chapters.append(
+                    {
+                        "label": label,
+                        "stamp": chapter.group("stamp"),
+                        "seconds": seconds,
+                        "direction": text_direction(label),
+                    }
+                )
+                seen_chapters.add(seconds)
+            continue
+        paragraphs.append({"text": line, "direction": text_direction(line)})
+
+    return {"paragraphs": paragraphs, "chapters": chapters}
+
+
 def video_item(video: YouTubeVideo) -> dict:
     return {
         "id": video.id,
@@ -73,10 +118,59 @@ def video_item(video: YouTubeVideo) -> dict:
 
 
 def video_detail(video: YouTubeVideo) -> dict:
-    return {**video_item(video), "description": video.description, "history": video.local_history}
+    return {
+        **video_item(video),
+        "description": video.description,
+        "description_view": description_view(video.description),
+        "history": video.local_history,
+    }
 
 
 class YouTubeService:
+    @staticmethod
+    def detail_page(video: YouTubeVideo) -> dict[str, object]:
+        video_ids = YouTubeRepository.ordered_ids(
+            source=video.source, group=video.group_name
+        )
+        try:
+            current_index = video_ids.index(video.id)
+        except ValueError:
+            current_index = -1
+
+        if current_index >= 0:
+            remaining_ids = video_ids[current_index + 1 :] + video_ids[:current_index]
+            previous_id = video_ids[current_index - 1] if current_index > 0 else ""
+            next_id = (
+                video_ids[current_index + 1]
+                if current_index + 1 < len(video_ids)
+                else ""
+            )
+        else:
+            remaining_ids = video_ids
+            previous_id = ""
+            next_id = ""
+
+        related = [
+            candidate
+            for candidate_id in remaining_ids[:4]
+            if (candidate := YouTubeRepository.get(candidate_id)) is not None
+        ]
+        previous = YouTubeRepository.get(previous_id) if previous_id else None
+        next_video = YouTubeRepository.get(next_id) if next_id else None
+        shuffle_video = (
+            YouTubeRepository.get(secrets.choice(remaining_ids)) if remaining_ids else None
+        )
+
+        return {
+            "video": video_detail(video),
+            "related": [video_item(item) for item in related],
+            "previous": video_item(previous) if previous else None,
+            "next_video": video_item(next_video) if next_video else None,
+            "shuffle_video": video_item(shuffle_video) if shuffle_video else None,
+            "source_label": video.group_name
+            or ("Watch Later" if video.source == "watch_later" else "PocketTube"),
+        }
+
     @staticmethod
     def feed(
         *,

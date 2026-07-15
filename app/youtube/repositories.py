@@ -58,6 +58,21 @@ class YouTubeRepository:
         return items, total
 
     @staticmethod
+    def ordered_ids(*, source: str, group: str = "") -> list[str]:
+        conditions = [YouTubeVideo.source == source]
+        if source == "watch_later":
+            conditions.append(YouTubeVideo.removed_from_source.is_(False))
+        if group:
+            conditions.append(YouTubeVideo.group_name == group)
+        return list(
+            db.session.scalars(
+                db.select(YouTubeVideo.id)
+                .where(*conditions)
+                .order_by(YouTubeVideo.position, YouTubeVideo.published_at.desc())
+            )
+        )
+
+    @staticmethod
     def groups() -> list[dict]:
         rows = db.session.execute(
             db.select(YouTubeVideo.group_name, func.count())

@@ -4,7 +4,7 @@ from flask import Blueprint, abort, flash, redirect, render_template, request, u
 from flask_login import login_required
 
 from app.youtube.repositories import YouTubeRepository
-from app.youtube.services import ORDERS, SOURCES, YouTubeService, video_detail
+from app.youtube.services import ORDERS, SOURCES, YouTubeService
 
 bp = Blueprint("youtube", __name__, url_prefix="/youtube")
 
@@ -69,14 +69,11 @@ def detail(video_id: str):
     video = YouTubeRepository.get(video_id)
     if video is None:
         abort(404)
-    related, _ = YouTubeRepository.list(
-        source=video.source, group=video.group_name, limit=5
-    )
+    context = YouTubeService.detail_page(video)
     return render_template(
         "youtube/detail.html",
         active_module="youtube",
-        video=video_detail(video),
-        related=[video_detail(item) for item in related if item.id != video.id][:4],
+        **context,
     )
 
 

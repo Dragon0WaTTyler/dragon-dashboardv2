@@ -1,3 +1,147 @@
-{% extends "layouts/app.html" %}{% from "components/ui.html" import badge %}
-{% block title %}{{ video.title }} · Dragon{% endblock %}{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
-{% block content %}<a class="back-link" href="{{ url_for('youtube.index', source=video.source) }}">← Back to YouTube</a><article class="editorial-detail"><header><span class="eyebrow" dir="auto">{{ video.channel_title }}</span><h1 dir="auto">{{ video.title }}</h1><div class="detail-badges">{{ badge('Watched' if video.watched else 'Unwatched', 'success' if video.watched else '') }}{% if video.duration_label %}{{ badge(video.duration_label, 'accent') }}{% endif %}</div></header>{% if video.description %}<p class="lead-copy" dir="auto">{{ video.description }}</p>{% endif %}<div class="detail-actions"><a class="button button--primary" href="https://www.youtube.com/watch?v={{ video.external_id }}" rel="noreferrer" target="_blank">Open on YouTube</a><form method="post" action="{{ url_for('youtube.watched', video_id=video.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="watched" value="{{ 'false' if video.watched else 'true' }}"><button class="button button--secondary" type="submit">Mark {{ 'unwatched' if video.watched else 'watched' }}</button></form>{% if video.source == 'watch_later' %}<form method="post" action="{{ url_for('youtube.remove', video_id=video.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--secondary" type="submit">Remove from local Watch Later</button></form>{% endif %}</div>{% if related %}<section class="detail-section"><h2>Related from local cache</h2><div class="content-list">{% for item in related %}<a class="plain-row" href="{{ url_for('youtube.detail', video_id=item.id) }}"><span dir="auto">{{ item.title }}</span><small dir="auto">{{ item.channel_title }}{% if item.duration_label %} · {{ item.duration_label }}{% endif %}</small></a>{% endfor %}</div></section>{% endif %}</article>{% endblock %}
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+
+{% block title %}{{ video.title }} · Dragon{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/youtube-detail.js') }}" defer></script>
+{% endblock %}
+
+{% block content %}
+<article class="youtube-detail" data-youtube-detail data-video-id="{{ video.external_id }}">
+  <a class="back-link" href="{{ url_for('youtube.index', source=video.source, group=video.group_name) }}">← Back to YouTube</a>
+
+  <section class="youtube-player" data-youtube-player aria-labelledby="video-title">
+    <button class="youtube-player__launch" type="button" data-player-launch aria-label="Play {{ video.title }} here">
+      {% if video.thumbnail_url %}
+      <img src="{{ video.thumbnail_url }}" alt="" fetchpriority="high">
+      {% endif %}
+      <span class="youtube-player__shade" aria-hidden="true"></span>
+      <span class="youtube-player__play" aria-hidden="true">▶</span>
+      <span class="youtube-player__launch-copy">
+        <strong>Play here</strong>
+        <small data-resume-copy>YouTube loads only after you choose to play.</small>
+      </span>
+    </button>
+    <iframe
+      class="youtube-player__frame"
+      data-player-frame
+      title="YouTube player for {{ video.title }}"
+      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+      referrerpolicy="strict-origin-when-cross-origin"
+      allowfullscreen
+      hidden
+    ></iframe>
+    <div class="youtube-player__toolbar" data-player-toolbar hidden>
+      <span class="youtube-player__status" data-player-status role="status">Player ready.</span>
+      <button class="button button--secondary" type="button" data-player-focus>Enter focus mode</button>
+    </div>
+  </section>
+
+  <header class="youtube-detail__header">
+    <div class="youtube-detail__meta">
+      <span class="eyebrow" dir="auto">{{ video.channel_title or source_label }}</span>
+      <div class="detail-badges">
+        {{ badge('Watched' if video.watched else 'Unwatched', 'success' if video.watched else '') }}
+        {% if video.duration_label %}{{ badge(video.duration_label, 'accent') }}{% endif %}
+        {{ badge(source_label) }}
+      </div>
+    </div>
+    <h1 id="video-title" dir="auto">{{ video.title }}</h1>
+  </header>
+
+  <div class="youtube-detail__layout">
+    <div class="youtube-detail__main">
+      {% if video.description_view.paragraphs or video.description_view.chapters %}
+      <section class="youtube-description" aria-labelledby="about-video-title">
+        <div class="section-heading section-heading--action">
+          <div>
+            <span class="eyebrow">Video notes</span>
+            <h2 id="about-video-title">About this video</h2>
+          </div>
+          <button class="button button--quiet youtube-description__toggle" type="button" data-description-toggle aria-expanded="false" hidden>Show full description</button>
+        </div>
+        <div class="youtube-description__body" data-description-body>
+          {% for paragraph in video.description_view.paragraphs %}
+          <p dir="{{ paragraph.direction }}">{{ paragraph.text|urlize(target='_blank', rel='noopener noreferrer') }}</p>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+
+      {% if related %}
+      <section class="youtube-related" aria-labelledby="related-title">
+        <div class="section-heading section-heading--action">
+          <div>
+            <span class="eyebrow">From {{ source_label }}</span>
+            <h2 id="related-title">Continue watching</h2>
+          </div>
+          {% if shuffle_video %}
+          <a class="button button--secondary" href="{{ url_for('youtube.detail', video_id=shuffle_video.id) }}">Shuffle video</a>
+          {% endif %}
+        </div>
+        <div class="youtube-related__grid">
+          {% for item in related %}
+          <a class="youtube-related__card" href="{{ url_for('youtube.detail', video_id=item.id) }}">
+            <span class="youtube-related__image">
+              {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" loading="lazy">{% endif %}
+              {% if item.duration_label %}<span class="media-duration" aria-label="Duration {{ item.duration_label }}">{{ item.duration_label }}</span>{% endif %}
+            </span>
+            <strong dir="auto">{{ item.title }}</strong>
+            <small dir="auto">{{ item.channel_title }}</small>
+          </a>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </div>
+
+    <aside class="youtube-detail__rail" aria-label="Video controls and chapters">
+      <section class="youtube-control-panel">
+        <span class="eyebrow">Your library</span>
+        <h2>Keep your place</h2>
+        <form method="post" action="{{ url_for('youtube.watched', video_id=video.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="watched" value="{{ 'false' if video.watched else 'true' }}">
+          <button class="button button--primary button--full" type="submit">Mark {{ 'unwatched' if video.watched else 'watched' }}</button>
+        </form>
+        <a class="button button--secondary button--full" href="https://www.youtube.com/watch?v={{ video.external_id }}" rel="noopener noreferrer" target="_blank">Open on YouTube ↗</a>
+        <a class="button button--secondary button--full" href="{{ url_for('ai.workspace', mode='youtube_study', context_type='youtube', context_id=video.id) }}">Study with AI</a>
+        {% if video.source == 'watch_later' %}
+        <form method="post" action="{{ url_for('youtube.remove', video_id=video.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button button--quiet button--full" type="submit">Remove from Watch Later</button>
+        </form>
+        {% endif %}
+      </section>
+
+      {% if previous or next_video %}
+      <nav class="youtube-sequence" aria-label="Videos in {{ source_label }}">
+        <span class="eyebrow">In this queue</span>
+        {% if previous %}<a href="{{ url_for('youtube.detail', video_id=previous.id) }}"><span>Previous</span><strong dir="auto">{{ previous.title }}</strong></a>{% endif %}
+        {% if next_video %}<a href="{{ url_for('youtube.detail', video_id=next_video.id) }}"><span>Next</span><strong dir="auto">{{ next_video.title }}</strong></a>{% endif %}
+      </nav>
+      {% endif %}
+
+      {% if video.description_view.chapters %}
+      <section class="youtube-chapters" aria-labelledby="chapters-title">
+        <span class="eyebrow">Timeline</span>
+        <h2 id="chapters-title">Chapters</h2>
+        <div class="youtube-chapters__list">
+          {% for chapter in video.description_view.chapters %}
+          <button type="button" data-youtube-start="{{ chapter.seconds }}">
+            <time>{{ chapter.stamp }}</time>
+            <span dir="{{ chapter.direction }}">{{ chapter.label }}</span>
+          </button>
+          {% endfor %}
+        </div>
+      </section>
+      {% endif %}
+    </aside>
+  </div>
+</article>
+{% endblock %}

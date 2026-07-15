@@ -16,6 +16,7 @@ def seed_content(app) -> dict[str, str]:
             title="A focused lesson",
             thumbnail_url="https://images.example.test/video.jpg",
             duration_seconds=754,
+            description="A local summary.\n\n00:00 Opening\n02:30 Main lesson",
         )
         watch_video = YouTubeVideo(
             external_id="watch-seed",
@@ -80,6 +81,19 @@ def test_primary_content_pages_render(authenticated_client, app):
     book_detail = authenticated_client.get(f"/books/{ids['book']}").get_data(as_text=True)
     assert 'class="book-detail' in book_detail
     assert 'src="https://images.example.test/book.jpg"' in book_detail
+
+    youtube_detail = authenticated_client.get(f"/youtube/{ids['video']}")
+    youtube_html = youtube_detail.get_data(as_text=True)
+    assert "data-player-launch" in youtube_html
+    assert 'data-video-id="yt-seed"' in youtube_html
+    assert 'data-youtube-start="150"' in youtube_html
+    assert "About this video" in youtube_html
+    assert "Continue watching" in youtube_html
+    assert "mode=youtube_study" in youtube_html
+    assert "context_type=youtube" in youtube_html
+    policy = youtube_detail.headers["Content-Security-Policy"]
+    assert "frame-src 'self' https://www.youtube-nocookie.com https://www.youtube.com" in policy
+    assert "script-src 'self' https://www.youtube.com" in policy
 
 
 def test_library_viewers_and_thumbnails_render(authenticated_client, app):
