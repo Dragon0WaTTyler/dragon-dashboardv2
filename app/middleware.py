@@ -5,6 +5,10 @@ from urllib.parse import urlsplit
 
 from flask import Flask, g
 
+VIDSRC_REDIRECT_HOSTS = {
+    "v2.vidsrc.me": ("https://vidsrc.me", "https://vidsrcme.ru"),
+}
+
 
 def install_request_middleware(app: Flask) -> None:
     @app.before_request
@@ -25,6 +29,7 @@ def install_request_middleware(app: Flask) -> None:
             parsed = urlsplit(str(app.config.get("DRAGON_VIDSRC_EMBED_URL") or ""))
             if parsed.scheme == "https" and parsed.netloc:
                 frame_sources.append(f"{parsed.scheme}://{parsed.netloc}")
+                frame_sources.extend(VIDSRC_REDIRECT_HOSTS.get(parsed.hostname or "", ()))
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self'; "

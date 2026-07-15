@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, urlparse
 
 from app.extensions import db
 from app.history.services import HistoryService
@@ -55,15 +55,7 @@ class PlaybackService:
                 "match": "imdb",
             }
 
-        title = str(movie.get("title") or "").strip()
-        if not title:
-            raise ValueError("A movie title is required for VidSrc search.")
-        return {
-            "provider": "vidsrc",
-            "label": "VidSrc",
-            "url": f"{normalized_base}/search/{quote(title, safe='')}",
-            "match": "title",
-        }
+        raise ValueError("An IMDb ID is required for VidSrc playback.")
 
     @staticmethod
     def workspace(movie_id: str) -> dict:

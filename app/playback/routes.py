@@ -14,7 +14,8 @@ from flask import (
 from flask_login import login_required
 
 from app.extensions import db
-from app.movies.public import get_playback_context
+from app.movies.providers import TmdbIdentityError, TmdbIdentityProvider
+from app.movies.public import get_playback_context, save_playback_external_ids
 from app.playback.models import MagnetCandidate
 from app.playback.services import PlaybackService
 
@@ -39,10 +40,37 @@ def vidsrc_source(movie_id: str):
     context = get_playback_context(movie_id)
     if context is None:
         abort(404)
-    source = PlaybackService.vidsrc_source(
-        movie=context,
-        base_url=current_app.config["DRAGON_VIDSRC_EMBED_URL"],
-    )
+    resolver = current_app.extensions.get("dragon_tmdb_identity_provider")
+    if resolver is None:
+        resolver = TmdbIdentityProvider(
+            api_key=current_app.config["DRAGON_TMDB_API_KEY"],
+            read_access_token=current_app.config["DRAGON_TMDB_READ_ACCESS_TOKEN"],
+        )
+        current_app.extensions["dragon_tmdb_identity_provider"] = resolver
+    try:
+        resolved_ids = resolver.resolve(
+            title=context["title"],
+            year=context["year"],
+            media_type=context["media_type"],
+            external_ids=context["external_ids"],
+        )
+        context["external_ids"] = save_playback_external_ids(movie_id, resolved_ids) or {}
+        source = PlaybackService.vidsrc_source(
+            movie=context,
+            base_url=current_app.config["DRAGON_VIDSRC_EMBED_URL"],
+        )
+    except (TmdbIdentityError, ValueError) as exc:
+        response = jsonify(
+            {
+                "ok": False,
+                "error": {
+                    "code": "vidsrc_identity_unavailable",
+                    "message": str(exc),
+                },
+            }
+        )
+        response.headers["Cache-Control"] = "private, no-store"
+        return response, 503
     response = jsonify({"ok": True, "source": source})
     response.headers["Cache-Control"] = "private, no-store"
     return response

@@ -42,13 +42,16 @@
         credentials: "same-origin",
         headers: { Accept: "application/json" },
       });
-      if (!response.ok) throw new Error("source unavailable");
       const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload?.error?.message || "source unavailable");
+      }
       sourceUrl = String(payload?.source?.url || "").trim();
       if (!sourceUrl) throw new Error("source unavailable");
       loadFrame();
-    } catch (_error) {
-      showError("VidSrc is unavailable for this movie. Try again later.");
+    } catch (error) {
+      const reason = String(error?.message || "").trim();
+      showError(reason || "VidSrc is unavailable for this movie. Try again later.");
     }
   });
 

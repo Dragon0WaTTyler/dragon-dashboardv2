@@ -67,6 +67,8 @@ class Settings:
     playback_enabled: bool
     vidsrc_enabled: bool
     vidsrc_embed_url: str
+    tmdb_api_key: str
+    tmdb_read_access_token: str
     magnets_enabled: bool
     external_sync_enabled: bool
     notion_writeback_enabled: bool
@@ -132,10 +134,22 @@ class Settings:
                 override_map.get("VIDSRC_EMBED_URL")
                 or override_map.get("DRAGON_VIDSRC_EMBED_URL")
                 or os.getenv("DRAGON_VIDSRC_EMBED_URL", "")
-                or "https://vsembed.ru/embed"
+                or "https://v2.vidsrc.me/embed"
             ),
             name="DRAGON_VIDSRC_EMBED_URL",
         )
+        tmdb_api_key = str(
+            override_map.get("TMDB_API_KEY")
+            or override_map.get("DRAGON_TMDB_API_KEY")
+            or os.getenv("DRAGON_TMDB_API_KEY", "")
+            or os.getenv("TMDB_API_KEY", "")
+        ).strip()
+        tmdb_read_access_token = str(
+            override_map.get("TMDB_READ_ACCESS_TOKEN")
+            or override_map.get("DRAGON_TMDB_READ_ACCESS_TOKEN")
+            or os.getenv("DRAGON_TMDB_READ_ACCESS_TOKEN", "")
+            or os.getenv("TMDB_READ_ACCESS_TOKEN", "")
+        ).strip()
 
         return cls(
             environment=environment,
@@ -146,6 +160,8 @@ class Settings:
             playback_enabled=feature("PLAYBACK_ENABLED", False),
             vidsrc_enabled=feature("VIDSRC_ENABLED", False),
             vidsrc_embed_url=vidsrc_embed_url,
+            tmdb_api_key=tmdb_api_key,
+            tmdb_read_access_token=tmdb_read_access_token,
             magnets_enabled=feature("MAGNETS_ENABLED", False),
             external_sync_enabled=feature("EXTERNAL_SYNC_ENABLED", False),
             notion_writeback_enabled=feature("NOTION_WRITEBACK_ENABLED", False),
@@ -177,6 +193,8 @@ class Settings:
             "DRAGON_PLAYBACK_ENABLED": self.playback_enabled,
             "DRAGON_VIDSRC_ENABLED": self.vidsrc_enabled,
             "DRAGON_VIDSRC_EMBED_URL": self.vidsrc_embed_url,
+            "DRAGON_TMDB_API_KEY": self.tmdb_api_key,
+            "DRAGON_TMDB_READ_ACCESS_TOKEN": self.tmdb_read_access_token,
             "DRAGON_MAGNETS_ENABLED": self.magnets_enabled,
             "DRAGON_EXTERNAL_SYNC_ENABLED": self.external_sync_enabled,
             "DRAGON_NOTION_WRITEBACK_ENABLED": self.notion_writeback_enabled,
@@ -196,6 +214,8 @@ class Settings:
             "youtube_api_key",
             "youtube_watch_later_playlist_id",
             "vidsrc_embed_url",
+            "tmdb_api_key",
+            "tmdb_read_access_token",
         }
         return {
             field.name: getattr(self, field.name)

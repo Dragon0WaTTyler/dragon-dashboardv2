@@ -98,9 +98,11 @@ creates an ignored instance secret; production fails fast without
 
 VidSrc requires both `DRAGON_PLAYBACK_ENABLED=true` and
 `DRAGON_VIDSRC_ENABLED=true`. `DRAGON_VIDSRC_EMBED_URL` defaults to the single
-legacy VidSrc base. The movie detail response contains no embed URL; the
-protected playback endpoint resolves it only after the signed-in user presses
-Play.
+VidSrc v2 base used by the legacy integration. The movie detail response
+contains no embed URL; the protected playback endpoint resolves it only after
+the signed-in user presses Play. When a movie has no stored IMDb ID, that
+explicit action uses configured TMDB credentials to resolve and cache
+`tmdb_id`, `tmdb_type`, and `imdb_id` before constructing the VidSrc URL.
 
 Public YouTube playlist synchronization also requires
 `DRAGON_YOUTUBE_API_KEY` and `DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID`. It runs

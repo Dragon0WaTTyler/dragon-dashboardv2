@@ -73,3 +73,60 @@ def test_vidsrc_is_click_gated_and_resolved_by_protected_playback_route(
 
     anonymous = app.test_client().get(f"/playback/movie/{movie_id}/vidsrc")
     assert anonymous.status_code == 302
+
+
+def test_vidsrc_resolves_and_caches_external_ids(authenticated_client, app):
+    class StubIdentityProvider:
+        def resolve(self, **values):
+            assert values == {
+                "title": "Great Teacher Onizuka",
+                "year": 1999,
+                "media_type": "movie",
+                "external_ids": {},
+            }
+            return {
+                "tmdb_id": "43017",
+                "tmdb_type": "tv",
+                "imdb_id": "tt0315008",
+            }
+
+    with app.app_context():
+        movie = Movie(
+            title="Great Teacher Onizuka",
+            normalized_title="great teacher onizuka",
+            year=1999,
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = True
+    app.config["DRAGON_VIDSRC_ENABLED"] = True
+    app.config["DRAGON_VIDSRC_EMBED_URL"] = "https://vsembed.ru/embed"
+    app.extensions["dragon_tmdb_identity_provider"] = StubIdentityProvider()
+
+    response = authenticated_client.get(f"/playback/movie/{movie_id}/vidsrc")
+
+    assert response.status_code == 200
+    assert response.get_json()["source"]["url"] == (
+        "https://vsembed.ru/embed/tt0315008"
+    )
+    with app.app_context():
+        assert db.session.get(Movie, movie_id).external_ids == {
+            "tmdb_id": "43017",
+            "tmdb_type": "tv",
+            "imdb_id": "tt0315008",
+        }
+
+
+def test_vidsrc_v2_redirect_hosts_are_allowed_by_csp(authenticated_client, app):
+    app.config["DRAGON_VIDSRC_ENABLED"] = True
+    app.config["DRAGON_VIDSRC_EMBED_URL"] = "https://v2.vidsrc.me/embed"
+
+    response = authenticated_client.get("/")
+
+    policy = response.headers["Content-Security-Policy"]
+    assert (
+        "frame-src 'self' https://v2.vidsrc.me https://vidsrc.me https://vidsrcme.ru"
+        in policy
+    )

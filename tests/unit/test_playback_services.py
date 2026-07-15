@@ -48,19 +48,16 @@ def test_magnet_is_normalized_without_launching_a_client(app):
             PlaybackService.add_magnet(movie_id=movie.id, magnet_uri="https://example.test")
 
 
-def test_vidsrc_source_prefers_imdb_and_falls_back_to_encoded_title():
+def test_vidsrc_source_requires_a_valid_imdb_id():
     imdb_source = PlaybackService.vidsrc_source(
         movie={"title": "Arrival", "external_ids": {"imdb_id": "tt2543164"}},
         base_url="https://vsembed.ru/embed",
     )
-    title_source = PlaybackService.vidsrc_source(
-        movie={"title": "In the Mood for Love", "external_ids": {}},
-        base_url="https://vsembed.ru/embed/",
-    )
 
     assert imdb_source["url"] == "https://vsembed.ru/embed/tt2543164"
     assert imdb_source["match"] == "imdb"
-    assert title_source["url"] == (
-        "https://vsembed.ru/embed/search/In%20the%20Mood%20for%20Love"
-    )
-    assert title_source["match"] == "title"
+    with pytest.raises(ValueError, match="IMDb ID"):
+        PlaybackService.vidsrc_source(
+            movie={"title": "In the Mood for Love", "external_ids": {}},
+            base_url="https://vsembed.ru/embed/",
+        )
