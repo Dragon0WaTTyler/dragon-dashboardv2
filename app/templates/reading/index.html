@@ -2,6 +2,7 @@
 {% from "components/ui.html" import badge, empty_state %}
 {% block title %}Reading · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/reading.js') }}" defer></script>{% endblock %}
 {% block content %}
 <header class="page-header">
   <div><span class="eyebrow">Editorial inbox</span><h1>Reading</h1><p>Cached articles, deliberate full-text loading, and visible source health.</p></div>
@@ -19,12 +20,12 @@
 <div class="article-list{% if view == 'grid' %} article-list--grid{% endif %}" aria-label="Reading results">
   {% for article in articles %}
   <article class="article-card{% if view == 'list' and article.direction == 'rtl' %} article-card--rtl{% endif %}">
-    <a class="article-card__image" data-media-frame href="{{ url_for('reading.detail', article_id=article.id) }}">
+    <a class="article-card__image" data-media-frame data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">
       {% if article.image_url %}<img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="320" height="180"><span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% endif %}
     </a>
     <div class="article-card__body">
       <span class="eyebrow" dir="auto">{{ article.source }}{% if article.topic %} · {{ article.topic }}{% endif %}</span>
-      <h2 dir="auto"><a href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h2>
+      <h2 dir="auto"><a data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h2>
       {% if article.excerpt %}<p dir="auto">{{ article.excerpt }}</p>{% endif %}
       {{ badge(article.status|title, 'accent' if article.status == 'reading' else '') }}
     </div>
@@ -34,4 +35,7 @@
 {% else %}
 {{ empty_state('No cached articles', 'Configure sources and run an explicit refresh from Admin later.') }}
 {% endif %}
+<form data-article-open-form method="post" action="{{ url_for('reading.index') }}" hidden>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+</form>
 {% endblock %}

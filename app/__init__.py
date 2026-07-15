@@ -28,6 +28,7 @@ from app.migration import migration_cli
 from app.movies import bp as movies_bp
 from app.playback import bp as playback_bp
 from app.reading import bp as reading_bp
+from app.reading.providers import ArticleExtractor
 from app.youtube import bp as youtube_bp
 
 
@@ -40,6 +41,8 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     app.config.from_mapping(settings.flask_mapping(config_override))
     app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=14)
     app.extensions["dragon_settings"] = settings
+    if not app.config.get("TESTING"):
+        app.extensions["dragon_article_extractor"] = ArticleExtractor()
 
     install_request_middleware(app)
     db.init_app(app)

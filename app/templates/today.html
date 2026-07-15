@@ -2,7 +2,7 @@
 {% from "components/ui.html" import badge, empty_state %}
 {% block title %}Today · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/today.css') }}">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/today.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/today.js') }}" defer></script><script src="{{ url_for('static', filename='js/reading.js') }}" defer></script>{% endblock %}
 {% block content %}
 <header class="page-header page-header--today">
   <div>
@@ -99,22 +99,22 @@
       <div class="today-media-grid">
         {% for article in workspace.continue_reading %}
         <article class="today-media-card">
-          <a class="today-media-card__image" data-media-frame href="{{ url_for('reading.detail', article_id=article.id) }}">
+          <a class="today-media-card__image" data-media-frame data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">
             {% if article.image_url %}<img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" aria-hidden="true">R</span>{% else %}<span class="media-fallback" aria-hidden="true">R</span>{% endif %}
           </a>
           <div class="today-media-card__body">
             <span class="eyebrow" dir="auto">{{ article.source }}</span>
-            <h3 dir="auto"><a href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h3>
+            <h3 dir="auto"><a data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h3>
           </div>
         </article>
         {% endfor %}
       </div>
       {% elif workspace.article_of_day %}
       <article class="today-article-feature">
-        <a class="today-article-feature__image" data-media-frame href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">
+        <a class="today-article-feature__image" data-media-frame data-article-open="{{ url_for('reading.open_article', article_id=workspace.article_of_day.id) }}" href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">
           {% if workspace.article_of_day.image_url %}<img data-media-image src="{{ workspace.article_of_day.image_url }}" alt="Thumbnail for {{ workspace.article_of_day.title }}" loading="lazy" width="640" height="360"><span class="media-fallback" aria-hidden="true">R</span>{% else %}<span class="media-fallback" aria-hidden="true">R</span>{% endif %}
         </a>
-        <div><span class="eyebrow" dir="auto">Article of the day · {{ workspace.article_of_day.source }}</span><h3 dir="auto"><a href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">{{ workspace.article_of_day.title }}</a></h3><p dir="auto">{{ workspace.article_of_day.excerpt or 'A saved local read, ready when you are.' }}</p></div>
+        <div><span class="eyebrow" dir="auto">Article of the day · {{ workspace.article_of_day.source }}</span><h3 dir="auto"><a data-article-open="{{ url_for('reading.open_article', article_id=workspace.article_of_day.id) }}" href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">{{ workspace.article_of_day.title }}</a></h3><p dir="auto">{{ workspace.article_of_day.excerpt or 'A saved local read, ready when you are.' }}</p></div>
       </article>
       {% else %}
       {{ empty_state('No saved reads', 'Your next unread or in-progress article will appear here.') }}
@@ -149,4 +149,7 @@
   </aside>
   <span class="visually-hidden" data-live-announcer aria-live="polite"></span>
 </div>
+<form data-article-open-form method="post" action="{{ url_for('reading.index') }}" hidden>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+</form>
 {% endblock %}

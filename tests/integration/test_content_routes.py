@@ -77,7 +77,7 @@ def test_primary_content_pages_render(authenticated_client, app):
 
 
 def test_library_viewers_and_thumbnails_render(authenticated_client, app):
-    seed_content(app)
+    ids = seed_content(app)
     grid = authenticated_client.get("/books?view=grid")
     compact = authenticated_client.get("/books?view=list")
     invalid = authenticated_client.get("/books?view=unknown")
@@ -113,6 +113,7 @@ def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     assert 'src="https://images.example.test/watch-video.jpg"' in today_html
     assert 'src="https://images.example.test/article.jpg"' in today_html
     assert 'src="https://images.example.test/book.jpg"' in today_html
+    assert f'data-article-open="/reading/{ids["article"]}/open"' in today_html
 
 
 def test_watch_later_paginates_large_playlists(authenticated_client, app):
@@ -156,16 +157,64 @@ def test_fulltext_status_get_is_read_only(authenticated_client, app):
         assert db.session.get(Article, article_id).updated_at == before
 
 
-def test_explicit_fulltext_post_is_safe_when_disabled(authenticated_client, app):
+def test_article_open_post_is_safe_when_extractor_unavailable(
+    authenticated_client, app
+):
     article_id = seed_content(app)["article"]
     page = authenticated_client.get(f"/reading/{article_id}")
     response = authenticated_client.post(
-        f"/reading/{article_id}/extract-fulltext",
+        f"/reading/{article_id}/open",
         data={"csrf_token": csrf_from(page)},
         follow_redirects=True,
     )
-    assert "Full-text extraction is unavailable" in response.get_data(as_text=True)
+    assert "full article is unavailable" in response.get_data(as_text=True)
     with app.app_context():
         article = db.session.get(Article, article_id)
         assert article.fulltext_state == "not_requested"
         assert article.content_text == ""
+
+
+def test_article_click_loads_and_caches_full_text(authenticated_client, app):
+    class Extractor:
+        @staticmethod
+        def extract(url):
+            assert url == "https://example.test/article"
+            return {
+                "content_text": (
+                    "This complete article is loaded only after the reader chooses it. "
+                    "The cached copy is then used on every later detail request."
+                )
+            }
+
+    article_id = seed_content(app)["article"]
+    app.extensions["dragon_article_extractor"] = Extractor()
+    page = authenticated_client.get("/reading?view=list")
+    html = page.get_data(as_text=True)
+    assert f'data-article-open="/reading/{article_id}/open"' in html
+
+    response = authenticated_client.post(
+        f"/reading/{article_id}/open",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+    detail_html = response.get_data(as_text=True)
+    assert "This complete article is loaded only" in detail_html
+    assert "Load full article explicitly" not in detail_html
+    assert "Full-text cache" not in detail_html
+    with app.app_context():
+        article = db.session.get(Article, article_id)
+        assert article.fulltext_state == "cached"
+        assert article.status == "reading"
+
+
+def test_article_detail_get_never_calls_extractor(authenticated_client, app):
+    class Extractor:
+        @staticmethod
+        def extract(url):
+            raise AssertionError(f"GET unexpectedly extracted {url}")
+
+    article_id = seed_content(app)["article"]
+    app.extensions["dragon_article_extractor"] = Extractor()
+    response = authenticated_client.get(f"/reading/{article_id}")
+    assert response.status_code == 200
+    assert "Stored locally." in response.get_data(as_text=True)

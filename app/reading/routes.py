@@ -66,20 +66,22 @@ def fulltext_status(article_id: str):
     return ReadingService.extraction_status(article)
 
 
-@bp.post("/<article_id>/extract-fulltext")
+@bp.post("/<article_id>/open")
 @login_required
-def extract_fulltext(article_id: str):
+def open_article(article_id: str):
     article = ReadingRepository.get(article_id)
     if article is None:
         abort(404)
+    if article.content_text:
+        return redirect(url_for("reading.detail", article_id=article.id))
     extractor = current_app.extensions.get("dragon_article_extractor")
-    if not current_app.config["DRAGON_EXTERNAL_SYNC_ENABLED"] or extractor is None:
-        flash("Full-text extraction is unavailable. Open the original source instead.", "warning")
+    if extractor is None:
+        flash("The full article is unavailable. You can still open the original source.", "warning")
         return redirect(url_for("reading.detail", article_id=article.id))
     try:
         ReadingService.extract_fulltext(article, extractor)
     except ValueError as exc:
         flash(str(exc), "error")
     else:
-        flash("Full article text cached locally.", "success")
+        flash("Full article loaded and cached locally.", "success")
     return redirect(url_for("reading.detail", article_id=article.id))
