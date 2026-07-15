@@ -7,8 +7,13 @@ from app.books.services import BookService, book_item
 from app.extensions import db
 from app.movies.models import Movie
 from app.reading.models import Article
-from app.reading.services import ReadingService, article_item
-from app.reading.text import normalize_article_text
+from app.reading.services import (
+    ReadingService,
+    article_content_is_readable,
+    article_detail,
+    article_item,
+)
+from app.reading.text import article_paragraphs, normalize_article_text
 from app.shared.text import text_direction
 from app.today.services import TodayService
 from app.youtube.models import YouTubeVideo
@@ -194,6 +199,32 @@ def test_article_text_normalizer_cleans_escaped_breaks_and_markup():
     assert "الفقرة الأخيرة" in cleaned
     assert "<br>" not in cleaned
     assert "hidden tracker" not in cleaned
+
+
+def test_article_projection_removes_chrome_and_labels_video_summaries():
+    article = Article(
+        title="A video report",
+        url="https://example.test/video/newsfeed/report",
+        content_text=(
+            "A video report\n\n"
+            "This is the useful source summary with enough context to remain readable.\n\n"
+            "Save\n\nShare\n\nThis is the useful source summary with enough context "
+            "to remain readable."
+        ),
+    )
+
+    detail = article_detail(article)
+
+    assert detail["content_label"] == "Video summary"
+    assert detail["content_paragraphs"] == [
+        "This is the useful source summary with enough context to remain readable."
+    ]
+    assert article_content_is_readable(article) is False
+    assert article_paragraphs("الرئيسية\n\nسياسة\n\nرياضة", title="خبر") == [
+        "الرئيسية",
+        "سياسة",
+        "رياضة",
+    ]
 
 
 def test_watch_later_sync_keeps_pockettube_membership_separate(app):

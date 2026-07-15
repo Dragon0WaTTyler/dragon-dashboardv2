@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlsplit
+
 from sqlalchemy import or_
 
 from app.extensions import db
@@ -31,15 +33,26 @@ def article_item(article: Article) -> dict:
 
 
 def article_detail(article: Article) -> dict:
-    content_text = normalize_article_text(article.content_text)
+    item = article_item(article)
+    content_paragraphs = article_paragraphs(article.content_text, title=article.title)
+    content_text = "\n\n".join(content_paragraphs)
+    is_video = "/video/" in urlsplit(article.url).path.casefold()
     return {
-        **article_item(article),
+        **item,
         "url": article.url,
         "content_text": content_text,
-        "content_paragraphs": article_paragraphs(content_text),
+        "content_paragraphs": content_paragraphs,
+        "content_kind": "video" if is_video else "article",
+        "content_label": "Video summary" if is_video else "Full article",
+        "language": "ar" if item["direction"] == "rtl" else "en",
         "fulltext_error": article.fulltext_error,
         "history": article.history,
     }
+
+
+def article_content_is_readable(article: Article) -> bool:
+    paragraphs = article_paragraphs(article.content_text, title=article.title)
+    return any(len(paragraph) >= 80 for paragraph in paragraphs)
 
 
 class ReadingService:
@@ -62,6 +75,7 @@ class ReadingService:
         try:
             result = extractor.extract(article.url)
             content = normalize_article_text(result.get("content_text"))
+            content = "\n\n".join(article_paragraphs(content, title=article.title))
             if not content:
                 raise ValueError("Extractor returned no readable text.")
         except Exception as exc:

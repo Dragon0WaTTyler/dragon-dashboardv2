@@ -62,6 +62,8 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
     assert "<br>" not in page.locator(".article-body").inner_text()
     assert page.get_by_text("Load full article explicitly").count() == 0
     assert page.get_by_text("Full-text cache").count() == 0
+    assert page.get_by_text("Full article", exact=True).is_visible()
+    assert page.get_by_role("button", name="Refresh text").is_visible()
     title_metrics = page.locator(".reading-detail h1").evaluate(
         "element => ({"
         "fontSize: parseFloat(getComputedStyle(element).fontSize),"
@@ -70,6 +72,26 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
     )
     assert title_metrics["fontSize"] <= 56
     assert title_metrics["direction"] == "rtl"
+    reader_metrics = page.evaluate(
+        "() => {"
+        "const reader = document.querySelector('.reading-detail');"
+        "const title = reader.querySelector('h1');"
+        "const paragraph = reader.querySelector('.article-body p');"
+        "const content = reader.querySelector('.reading-detail__content');"
+        "const rail = reader.querySelector('.reading-detail__rail');"
+        "return {"
+        "titleRight: Math.round(title.getBoundingClientRect().right),"
+        "readerRight: Math.round(reader.getBoundingClientRect().right),"
+        "paragraphDirection: getComputedStyle(paragraph).direction,"
+        "paragraphAlign: getComputedStyle(paragraph).textAlign,"
+        "contentLeft: Math.round(content.getBoundingClientRect().left),"
+        "railLeft: Math.round(rail.getBoundingClientRect().left)"
+        "};}"
+    )
+    assert abs(reader_metrics["titleRight"] - reader_metrics["readerRight"]) <= 2
+    assert reader_metrics["paragraphDirection"] == "rtl"
+    assert reader_metrics["paragraphAlign"] == "right"
+    assert reader_metrics["contentLeft"] > reader_metrics["railLeft"]
 
     page.set_viewport_size({"width": 390, "height": 844})
     metrics = page.evaluate(

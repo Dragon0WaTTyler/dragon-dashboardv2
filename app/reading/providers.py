@@ -15,9 +15,75 @@ MAX_ARTICLE_BYTES = 2_000_000
 MAX_FEED_BYTES = 2_000_000
 MAX_FEED_ENTRIES = 80
 SKIPPED_TAGS = frozenset(
-    {"script", "style", "noscript", "svg", "nav", "footer", "aside", "form"}
+    {
+        "script",
+        "style",
+        "noscript",
+        "svg",
+        "nav",
+        "footer",
+        "aside",
+        "form",
+        "button",
+        "template",
+    }
 )
-CONTENT_TAGS = frozenset({"p", "h2", "h3", "blockquote", "li"})
+CONTENT_TAGS = frozenset({"p", "h1", "h2", "h3", "h4", "blockquote", "li"})
+VOID_TAGS = frozenset(
+    {
+        "area",
+        "base",
+        "br",
+        "col",
+        "embed",
+        "hr",
+        "img",
+        "input",
+        "link",
+        "meta",
+        "source",
+        "track",
+        "wbr",
+    }
+)
+SKIP_CONTAINER_TAGS = frozenset({"div", "section", "ul", "ol"})
+SKIP_MARKERS = frozenset(
+    {
+        "advert",
+        "breadcrumb",
+        "menu",
+        "nav",
+        "newsletter",
+        "promo",
+        "recommend",
+        "related",
+        "share",
+        "social",
+        "tags",
+    }
+)
+BOILERPLATE_BLOCKS = frozenset(
+    {
+        "advertisement",
+        "image",
+        "recommended stories",
+        "related stories",
+        "save",
+        "share",
+        "إعلان",
+        "حفظ",
+        "شارك",
+    }
+)
+BOILERPLATE_PREFIXES = (
+    "follow us",
+    "تابعوا آخر الأخبار",
+)
+
+
+def _is_boilerplate(value: str) -> bool:
+    normalized = " ".join(value.split()).strip().casefold()
+    return normalized in BOILERPLATE_BLOCKS or normalized.startswith(BOILERPLATE_PREFIXES)
 
 
 def _validate_public_url(url: str, resolver: Callable[..., list[Any]]) -> str:
@@ -57,27 +123,43 @@ class _ArticleTextParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self._skip_depth = 0
-        self._preferred_depth = 0
+        self._main_depth = 0
+        self._article_depth = 0
         self._capture_tag = ""
         self._buffer: list[str] = []
         self._all_blocks: list[str] = []
-        self._preferred_blocks: list[str] = []
+        self._main_blocks: list[str] = []
+        self._article_blocks: list[str] = []
 
     def handle_starttag(self, tag: str, attrs) -> None:
         tag = tag.lower()
         if self._skip_depth:
-            self._skip_depth += 1
+            if tag not in VOID_TAGS:
+                self._skip_depth += 1
             return
-        if tag in SKIPPED_TAGS:
+        attributes = dict(attrs)
+        marker = " ".join(
+            str(attributes.get(name) or "") for name in ("id", "class", "role")
+        ).casefold()
+        hinted_container = tag in SKIP_CONTAINER_TAGS and any(
+            hint in marker for hint in SKIP_MARKERS
+        )
+        if tag in SKIPPED_TAGS or hinted_container:
             self._skip_depth = 1
             return
-        if tag in {"article", "main"}:
-            self._preferred_depth += 1
+        if tag == "main":
+            self._main_depth += 1
+        if tag == "article":
+            self._article_depth += 1
         if tag in CONTENT_TAGS and not self._capture_tag:
             self._capture_tag = tag
             self._buffer = []
         elif tag == "br" and self._capture_tag:
             self._buffer.append(" ")
+
+    def handle_startendtag(self, tag: str, attrs) -> None:
+        if not self._skip_depth:
+            self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
@@ -86,23 +168,36 @@ class _ArticleTextParser(HTMLParser):
             return
         if self._capture_tag == tag:
             block = " ".join("".join(self._buffer).split())
-            if block and (not self._all_blocks or self._all_blocks[-1] != block):
+            if (
+                block
+                and not _is_boilerplate(block)
+                and (not self._all_blocks or self._all_blocks[-1] != block)
+            ):
                 self._all_blocks.append(block)
-                if self._preferred_depth:
-                    self._preferred_blocks.append(block)
+                if self._article_depth:
+                    self._article_blocks.append(block)
+                elif self._main_depth:
+                    self._main_blocks.append(block)
             self._capture_tag = ""
             self._buffer = []
-        if tag in {"article", "main"} and self._preferred_depth:
-            self._preferred_depth -= 1
+        if tag == "article" and self._article_depth:
+            self._article_depth -= 1
+        if tag == "main" and self._main_depth:
+            self._main_depth -= 1
 
     def handle_data(self, data: str) -> None:
         if not self._skip_depth and self._capture_tag:
             self._buffer.append(data)
 
     def readable_text(self) -> str:
-        preferred = "\n\n".join(self._preferred_blocks)
+        article = "\n\n".join(self._article_blocks)
+        main = "\n\n".join(self._main_blocks)
         fallback = "\n\n".join(self._all_blocks)
-        return preferred if len(preferred) >= 160 else fallback
+        if len(article) >= 80:
+            return article
+        if len(main) >= 160:
+            return main
+        return fallback
 
 
 class _FeedMarkupParser(HTMLParser):

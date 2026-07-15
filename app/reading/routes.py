@@ -4,7 +4,12 @@ from flask import Blueprint, abort, current_app, flash, redirect, render_templat
 from flask_login import login_required
 
 from app.reading.repositories import ReadingRepository
-from app.reading.services import ReadingService, article_detail, article_item
+from app.reading.services import (
+    ReadingService,
+    article_content_is_readable,
+    article_detail,
+    article_item,
+)
 from app.shared.refresh import OperationCoordinator
 
 bp = Blueprint("reading", __name__, url_prefix="/reading")
@@ -95,7 +100,7 @@ def open_article(article_id: str):
     article = ReadingRepository.get(article_id)
     if article is None:
         abort(404)
-    if article.content_text:
+    if article.content_text and article_content_is_readable(article):
         return redirect(url_for("reading.detail", article_id=article.id))
     extractor = current_app.extensions.get("dragon_article_extractor")
     if extractor is None:
@@ -107,4 +112,23 @@ def open_article(article_id: str):
         flash(str(exc), "error")
     else:
         flash("Full article loaded and cached locally.", "success")
+    return redirect(url_for("reading.detail", article_id=article.id))
+
+
+@bp.post("/<article_id>/refresh")
+@login_required
+def refresh_article(article_id: str):
+    article = ReadingRepository.get(article_id)
+    if article is None:
+        abort(404)
+    extractor = current_app.extensions.get("dragon_article_extractor")
+    if extractor is None:
+        flash("Article refresh is unavailable. The saved copy is unchanged.", "warning")
+        return redirect(url_for("reading.detail", article_id=article.id))
+    try:
+        ReadingService.extract_fulltext(article, extractor)
+    except ValueError as exc:
+        flash(str(exc), "error")
+    else:
+        flash("Article text refreshed from the original source.", "success")
     return redirect(url_for("reading.detail", article_id=article.id))

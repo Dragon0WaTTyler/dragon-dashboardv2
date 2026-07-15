@@ -65,6 +65,33 @@ def test_article_extractor_prefers_readable_article_text():
     assert result["canonical_url"] == "https://example.com/story"
 
 
+def test_article_extractor_prefers_article_over_main_chrome_and_void_form_tags():
+    body = b"""
+        <html><main>
+        <ul class="main-nav"><li>Home</li><li>Politics</li><li>Sport</li></ul>
+        <form><input type="search" name="q"></form>
+        <article>
+          <h1>A complete report</h1>
+          <p>The first substantial paragraph contains the actual report and enough detail.</p>
+          <p>The second substantial paragraph confirms the parser reached the article body.</p>
+          <p>Save</p><p>Share</p>
+        </article>
+        </main></html>
+    """
+    extractor = ArticleExtractor(
+        timeout_seconds=3,
+        resolver=public_resolver,
+        opener=FakeOpener(FakeResponse(body)),
+    )
+
+    result = extractor.extract("https://example.com/story")
+
+    assert "first substantial paragraph" in result["content_text"]
+    assert "Home" not in result["content_text"]
+    assert "Save" not in result["content_text"]
+    assert "Share" not in result["content_text"]
+
+
 def test_article_extractor_rejects_private_hosts():
     def private_resolver(host, port, *, type=None):
         return [(2, type, 6, "", ("127.0.0.1", port))]

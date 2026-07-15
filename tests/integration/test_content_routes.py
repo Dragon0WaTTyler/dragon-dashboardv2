@@ -217,6 +217,40 @@ def test_article_click_loads_and_caches_full_text(authenticated_client, app):
         assert article.status == "reading"
 
 
+def test_article_refresh_replaces_a_bad_cached_copy(authenticated_client, app):
+    class Extractor:
+        @staticmethod
+        def extract(url):
+            assert url == "https://example.test/article"
+            return {
+                "content_text": (
+                    "The refreshed article now contains a complete, readable paragraph from "
+                    "the original source instead of navigation labels."
+                )
+            }
+
+    article_id = seed_content(app)["article"]
+    with app.app_context():
+        article = db.session.get(Article, article_id)
+        article.content_text = "Home\n\nPolitics\n\nSport"
+        article.fulltext_state = "cached"
+        db.session.commit()
+    app.extensions["dragon_article_extractor"] = Extractor()
+    page = authenticated_client.get(f"/reading/{article_id}")
+
+    response = authenticated_client.post(
+        f"/reading/{article_id}/refresh",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "The refreshed article now contains" in html
+    assert "Article text refreshed" in html
+    assert "Refresh text" in html
+
+
 def test_article_detail_get_never_calls_extractor(authenticated_client, app):
     class Extractor:
         @staticmethod

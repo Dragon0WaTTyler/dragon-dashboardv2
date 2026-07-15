@@ -26,6 +26,20 @@ SKIPPED_TAGS = frozenset({"script", "style", "noscript", "svg", "template"})
 INLINE_SPACE_PATTERN = re.compile(r"[^\S\r\n]+")
 AROUND_BREAK_PATTERN = re.compile(r" *\n *")
 EXCESS_BREAK_PATTERN = re.compile(r"\n{3,}")
+BOILERPLATE_LINES = frozenset(
+    {
+        "advertisement",
+        "image",
+        "recommended stories",
+        "related stories",
+        "save",
+        "share",
+        "إعلان",
+        "حفظ",
+        "شارك",
+    }
+)
+BOILERPLATE_PREFIXES = ("follow us", "تابعوا آخر الأخبار")
 
 
 class _PlainTextParser(HTMLParser):
@@ -75,6 +89,22 @@ def normalize_article_text(value: object) -> str:
     return normalized.strip()
 
 
-def article_paragraphs(value: object) -> list[str]:
+def article_paragraphs(value: object, *, title: object = "") -> list[str]:
     parts = re.split(r"\n+", normalize_article_text(value))
-    return [part.strip() for part in parts if part.strip()]
+    title_key = " ".join(str(title or "").split()).casefold()
+    paragraphs: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        paragraph = part.strip()
+        key = " ".join(paragraph.split()).casefold()
+        if (
+            not key
+            or key == title_key
+            or key in BOILERPLATE_LINES
+            or key.startswith(BOILERPLATE_PREFIXES)
+            or key in seen
+        ):
+            continue
+        seen.add(key)
+        paragraphs.append(paragraph)
+    return paragraphs
