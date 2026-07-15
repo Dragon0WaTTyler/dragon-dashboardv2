@@ -106,6 +106,8 @@ def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     assert 'src="https://images.example.test/article.jpg"' in reading_html
     assert 'dir="auto"' in reading_html
     today_html = today.get_data(as_text=True)
+    assert "focus-strip" not in today_html
+    assert "Choose one thing" not in today_html
     assert 'class="today-feature"' in today_html
     assert 'src="https://images.example.test/movie.jpg"' in today_html
     assert 'src="https://images.example.test/watch-video.jpg"' in today_html
