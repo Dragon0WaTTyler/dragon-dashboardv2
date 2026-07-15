@@ -2,6 +2,7 @@
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/movie-detail.js') }}" defer></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
@@ -22,6 +23,29 @@
       <div><dt>Genres</dt><dd>{{ movie.genres|map(attribute='name')|join(', ') if movie.genres else 'Unknown' }}</dd></div>
       <div><dt>Source</dt><dd>{{ movie.source }}</dd></div>
     </dl>
+    {% if vidsrc_enabled %}
+    <section class="movie-player detail-section" aria-labelledby="movie-player-title" data-vidsrc-player data-source-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) }}">
+      <div class="movie-player__heading">
+        <div><span class="eyebrow">External player</span><h2 id="movie-player-title">Watch {{ movie.title }}</h2></div>
+        {{ badge('VidSrc', 'accent') }}
+      </div>
+      <div class="movie-player__viewport">
+        <button class="movie-player__launch" type="button" data-player-launch aria-describedby="movie-player-status">
+          <span class="movie-player__play" aria-hidden="true">▶</span>
+          <strong>Play with VidSrc</strong>
+          <span>Loads only after you press play</span>
+        </button>
+        <iframe class="movie-player__frame" data-player-frame title="VidSrc player for {{ movie.title }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" hidden></iframe>
+      </div>
+      <div class="movie-player__footer">
+        <p id="movie-player-status" class="muted" data-player-status aria-live="polite">Ready. No external connection has been made.</p>
+        <div class="movie-player__controls" data-player-controls hidden>
+          <button class="button button--quiet" type="button" data-player-reload>Reload player</button>
+          <a class="button button--secondary" data-player-open target="_blank" rel="noopener noreferrer" hidden>Open separately</a>
+        </div>
+      </div>
+    </section>
+    {% endif %}
     {% if movie.progress %}<section class="detail-section"><h2>Playback progress</h2><progress class="progress-track" value="{{ movie.progress.percent }}" max="100">{{ movie.progress.percent }}%</progress><p class="muted">{{ movie.progress.percent }}% watched</p></section>{% endif %}
     <section class="detail-section" aria-labelledby="actions-title">
       <h2 id="actions-title">Your library</h2>

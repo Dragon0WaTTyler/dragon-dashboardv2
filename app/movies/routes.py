@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
 from flask_login import login_required
 
 from app.movies.repositories import MovieRepository
@@ -46,7 +46,13 @@ def detail(movie_id: str):
     if movie is None:
         abort(404)
     return render_template(
-        "movies/detail.html", active_module="movies", movie=movie_detail(movie)
+        "movies/detail.html",
+        active_module="movies",
+        movie=movie_detail(movie),
+        vidsrc_enabled=(
+            current_app.config["DRAGON_PLAYBACK_ENABLED"]
+            and current_app.config["DRAGON_VIDSRC_ENABLED"]
+        ),
     )
 
 

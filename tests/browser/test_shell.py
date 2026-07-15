@@ -294,6 +294,43 @@ def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app)
     assert recommendation.locator("h2").inner_text() != first_title
 
 
+def test_vidsrc_player_loads_only_after_explicit_click(page, live_app, app):
+    with app.app_context():
+        movie = Movie(
+            title="Arrival",
+            normalized_title="arrival",
+            external_ids={"imdb_id": "tt2543164"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = True
+    app.config["DRAGON_VIDSRC_ENABLED"] = True
+    app.config["DRAGON_VIDSRC_EMBED_URL"] = "https://vsembed.ru/embed"
+    page.route(
+        "https://vsembed.ru/**",
+        lambda route: route.fulfill(
+            content_type="text/html",
+            body="<main><h1>VidSrc test player</h1></main>",
+        ),
+    )
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}")
+    frame = page.locator("[data-player-frame]")
+    assert frame.is_hidden()
+    assert page.locator("[data-player-controls]").is_hidden()
+    page.get_by_role("button", name="Play with VidSrc").click()
+    page.frame_locator("[data-player-frame]").get_by_role(
+        "heading", name="VidSrc test player"
+    ).wait_for()
+    assert frame.is_visible()
+    assert page.locator("[data-player-launch]").is_hidden()
+    assert page.locator("[data-player-controls]").is_visible()
+    assert page.get_by_text("VidSrc loaded.", exact=False).is_visible()
+
+
 @pytest.mark.parametrize(
     ("path", "heading"),
     [

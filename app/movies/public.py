@@ -12,4 +12,6 @@ def get_playback_context(movie_id: str) -> dict | None:
         "title": movie.title,
         "year": movie.year,
         "poster_url": movie.poster_url,
+        "media_type": movie.media_type,
+        "external_ids": dict(movie.external_ids or {}),
     }

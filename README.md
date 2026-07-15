@@ -61,8 +61,9 @@ flask --app app:create_app admin set-password
 - **AI** — lazy contextual workspaces that stay disabled without configuration.
 - **Admin** — protected explicit refresh/sync/repair/diagnostic actions,
   freshness, source health, snapshot inspection, and operation reports.
-- **Playback** — an isolated, optional local-source/magnet review registry. It
-  never launches a player or torrent client automatically.
+- **Playback** — an isolated, optional local-source/magnet review registry plus
+  an independently gated VidSrc player that loads only after an explicit click.
+  It never launches a player or torrent client automatically.
 
 Normal page GET requests use the local database/snapshots and make no external
 calls. External-facing operations are explicit, CSRF-protected, feature-gated,
@@ -87,12 +88,19 @@ creates an ignored instance secret; production fails fast without
 
 - `DRAGON_AI_ENABLED`
 - `DRAGON_PLAYBACK_ENABLED`
+- `DRAGON_VIDSRC_ENABLED`
 - `DRAGON_MAGNETS_ENABLED`
 - `DRAGON_EXTERNAL_SYNC_ENABLED`
 - `DRAGON_NOTION_WRITEBACK_ENABLED`
 - `DRAGON_YOUTUBE_DELETE_ENABLED`
 - `DRAGON_YOUTUBE_SYNC_ENABLED`
 - `DRAGON_READING_TTS_ENABLED`
+
+VidSrc requires both `DRAGON_PLAYBACK_ENABLED=true` and
+`DRAGON_VIDSRC_ENABLED=true`. `DRAGON_VIDSRC_EMBED_URL` defaults to the single
+legacy VidSrc base. The movie detail response contains no embed URL; the
+protected playback endpoint resolves it only after the signed-in user presses
+Play.
 
 Public YouTube playlist synchronization also requires
 `DRAGON_YOUTUBE_API_KEY` and `DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID`. It runs

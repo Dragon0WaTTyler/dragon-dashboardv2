@@ -34,3 +34,42 @@ def test_magnet_route_is_hidden_independently(authenticated_client, app):
         },
     )
     assert response.status_code == 404
+
+
+def test_vidsrc_is_click_gated_and_resolved_by_protected_playback_route(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="Arrival",
+            normalized_title="arrival",
+            external_ids={"imdb_id": "tt2543164"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = True
+    app.config["DRAGON_VIDSRC_ENABLED"] = True
+    app.config["DRAGON_VIDSRC_EMBED_URL"] = "https://vsembed.ru/embed"
+
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    detail_html = detail.get_data(as_text=True)
+    assert "Play with VidSrc" in detail_html
+    assert "https://vsembed.ru" not in detail_html
+    assert "frame-src 'self' https://vsembed.ru" in detail.headers[
+        "Content-Security-Policy"
+    ]
+
+    response = authenticated_client.get(f"/playback/movie/{movie_id}/vidsrc")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    assert response.get_json()["source"] == {
+        "provider": "vidsrc",
+        "label": "VidSrc",
+        "url": "https://vsembed.ru/embed/tt2543164",
+        "match": "imdb",
+    }
+
+    anonymous = app.test_client().get(f"/playback/movie/{movie_id}/vidsrc")
+    assert anonymous.status_code == 302

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from app.extensions import db
 from app.history.services import HistoryService
@@ -36,6 +36,35 @@ def magnet_item(candidate: MagnetCandidate) -> dict:
 
 
 class PlaybackService:
+    @staticmethod
+    def vidsrc_source(*, movie: dict, base_url: str) -> dict:
+        external_ids = dict(movie.get("external_ids") or {})
+        imdb_id = ""
+        for key in ("imdb_id", "imdb"):
+            candidate = str(external_ids.get(key) or "").strip().lower()
+            if re.fullmatch(r"tt\d{5,12}", candidate):
+                imdb_id = candidate
+                break
+
+        normalized_base = base_url.strip().rstrip("/")
+        if imdb_id:
+            return {
+                "provider": "vidsrc",
+                "label": "VidSrc",
+                "url": f"{normalized_base}/{imdb_id}",
+                "match": "imdb",
+            }
+
+        title = str(movie.get("title") or "").strip()
+        if not title:
+            raise ValueError("A movie title is required for VidSrc search.")
+        return {
+            "provider": "vidsrc",
+            "label": "VidSrc",
+            "url": f"{normalized_base}/search/{quote(title, safe='')}",
+            "match": "title",
+        }
+
     @staticmethod
     def workspace(movie_id: str) -> dict:
         sources = list(

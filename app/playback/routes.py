@@ -1,6 +1,16 @@
 from __future__ import annotations
 
-from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    url_for,
+)
 from flask_login import login_required
 
 from app.extensions import db
@@ -14,6 +24,28 @@ bp = Blueprint("playback", __name__, url_prefix="/playback")
 def _require_playback() -> None:
     if not current_app.config["DRAGON_PLAYBACK_ENABLED"]:
         abort(404)
+
+
+def _require_vidsrc() -> None:
+    _require_playback()
+    if not current_app.config["DRAGON_VIDSRC_ENABLED"]:
+        abort(404)
+
+
+@bp.get("/movie/<movie_id>/vidsrc")
+@login_required
+def vidsrc_source(movie_id: str):
+    _require_vidsrc()
+    context = get_playback_context(movie_id)
+    if context is None:
+        abort(404)
+    source = PlaybackService.vidsrc_source(
+        movie=context,
+        base_url=current_app.config["DRAGON_VIDSRC_EMBED_URL"],
+    )
+    response = jsonify({"ok": True, "source": source})
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @bp.get("/movie/<movie_id>")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from urllib.parse import urlsplit
 
 from flask import Flask, g
 
@@ -19,6 +20,11 @@ def install_request_middleware(app: Flask) -> None:
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+        frame_sources = ["'self'"]
+        if app.config.get("DRAGON_VIDSRC_ENABLED"):
+            parsed = urlsplit(str(app.config.get("DRAGON_VIDSRC_EMBED_URL") or ""))
+            if parsed.scheme == "https" and parsed.netloc:
+                frame_sources.append(f"{parsed.scheme}://{parsed.netloc}")
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             "script-src 'self'; "
@@ -26,6 +32,7 @@ def install_request_middleware(app: Flask) -> None:
             "font-src 'self'; "
             "img-src 'self' data: https:; "
             "connect-src 'self'; "
+            f"frame-src {' '.join(frame_sources)}; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "
             "form-action 'self'"

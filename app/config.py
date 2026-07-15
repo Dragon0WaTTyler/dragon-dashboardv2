@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, fields
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off"}
@@ -41,6 +42,21 @@ def _private_setting(instance_path: Path, name: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
+def _https_base_url(value: str, *, name: str) -> str:
+    normalized = value.strip().rstrip("/")
+    parsed = urlsplit(normalized)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(f"{name} must be a plain HTTPS base URL.")
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     environment: str
@@ -49,6 +65,8 @@ class Settings:
     auth_required: bool
     ai_enabled: bool
     playback_enabled: bool
+    vidsrc_enabled: bool
+    vidsrc_embed_url: str
     magnets_enabled: bool
     external_sync_enabled: bool
     notion_writeback_enabled: bool
@@ -109,6 +127,15 @@ class Settings:
             or os.getenv("DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID", "")
             or _private_setting(instance_root, "youtube_watch_later_playlist_id")
         ).strip()
+        vidsrc_embed_url = _https_base_url(
+            str(
+                override_map.get("VIDSRC_EMBED_URL")
+                or override_map.get("DRAGON_VIDSRC_EMBED_URL")
+                or os.getenv("DRAGON_VIDSRC_EMBED_URL", "")
+                or "https://vsembed.ru/embed"
+            ),
+            name="DRAGON_VIDSRC_EMBED_URL",
+        )
 
         return cls(
             environment=environment,
@@ -117,6 +144,8 @@ class Settings:
             auth_required=feature("AUTH_REQUIRED", True),
             ai_enabled=feature("AI_ENABLED", False),
             playback_enabled=feature("PLAYBACK_ENABLED", False),
+            vidsrc_enabled=feature("VIDSRC_ENABLED", False),
+            vidsrc_embed_url=vidsrc_embed_url,
             magnets_enabled=feature("MAGNETS_ENABLED", False),
             external_sync_enabled=feature("EXTERNAL_SYNC_ENABLED", False),
             notion_writeback_enabled=feature("NOTION_WRITEBACK_ENABLED", False),
@@ -146,6 +175,8 @@ class Settings:
             "DRAGON_AUTH_REQUIRED": self.auth_required,
             "DRAGON_AI_ENABLED": self.ai_enabled,
             "DRAGON_PLAYBACK_ENABLED": self.playback_enabled,
+            "DRAGON_VIDSRC_ENABLED": self.vidsrc_enabled,
+            "DRAGON_VIDSRC_EMBED_URL": self.vidsrc_embed_url,
             "DRAGON_MAGNETS_ENABLED": self.magnets_enabled,
             "DRAGON_EXTERNAL_SYNC_ENABLED": self.external_sync_enabled,
             "DRAGON_NOTION_WRITEBACK_ENABLED": self.notion_writeback_enabled,
@@ -164,6 +195,7 @@ class Settings:
             "database_url",
             "youtube_api_key",
             "youtube_watch_later_playlist_id",
+            "vidsrc_embed_url",
         }
         return {
             field.name: getattr(self, field.name)
