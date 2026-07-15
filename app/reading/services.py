@@ -4,6 +4,7 @@ from app.extensions import db
 from app.history.services import HistoryService
 from app.reading.models import Article
 from app.shared.operations.service import safe_error_text
+from app.shared.text import text_direction
 from app.shared.time import utc_iso
 
 ARTICLE_STATUSES = {"unread", "reading", "finished", "saved"}
@@ -13,6 +14,7 @@ def article_item(article: Article) -> dict:
     return {
         "id": article.id,
         "title": article.title,
+        "direction": text_direction(article.title),
         "source": article.source.name if article.source else "Unknown source",
         "source_id": article.source_id,
         "author": article.author,

@@ -7,10 +7,21 @@ from app.books.services import BookService
 from app.extensions import db
 from app.movies.models import Movie
 from app.reading.models import Article
-from app.reading.services import ReadingService
+from app.reading.services import ReadingService, article_item
+from app.shared.text import text_direction
 from app.today.services import TodayService
 from app.youtube.models import YouTubeVideo
-from app.youtube.services import YouTubeService
+from app.youtube.services import YouTubeService, video_item
+
+
+def test_content_direction_detects_arabic_and_mixed_titles():
+    assert text_direction("A plain English title") == "ltr"
+    assert text_direction("عنوان عربي") == "rtl"
+    assert text_direction("Editing tutorial · شرح عربي") == "rtl"
+    assert video_item(YouTubeVideo(title="فيديو عربي"))["direction"] == "rtl"
+    assert article_item(Article(title="مقال عربي", url="https://example.test"))[
+        "direction"
+    ] == "rtl"
 
 
 def test_watch_later_removal_preserves_local_history(app):

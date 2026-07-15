@@ -23,6 +23,14 @@ def seed_content(app) -> dict[str, str]:
             title="A saved video",
             thumbnail_url="https://images.example.test/watch-video.jpg",
         )
+        rtl_video = YouTubeVideo(
+            external_id="rtl-seed",
+            source="pockettube",
+            group_name="Learning",
+            channel_title="Arabic Channel",
+            title="شرح عربي للفيديو",
+            thumbnail_url="https://images.example.test/rtl-video.jpg",
+        )
         source = ReadingSource(name="Example Journal", feed_url="https://example.test/feed.xml")
         article = Article(
             source=source,
@@ -46,7 +54,7 @@ def seed_content(app) -> dict[str, str]:
             status="want_to_watch",
             poster_url="https://images.example.test/movie.jpg",
         )
-        db.session.add_all([video, watch_video, source, article, book, movie])
+        db.session.add_all([video, watch_video, rtl_video, source, article, book, movie])
         db.session.commit()
         return {"video": video.id, "article": article.id, "book": book.id}
 
@@ -88,9 +96,11 @@ def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     assert "book-grid--list" not in invalid.get_data(as_text=True)
     assert "article-list--grid" in reading_grid.get_data(as_text=True)
     assert "article-list--grid" not in reading_list.get_data(as_text=True)
+    assert "article-card--rtl" in reading_list.get_data(as_text=True)
     assert "article-list--grid" in reading_invalid.get_data(as_text=True)
     assert "media-list--grid" in youtube_grid.get_data(as_text=True)
     assert "media-list--grid" not in youtube_list.get_data(as_text=True)
+    assert "media-row--rtl" in youtube_list.get_data(as_text=True)
     assert "media-list--grid" in youtube_invalid.get_data(as_text=True)
     reading_html = reading_grid.get_data(as_text=True)
     assert 'src="https://images.example.test/article.jpg"' in reading_html

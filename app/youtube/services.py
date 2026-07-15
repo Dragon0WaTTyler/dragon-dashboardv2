@@ -8,6 +8,7 @@ from typing import Any
 from app.extensions import db
 from app.history.services import HistoryService
 from app.shared.models import SnapshotRecord
+from app.shared.text import text_direction
 from app.shared.time import utc_iso, utc_now
 from app.youtube.models import YouTubeVideo
 from app.youtube.providers import YouTubePlaylistClient
@@ -44,6 +45,7 @@ def video_item(video: YouTubeVideo) -> dict:
         "id": video.id,
         "external_id": video.external_id,
         "title": video.title,
+        "direction": text_direction(video.title),
         "channel_title": video.channel_title,
         "source": video.source,
         "group_name": video.group_name,

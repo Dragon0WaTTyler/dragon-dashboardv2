@@ -106,7 +106,7 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
                     external_id="home-video",
                     source="watch_later",
                     channel_title="Home Channel",
-                    title="Home video",
+                    title="فيديو عربي",
                     thumbnail_url=image,
                 ),
             ]
@@ -153,6 +153,10 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
     page.get_by_label("View").select_option("list")
     page.get_by_role("button", name="Apply").click()
     assert page.locator(".article-list--grid").count() == 0
+    assert page.locator(".article-card--rtl").evaluate(
+        "element => element.querySelector('.article-card__image').getBoundingClientRect().left"
+        " > element.getBoundingClientRect().left + element.getBoundingClientRect().width / 2"
+    )
 
     page.goto(f"{live_app}/youtube")
     assert page.locator(".media-list--grid").evaluate(
@@ -161,6 +165,10 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
     page.get_by_label("View").select_option("list")
     page.get_by_role("button", name="Apply").click()
     assert page.locator(".media-list--grid").count() == 0
+    assert page.locator(".media-row--rtl").evaluate(
+        "element => element.querySelector('.media-row__image').getBoundingClientRect().left"
+        " > element.getBoundingClientRect().left + element.getBoundingClientRect().width / 2"
+    )
 
     page.route(
         "**/api/v1/home/live",

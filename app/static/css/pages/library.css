@@ -6,6 +6,7 @@
 .compact-filters--wide { grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(140px, .65fr)) auto; }
 .media-list, .article-list { border-top: 1px solid var(--color-border); }
 .media-row { display: grid; grid-template-columns: 180px minmax(0, 1fr) auto; gap: var(--space-5); align-items: center; padding-block: var(--space-4); border-bottom: 1px solid var(--color-border); }
+.media-row--rtl, .article-card--rtl { direction: rtl; }
 .media-row__image, .article-card__image { display: grid; aspect-ratio: 16/9; overflow: hidden; border: 1px solid var(--color-border); background: var(--color-surface-muted); color: var(--color-accent); place-items: center; text-decoration: none; }
 .media-row__image img, .article-card__image img { width: 100%; height: 100%; object-fit: cover; }
 .media-row h2, .article-list h2, .book-grid h2 { margin: 0; font-size: 1.05rem; }

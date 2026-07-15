@@ -18,7 +18,7 @@
 {% if articles %}
 <div class="article-list{% if view == 'grid' %} article-list--grid{% endif %}" aria-label="Reading results">
   {% for article in articles %}
-  <article class="article-card">
+  <article class="article-card{% if view == 'list' and article.direction == 'rtl' %} article-card--rtl{% endif %}">
     <a class="article-card__image" data-media-frame href="{{ url_for('reading.detail', article_id=article.id) }}">
       {% if article.image_url %}<img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="320" height="180"><span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% endif %}
     </a>
