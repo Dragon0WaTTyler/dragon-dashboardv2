@@ -163,6 +163,16 @@ def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app)
     page.set_viewport_size({"width": 1440, "height": 900})
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies")
+    option_colors = page.locator("select[name='status'] option").first.evaluate(
+        """element => ({
+          background: getComputedStyle(element).backgroundColor,
+          color: getComputedStyle(element).color,
+        })"""
+    )
+    assert option_colors == {
+        "background": "rgb(23, 19, 19)",
+        "color": "rgb(244, 240, 233)",
+    }
     page.locator(".filter-more summary").click()
     layout = page.evaluate(
         """() => {

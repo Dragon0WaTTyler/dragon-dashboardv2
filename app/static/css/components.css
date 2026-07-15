@@ -120,6 +120,16 @@
   font-weight: 400;
 }
 
+.field select {
+  color-scheme: dark;
+}
+
+.field select option,
+.field select optgroup {
+  background-color: var(--color-surface-elevated);
+  color: var(--color-text);
+}
+
 .field input:hover,
 .field select:hover {
   border-color: #a9a99f;
