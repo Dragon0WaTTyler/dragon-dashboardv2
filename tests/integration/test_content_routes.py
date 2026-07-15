@@ -15,6 +15,7 @@ def seed_content(app) -> dict[str, str]:
             channel_title="Calm Channel",
             title="A focused lesson",
             thumbnail_url="https://images.example.test/video.jpg",
+            duration_seconds=754,
         )
         watch_video = YouTubeVideo(
             external_id="watch-seed",
@@ -22,6 +23,7 @@ def seed_content(app) -> dict[str, str]:
             channel_title="Saved Channel",
             title="A saved video",
             thumbnail_url="https://images.example.test/watch-video.jpg",
+            duration_seconds=4112,
         )
         rtl_video = YouTubeVideo(
             external_id="rtl-seed",
@@ -106,6 +108,9 @@ def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     assert "media-list--grid" not in youtube_list.get_data(as_text=True)
     assert "media-row--rtl" in youtube_list.get_data(as_text=True)
     assert "media-list--grid" in youtube_invalid.get_data(as_text=True)
+    assert 'class="media-duration" aria-label="Duration 12:34">12:34</span>' in (
+        youtube_grid.get_data(as_text=True)
+    )
     reading_html = reading_grid.get_data(as_text=True)
     assert 'src="https://images.example.test/article.jpg"' in reading_html
     assert 'dir="auto"' in reading_html
@@ -115,6 +120,7 @@ def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     assert 'class="today-feature"' in today_html
     assert 'src="https://images.example.test/movie.jpg"' in today_html
     assert 'src="https://images.example.test/watch-video.jpg"' in today_html
+    assert "1:08:32" in today_html
     assert 'src="https://images.example.test/article.jpg"' in today_html
     assert 'src="https://images.example.test/book.jpg"' in today_html
     assert f'data-article-open="/reading/{ids["article"]}/open"' in today_html

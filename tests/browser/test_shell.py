@@ -108,6 +108,7 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
                     channel_title="Home Channel",
                     title="فيديو عربي",
                     thumbnail_url=image,
+                    duration_seconds=4112,
                 ),
             ]
         )
@@ -162,6 +163,11 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
     assert page.locator(".media-list--grid").evaluate(
         "element => getComputedStyle(element).gridTemplateColumns.split(' ').length"
     ) == 3
+    duration = page.locator(".media-duration").first
+    assert duration.inner_text() == "1:08:32"
+    assert duration.evaluate(
+        "element => getComputedStyle(element).fontVariantNumeric.includes('tabular-nums')"
+    )
     page.get_by_label("View").select_option("list")
     page.get_by_role("button", name="Apply").click()
     assert page.locator(".media-list--grid").count() == 0
@@ -190,6 +196,7 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
                             "title": "Rotated video",
                             "channel_title": "Rotated Channel",
                             "thumbnail_url": image,
+                            "duration_label": "12:47",
                         }
                     ],
                     "rotation": {
@@ -212,6 +219,7 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
     page.locator("[data-today-live]").dispatch_event("today:refresh")
     page.get_by_text("Rotated Movie", exact=True).wait_for()
     assert page.locator("[data-live-youtube-title]").first.inner_text() == "Rotated video"
+    assert page.locator("[data-live-youtube-duration]").first.inner_text() == "12:47"
 
 
 def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app):

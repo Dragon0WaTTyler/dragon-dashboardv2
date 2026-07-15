@@ -76,7 +76,7 @@
         {% for video in workspace.latest_youtube %}
         <article class="today-media-card" data-live-youtube-card>
           <a class="today-media-card__image" data-media-frame data-live-youtube-link href="{{ url_for('youtube.detail', video_id=video.id) }}">
-            {% if video.thumbnail_url %}<img data-media-image data-live-youtube-image src="{{ video.thumbnail_url }}" alt="Thumbnail for {{ video.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" data-live-youtube-fallback aria-hidden="true">▶</span>{% else %}<span class="media-fallback" data-live-youtube-fallback aria-hidden="true">▶</span>{% endif %}
+            {% if video.thumbnail_url %}<img data-media-image data-live-youtube-image src="{{ video.thumbnail_url }}" alt="Thumbnail for {{ video.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" data-live-youtube-fallback aria-hidden="true">▶</span>{% else %}<span class="media-fallback" data-live-youtube-fallback aria-hidden="true">▶</span>{% endif %}<span class="media-duration" data-live-youtube-duration{% if not video.duration_label %} hidden{% endif %}>{{ video.duration_label }}</span>
           </a>
           <div class="today-media-card__body">
             <span class="eyebrow" data-live-youtube-channel dir="auto">{{ video.channel_title or 'Unknown channel' }}</span>

@@ -82,6 +82,11 @@
       card.querySelector("[data-live-youtube-channel]").textContent =
         video.channel_title || "Unknown channel";
       card.querySelector("[data-live-youtube-title]").textContent = video.title;
+      const duration = card.querySelector("[data-live-youtube-duration]");
+      if (duration) {
+        duration.textContent = video.duration_label || "";
+        duration.hidden = !video.duration_label;
+      }
       setMedia(
         card.querySelector("[data-media-frame]"),
         video.thumbnail_url,

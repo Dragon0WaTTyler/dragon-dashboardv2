@@ -40,6 +40,20 @@ def _thumbnail(snippet: dict[str, Any], video_id: str) -> str:
     return f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
 
 
+def format_duration(value: object) -> str:
+    try:
+        total = max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return ""
+    if total == 0:
+        return ""
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes}:{seconds:02d}"
+
+
 def video_item(video: YouTubeVideo) -> dict:
     return {
         "id": video.id,
@@ -52,6 +66,7 @@ def video_item(video: YouTubeVideo) -> dict:
         "thumbnail_url": video.thumbnail_url,
         "published_at": video.published_at.isoformat() if video.published_at else None,
         "duration_seconds": video.duration_seconds,
+        "duration_label": format_duration(video.duration_seconds),
         "watched": video.watched,
         "removed_from_source": video.removed_from_source,
     }
@@ -119,6 +134,29 @@ class YouTubeService:
         maximum: int = 5000,
     ) -> dict[str, int]:
         payload = client.fetch_playlist(playlist_id, maximum=maximum)
+        playlist_video_ids = {
+            str((record.get("snippet") or {}).get("resourceId", {}).get("videoId") or "").strip()
+            for record in payload
+            if isinstance(record, dict)
+            and isinstance((record.get("snippet") or {}).get("resourceId"), dict)
+        }
+        playlist_video_ids.discard("")
+        missing_local_ids = set(
+            db.session.scalars(
+                db.select(YouTubeVideo.external_id).where(
+                    YouTubeVideo.duration_seconds <= 0,
+                    YouTubeVideo.removed_from_source.is_(False),
+                )
+            )
+        )
+        duration_fetcher = getattr(client, "fetch_durations", None)
+        durations = (
+            duration_fetcher(
+                sorted(playlist_video_ids | missing_local_ids), maximum=maximum
+            )
+            if callable(duration_fetcher)
+            else {}
+        )
         existing = {
             item.external_id: item
             for item in db.session.scalars(
@@ -160,6 +198,8 @@ class YouTubeService:
                 video.description = str(snippet.get("description") or "")
                 video.thumbnail_url = _thumbnail(snippet, external_id)[:1000]
                 video.published_at = _published_at(snippet.get("publishedAt"))
+                if durations.get(external_id, 0) > 0:
+                    video.duration_seconds = durations[external_id]
                 video.position = position
                 video.removed_from_source = False
                 if not video.local_history:
@@ -169,6 +209,15 @@ class YouTubeService:
                 if external_id not in seen and not video.removed_from_source:
                     video.removed_from_source = True
                     counts["removed"] += 1
+
+            if durations:
+                for video in db.session.scalars(
+                    db.select(YouTubeVideo).where(
+                        YouTubeVideo.external_id.in_(durations)
+                    )
+                ):
+                    if durations.get(video.external_id, 0) > 0:
+                        video.duration_seconds = durations[video.external_id]
 
             counts["videos"] = len(seen)
             checksum = hashlib.sha256("\n".join(sorted(seen)).encode()).hexdigest()

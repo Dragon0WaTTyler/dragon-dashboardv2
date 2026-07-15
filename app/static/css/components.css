@@ -364,6 +364,31 @@ dialog::backdrop {
   color: var(--color-text-muted);
 }
 
+.media-duration {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 2;
+  padding: 4px 7px;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 4px;
+  background: rgb(5 5 5 / 92%);
+  color: #fff;
+  font-family: var(--font-technical);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 .operation-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(180px, 1fr));

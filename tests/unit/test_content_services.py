@@ -12,7 +12,7 @@ from app.reading.text import normalize_article_text
 from app.shared.text import text_direction
 from app.today.services import TodayService
 from app.youtube.models import YouTubeVideo
-from app.youtube.services import YouTubeService, video_item
+from app.youtube.services import YouTubeService, format_duration, video_item
 
 
 def test_content_direction_detects_arabic_and_mixed_titles():
@@ -26,6 +26,15 @@ def test_content_direction_detects_arabic_and_mixed_titles():
     assert book_item(
         Book(title="كتاب عربي", normalized_title="كتاب عربي", authors=["كاتب عربي"])
     )["direction"] == "rtl"
+
+
+def test_youtube_duration_labels_are_compact_and_tabular():
+    assert format_duration(65) == "1:05"
+    assert format_duration(4112) == "1:08:32"
+    assert format_duration(0) == ""
+    assert video_item(YouTubeVideo(title="Timed", duration_seconds=767))[
+        "duration_label"
+    ] == "12:47"
 
 
 def test_watch_later_removal_preserves_local_history(app):
@@ -208,6 +217,11 @@ def test_watch_later_sync_keeps_pockettube_membership_separate(app):
                 }
             ]
 
+        def fetch_durations(self, video_ids, *, maximum):
+            assert video_ids == ["shared-video"]
+            assert maximum == 5000
+            return {"shared-video": 542}
+
     with app.app_context():
         db.session.add(
             YouTubeVideo(
@@ -230,3 +244,4 @@ def test_watch_later_sync_keeps_pockettube_membership_separate(app):
         assert {row.source for row in rows} == {"pockettube", "watch_later"}
         watch_later = next(row for row in rows if row.source == "watch_later")
         assert watch_later.thumbnail_url == "https://images.example.test/video.jpg"
+        assert {row.duration_seconds for row in rows} == {542}

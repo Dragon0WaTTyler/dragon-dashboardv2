@@ -138,6 +138,7 @@
 
 .today-media-card__image,
 .today-article-feature__image {
+  position: relative;
   display: grid;
   overflow: hidden;
   aspect-ratio: 16 / 9;
