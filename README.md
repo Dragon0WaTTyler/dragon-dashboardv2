@@ -103,6 +103,9 @@ contains no embed URL; the protected playback endpoint resolves it only after
 the signed-in user presses Play. When a movie has no stored IMDb ID, that
 explicit action uses configured TMDB credentials to resolve and cache
 `tmdb_id`, `tmdb_type`, and `imdb_id` before constructing the VidSrc URL.
+VidSrc rejects sandboxed iframes, so enabling its off-by-default feature permits
+the provider's scripts inside the click-loaded frame. Use **Open separately**
+when stronger browser isolation is preferred.
 
 Public YouTube playlist synchronization also requires
 `DRAGON_YOUTUBE_API_KEY` and `DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID`. It runs

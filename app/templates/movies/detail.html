@@ -35,7 +35,8 @@
           <strong>Play with VidSrc</strong>
           <span>Loads only after you press play</span>
         </button>
-        <iframe class="movie-player__frame" data-player-frame title="VidSrc player for {{ movie.title }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-forms allow-presentation" hidden></iframe>
+        {# VidSrc rejects every sandboxed iframe; loading remains explicit and feature-gated. #}
+        <iframe class="movie-player__frame" data-player-frame title="VidSrc player for {{ movie.title }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer" hidden></iframe>
       </div>
       <div class="movie-player__footer">
         <p id="movie-player-status" class="muted" data-player-status aria-live="polite">Ready. No external connection has been made.</p>

@@ -57,6 +57,7 @@ def test_vidsrc_is_click_gated_and_resolved_by_protected_playback_route(
     detail_html = detail.get_data(as_text=True)
     assert "Play with VidSrc" in detail_html
     assert "https://vsembed.ru" not in detail_html
+    assert "sandbox=" not in detail_html
     assert "frame-src 'self' https://vsembed.ru" in detail.headers[
         "Content-Security-Policy"
     ]
