@@ -130,11 +130,48 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
         "element => getComputedStyle(element).direction"
     ) == "rtl"
 
+    page.route(
+        "**/api/v1/home/live",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "api_version": "v1",
+                "item": {
+                    "recommended_movie": {
+                        "id": "rotated-movie",
+                        "title": "Rotated Movie",
+                        "year": 2026,
+                        "personal_score": 5,
+                        "poster_url": image,
+                    },
+                    "latest_youtube": [
+                        {
+                            "id": "rotated-video",
+                            "title": "Rotated video",
+                            "channel_title": "Rotated Channel",
+                            "thumbnail_url": image,
+                        }
+                    ],
+                    "rotation": {
+                        "movie_bucket": 999999,
+                        "youtube_bucket": 999999,
+                        "movie_interval_seconds": 3600,
+                        "youtube_interval_seconds": 300,
+                        "movie_next_at": "2099-01-01T01:00:00Z",
+                        "youtube_next_at": "2099-01-01T00:05:00Z",
+                    },
+                },
+            }
+        ),
+    )
     page.goto(f"{live_app}/")
     assert page.locator(".today-feature__poster img").is_visible()
     assert page.locator(".today-media-card__image img").is_visible()
     assert page.locator(".today-article-feature__image img").is_visible()
     assert page.locator(".today-book__cover img").is_visible()
+    page.locator("[data-today-live]").dispatch_event("today:refresh")
+    page.get_by_text("Rotated Movie", exact=True).wait_for()
+    assert page.locator("[data-live-youtube-title]").first.inner_text() == "Rotated video"
 
 
 def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app):

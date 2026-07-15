@@ -2,6 +2,7 @@
 {% from "components/ui.html" import badge, empty_state %}
 {% block title %}Today · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/today.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/today.js') }}" defer></script>{% endblock %}
 {% block content %}
 <header class="page-header page-header--today">
   <div>
@@ -23,23 +24,33 @@
   <a class="button button--secondary" href="{{ url_for('movies.index') }}">Explore library</a>
 </section>
 
-<div class="today-grid">
+<div
+  class="today-grid"
+  data-today-live
+  data-endpoint="{{ url_for('api_v1.home_live') }}"
+  data-movies-prefix="{{ url_for('movies.index') }}"
+  data-youtube-prefix="{{ url_for('youtube.index') }}"
+  data-movie-bucket="{{ workspace.rotation.movie_bucket }}"
+  data-youtube-bucket="{{ workspace.rotation.youtube_bucket }}"
+  data-movie-next-at="{{ workspace.rotation.movie_next_at }}"
+  data-youtube-next-at="{{ workspace.rotation.youtube_next_at }}"
+>
   <section class="today-main" aria-label="Today’s media queue">
     <section class="today-section" aria-labelledby="recommended-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Recommended movie</span><h2 id="recommended-title">One from your queue</h2></div>
-        <a href="{{ url_for('movies.index') }}">View all</a>
+        <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-movie-countdown>Changes hourly</span></span><a href="{{ url_for('movies.index') }}">View all</a></div>
       </div>
       {% if workspace.recommended_movie %}
-      <article class="today-feature">
-        <a class="today-feature__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">
-          {% if workspace.recommended_movie.poster_url %}<img data-media-image src="{{ workspace.recommended_movie.poster_url }}" alt="Poster for {{ workspace.recommended_movie.title }}" width="280" height="420"><span class="media-fallback" aria-hidden="true">{{ workspace.recommended_movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ workspace.recommended_movie.title[:1]|upper }}</span>{% endif %}
+      <article class="today-feature" data-live-movie>
+        <a class="today-feature__poster" data-media-frame data-live-movie-link href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">
+          {% if workspace.recommended_movie.poster_url %}<img data-media-image data-live-movie-poster src="{{ workspace.recommended_movie.poster_url }}" alt="Poster for {{ workspace.recommended_movie.title }}" width="280" height="420"><span class="media-fallback" data-live-movie-fallback aria-hidden="true">{{ workspace.recommended_movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" data-live-movie-fallback aria-hidden="true">{{ workspace.recommended_movie.title[:1]|upper }}</span>{% endif %}
         </a>
         <div class="today-feature__body">
           <span class="eyebrow">Tonight’s pick</span>
-          <h3 dir="auto"><a href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">{{ workspace.recommended_movie.title }}</a></h3>
-          <p>{{ workspace.recommended_movie.year or 'Year unknown' }}{% if workspace.recommended_movie.personal_score is not none %} · {{ workspace.recommended_movie.personal_score }}/5{% endif %}</p>
-          <a class="button button--primary" href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">View details</a>
+          <h3 dir="auto"><a data-live-movie-link data-live-movie-title href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">{{ workspace.recommended_movie.title }}</a></h3>
+          <p data-live-movie-meta>{{ workspace.recommended_movie.year or 'Year unknown' }}{% if workspace.recommended_movie.personal_score is not none %} · {{ workspace.recommended_movie.personal_score }}/5{% endif %}</p>
+          <a class="button button--primary" data-live-movie-link href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">View details</a>
         </div>
       </article>
       {% else %}
@@ -68,19 +79,19 @@
 
     <section class="today-section report-section" aria-labelledby="youtube-today-title">
       <div class="section-heading section-heading--action">
-        <div><span class="eyebrow">Latest saved</span><h2 id="youtube-today-title">YouTube Watch Later</h2></div>
-        <a href="{{ url_for('youtube.index', source='watch_later') }}">View all</a>
+        <div><span class="eyebrow">Shuffled from Watch Later</span><h2 id="youtube-today-title">YouTube mix</h2></div>
+        <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-youtube-countdown>New mix every 5 min</span></span><a href="{{ url_for('youtube.index', source='watch_later', order='shuffle') }}">View all</a></div>
       </div>
       {% if workspace.latest_youtube %}
-      <div class="today-media-grid">
+      <div class="today-media-grid" data-live-youtube>
         {% for video in workspace.latest_youtube %}
-        <article class="today-media-card">
-          <a class="today-media-card__image" data-media-frame href="{{ url_for('youtube.detail', video_id=video.id) }}">
-            {% if video.thumbnail_url %}<img data-media-image src="{{ video.thumbnail_url }}" alt="Thumbnail for {{ video.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" aria-hidden="true">▶</span>{% else %}<span class="media-fallback" aria-hidden="true">▶</span>{% endif %}
+        <article class="today-media-card" data-live-youtube-card>
+          <a class="today-media-card__image" data-media-frame data-live-youtube-link href="{{ url_for('youtube.detail', video_id=video.id) }}">
+            {% if video.thumbnail_url %}<img data-media-image data-live-youtube-image src="{{ video.thumbnail_url }}" alt="Thumbnail for {{ video.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" data-live-youtube-fallback aria-hidden="true">▶</span>{% else %}<span class="media-fallback" data-live-youtube-fallback aria-hidden="true">▶</span>{% endif %}
           </a>
           <div class="today-media-card__body">
-            <span class="eyebrow" dir="auto">{{ video.channel_title or 'Unknown channel' }}</span>
-            <h3 dir="auto"><a href="{{ url_for('youtube.detail', video_id=video.id) }}">{{ video.title }}</a></h3>
+            <span class="eyebrow" data-live-youtube-channel dir="auto">{{ video.channel_title or 'Unknown channel' }}</span>
+            <h3 dir="auto"><a data-live-youtube-link data-live-youtube-title href="{{ url_for('youtube.detail', video_id=video.id) }}">{{ video.title }}</a></h3>
           </div>
         </article>
         {% endfor %}
@@ -147,5 +158,6 @@
       {% if workspace.chess_training %}<ul class="check-list">{% for puzzle in workspace.chess_training %}<li><span aria-hidden="true">→</span><a href="{{ url_for('chess.puzzle', puzzle_id=puzzle.id) }}">Puzzle {{ puzzle.external_id }} · {{ puzzle.rating }}</a></li>{% endfor %}</ul>{% else %}<p class="muted">No puzzles in the local queue.</p>{% endif %}
     </section>
   </aside>
+  <span class="visually-hidden" data-live-announcer aria-live="polite"></span>
 </div>
 {% endblock %}

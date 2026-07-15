@@ -428,6 +428,20 @@ class MovieService:
         return movie_item(movie) if movie else None
 
     @staticmethod
+    def rotating_recommended(position: int) -> dict[str, Any] | None:
+        curated = MovieService.recommendation_pool()["items"]
+        if curated:
+            return curated[position % len(curated)]
+        movies = list(
+            db.session.scalars(
+                db.select(Movie)
+                .where(Movie.status == "want_to_watch")
+                .order_by(Movie.personal_score.desc().nullslast(), Movie.updated_at.desc())
+            )
+        )
+        return movie_item(movies[position % len(movies)]) if movies else None
+
+    @staticmethod
     def recommendation_pool(*, category: str = "", source: str = "") -> dict[str, Any]:
         movies = list(db.session.scalars(db.select(Movie)))
         profile = _recommendation_profile(movies)

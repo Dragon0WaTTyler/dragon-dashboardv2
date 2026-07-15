@@ -51,6 +51,17 @@ def test_movie_recommendation_contract(authenticated_client, app):
     assert payload["item"]["items"][0]["recommendation_reason"]
 
 
+def test_live_home_rotation_contract(authenticated_client, app):
+    add_movie(app)
+    response = authenticated_client.get("/api/v1/home/live")
+    payload = response.get_json()
+
+    assert response.status_code == 200
+    assert payload["item"]["recommended_movie"]["id"]
+    assert payload["item"]["rotation"]["movie_interval_seconds"] == 3600
+    assert payload["item"]["rotation"]["youtube_interval_seconds"] == 300
+
+
 def test_playback_progress_contract_and_conflict(authenticated_client, app):
     movie_id = add_movie(app)
     page = authenticated_client.get(f"/movies/{movie_id}")

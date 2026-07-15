@@ -46,6 +46,12 @@ def home():
     return item_response(TodayService.workspace())
 
 
+@bp.get("/home/live")
+@login_required
+def home_live():
+    return item_response(TodayService.live_rotation())
+
+
 @bp.get("/freshness")
 @login_required
 def freshness_collection():
