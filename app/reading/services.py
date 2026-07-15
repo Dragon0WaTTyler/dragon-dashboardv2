@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from sqlalchemy import or_
+
 from app.extensions import db
 from app.history.services import HistoryService
-from app.reading.models import Article
+from app.reading.models import Article, ReadingSource
 from app.shared.operations.service import safe_error_text
 from app.shared.text import text_direction
-from app.shared.time import utc_iso
+from app.shared.time import utc_iso, utc_now
 
 ARTICLE_STATUSES = {"unread", "reading", "finished", "saved"}
 
@@ -102,3 +104,72 @@ class ReadingService:
             "error": article.fulltext_error or None,
             "cached": bool(article.content_text),
         }
+
+    @staticmethod
+    def sync_sources(client) -> dict[str, int]:
+        sources = list(
+            db.session.scalars(
+                db.select(ReadingSource)
+                .where(ReadingSource.active.is_(True))
+                .order_by(ReadingSource.name)
+            )
+        )
+        counts = {
+            "sources": len(sources),
+            "sources_synced": 0,
+            "sources_failed": 0,
+            "created": 0,
+            "updated": 0,
+            "changed": 0,
+        }
+        for source in sources:
+            try:
+                result = client.fetch(source.feed_url)
+                entries = list(result.get("entries") or [])
+            except Exception as exc:
+                source.health_state = "error"
+                source.health_message = safe_error_text(exc)
+                counts["sources_failed"] += 1
+                continue
+
+            for entry in entries:
+                external_id = str(entry.get("external_id") or entry.get("url") or "")[:500]
+                article_url = str(entry.get("url") or "")[:1500]
+                if not external_id or not article_url:
+                    continue
+                article = db.session.scalar(
+                    db.select(Article).where(
+                        Article.source_id == source.id,
+                        or_(Article.external_id == external_id, Article.url == article_url),
+                    )
+                )
+                values = {
+                    "external_id": external_id,
+                    "title": str(entry.get("title") or "Untitled article")[:600],
+                    "url": article_url,
+                    "author": str(entry.get("author") or "")[:240],
+                    "topic": str(entry.get("topic") or "")[:160],
+                    "excerpt": str(entry.get("excerpt") or "")[:20_000],
+                    "image_url": str(entry.get("image_url") or "")[:1000],
+                    "published_at": entry.get("published_at"),
+                }
+                if article is None:
+                    db.session.add(Article(source=source, **values))
+                    counts["created"] += 1
+                    continue
+                changed = False
+                for field, value in values.items():
+                    if getattr(article, field) != value:
+                        setattr(article, field, value)
+                        changed = True
+                if changed:
+                    counts["updated"] += 1
+
+            source.health_state = "healthy"
+            source.health_message = f"Synced {len(entries)} feed entries."
+            source.last_success_at = utc_now()
+            counts["sources_synced"] += 1
+
+        counts["changed"] = counts["created"] + counts["updated"]
+        db.session.commit()
+        return counts

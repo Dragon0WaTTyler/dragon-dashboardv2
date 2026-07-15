@@ -218,3 +218,36 @@ def test_article_detail_get_never_calls_extractor(authenticated_client, app):
     response = authenticated_client.get(f"/reading/{article_id}")
     assert response.status_code == 200
     assert "Stored locally." in response.get_data(as_text=True)
+
+
+def test_reading_sync_button_fetches_current_feed_entries(authenticated_client, app):
+    class Client:
+        @staticmethod
+        def fetch(url):
+            return {
+                "entries": [
+                    {
+                        "external_id": "latest-entry",
+                        "title": "Latest article from sync",
+                        "url": "https://example.test/latest",
+                        "excerpt": "Newly synchronized.",
+                    }
+                ]
+            }
+
+    seed_content(app)
+    app.extensions["dragon_feed_client"] = Client()
+    page = authenticated_client.get("/reading")
+    html = page.get_data(as_text=True)
+    assert "Sync articles" in html
+    assert 'data-reading-sync' in html
+
+    response = authenticated_client.post(
+        "/reading/sync",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+
+    result_html = response.get_data(as_text=True)
+    assert "Articles synced: 1 new, 0 updated." in result_html
+    assert "Latest article from sync" in result_html

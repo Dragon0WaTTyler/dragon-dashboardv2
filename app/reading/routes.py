@@ -5,6 +5,7 @@ from flask_login import login_required
 
 from app.reading.repositories import ReadingRepository
 from app.reading.services import ReadingService, article_detail, article_item
+from app.shared.refresh import OperationCoordinator
 
 bp = Blueprint("reading", __name__, url_prefix="/reading")
 
@@ -40,6 +41,28 @@ def detail(article_id: str):
     return render_template(
         "reading/detail.html", active_module="reading", article=article_detail(article)
     )
+
+
+@bp.post("/sync")
+@login_required
+def sync_articles():
+    operation = OperationCoordinator.run(kind="sync", domain="reading")
+    counts = dict(operation.counts or {})
+    if operation.status == "failed":
+        flash("Article sync failed. Your saved articles are unchanged.", "error")
+    elif operation.warnings:
+        flash(
+            f'Added {counts.get("created", 0)} new articles. '
+            f'{counts.get("sources_failed", 0)} sources could not be reached.',
+            "warning",
+        )
+    else:
+        flash(
+            f'Articles synced: {counts.get("created", 0)} new, '
+            f'{counts.get("updated", 0)} updated.',
+            "success",
+        )
+    return redirect(url_for("reading.index"))
 
 
 @bp.post("/<article_id>/status")

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from flask import current_app
 
+from app.reading.services import ReadingService
 from app.shared.operations import OperationService
 from app.youtube.providers import YouTubePlaylistClient, YouTubeProviderError
 from app.youtube.services import YouTubeService
@@ -46,6 +47,25 @@ class OperationCoordinator:
             except Exception as exc:
                 return OperationService.fail(operation, exc)
             return OperationService.complete(operation, counts=counts)
+        if kind in {"refresh", "sync"} and domain == "reading":
+            client = current_app.extensions.get("dragon_feed_client")
+            if client is None:
+                return OperationService.complete(
+                    operation,
+                    counts={"changed": 0},
+                    warnings=["Article source synchronization is unavailable."],
+                )
+            try:
+                counts = ReadingService.sync_sources(client)
+            except Exception as exc:
+                return OperationService.fail(operation, exc)
+            warnings = []
+            if counts["sources_failed"]:
+                warnings.append(
+                    f'{counts["sources_failed"]} article source(s) could not be reached. '
+                    "Working sources were still updated."
+                )
+            return OperationService.complete(operation, counts=counts, warnings=warnings)
         if kind in {"refresh", "sync"} and not current_app.config[
             "DRAGON_EXTERNAL_SYNC_ENABLED"
         ]:

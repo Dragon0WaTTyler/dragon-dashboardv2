@@ -1,4 +1,5 @@
 from app.extensions import db
+from app.reading.models import Article, ReadingSource
 from app.shared.models import Operation
 from app.shared.operations import OperationService
 from app.shared.refresh import OperationCoordinator
@@ -56,3 +57,41 @@ def test_youtube_operation_uses_explicit_injected_playlist_client(app):
         assert operation.status == "completed"
         assert operation.counts["videos"] == 1
         assert db.session.scalar(db.select(YouTubeVideo)).source == "watch_later"
+
+
+def test_reading_operation_syncs_active_sources_with_injected_client(app):
+    class Client:
+        @staticmethod
+        def fetch(url):
+            assert url == "https://example.test/feed.xml"
+            return {
+                "entries": [
+                    {
+                        "external_id": "fresh-article",
+                        "title": "Fresh from the feed",
+                        "url": "https://example.test/fresh",
+                        "author": "Desk",
+                        "topic": "News",
+                        "excerpt": "A current feed summary.",
+                        "image_url": "https://images.example.test/fresh.jpg",
+                        "published_at": None,
+                    }
+                ]
+            }
+
+    with app.app_context():
+        source = ReadingSource(
+            name="Example Journal",
+            feed_url="https://example.test/feed.xml",
+        )
+        db.session.add(source)
+        db.session.commit()
+        app.extensions["dragon_feed_client"] = Client()
+
+        operation = OperationCoordinator.run(kind="sync", domain="reading")
+
+        article = db.session.scalar(db.select(Article))
+        assert operation.status == "completed"
+        assert operation.counts["created"] == 1
+        assert article.title == "Fresh from the feed"
+        assert source.health_state == "healthy"

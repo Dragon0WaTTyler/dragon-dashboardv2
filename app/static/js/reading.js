@@ -22,3 +22,17 @@ if (openForm) {
     });
   });
 }
+
+const syncForm = document.querySelector("[data-reading-sync]");
+
+if (syncForm) {
+  syncForm.addEventListener("submit", () => {
+    const button = syncForm.querySelector("button[type='submit']");
+    const label = syncForm.querySelector("[data-sync-label]");
+    const spinner = syncForm.querySelector("[data-sync-spinner]");
+    syncForm.setAttribute("aria-busy", "true");
+    button.disabled = true;
+    label.textContent = "Syncing sources…";
+    spinner.hidden = false;
+  });
+}

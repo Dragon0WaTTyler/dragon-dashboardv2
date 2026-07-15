@@ -6,7 +6,16 @@
 {% block content %}
 <header class="page-header">
   <div><span class="eyebrow">Editorial inbox</span><h1>Reading</h1><p>Cached articles, deliberate full-text loading, and visible source health.</p></div>
-  {{ badge(articles|length ~ ' articles', 'accent') }}
+  <div class="reading-header-actions">
+    {{ badge(articles|length ~ ' articles', 'accent') }}
+    <form method="post" action="{{ url_for('reading.sync_articles') }}" data-reading-sync>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button button--primary" type="submit">
+        <span class="spinner" data-sync-spinner aria-hidden="true" hidden></span>
+        <span data-sync-label>Sync articles</span>
+      </button>
+    </form>
+  </div>
 </header>
 <form class="compact-filters compact-filters--wide" method="get">
   <label class="field"><span>Search</span><input type="search" name="q" value="{{ q }}"></label>

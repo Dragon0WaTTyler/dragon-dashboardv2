@@ -53,6 +53,7 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
     page.set_viewport_size({"width": 1440, "height": 900})
     sign_in(page, live_app)
     page.goto(f"{live_app}/reading?view=list")
+    assert page.get_by_role("button", name="Sync articles").is_visible()
     page.get_by_role("link", name=title, exact=True).click()
     page.wait_for_url(f"{live_app}/reading/{article_id}")
 

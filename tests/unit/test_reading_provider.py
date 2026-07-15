@@ -30,11 +30,16 @@ class FakeResponse:
 
 
 class FakeOpener:
-    def __init__(self, response: FakeResponse) -> None:
+    def __init__(
+        self,
+        response: FakeResponse,
+        expected_url: str = "https://example.com/story",
+    ) -> None:
         self.response = response
+        self.expected_url = expected_url
 
     def open(self, request, timeout):
-        assert request.full_url == "https://example.com/story"
+        assert request.full_url == self.expected_url
         assert timeout == 3
         return self.response
 
@@ -68,3 +73,39 @@ def test_article_extractor_rejects_private_hosts():
 
     with pytest.raises(ValueError, match="public host"):
         extractor.extract("http://localhost/internal")
+
+
+def test_feed_client_parses_rss_metadata_and_thumbnail():
+    from app.reading.providers import FeedClient
+
+    body = b"""<?xml version="1.0" encoding="UTF-8"?>
+        <rss version="2.0"><channel><title>Journal</title><item>
+        <guid>story-123</guid><title>A fresh story</title>
+        <link>https://example.com/stories/fresh</link>
+        <description><![CDATA[
+          <p>A useful summary from the article feed.</p>
+          <img src="https://example.com/images/fresh.jpg">
+        ]]></description>
+        <author>Editorial desk</author><category>World</category>
+        <pubDate>Wed, 15 Jul 2026 08:00:00 GMT</pubDate>
+        </item></channel></rss>
+    """
+    feed_url = "https://example.com/feed.xml"
+    client = FeedClient(
+        timeout_seconds=3,
+        resolver=public_resolver,
+        opener=FakeOpener(
+            FakeResponse(body, url=feed_url),
+            expected_url=feed_url,
+        ),
+    )
+
+    result = client.fetch(feed_url)
+
+    assert len(result["entries"]) == 1
+    entry = result["entries"][0]
+    assert entry["external_id"] == "story-123"
+    assert entry["title"] == "A fresh story"
+    assert entry["excerpt"] == "A useful summary from the article feed."
+    assert entry["image_url"] == "https://example.com/images/fresh.jpg"
+    assert entry["published_at"].year == 2026

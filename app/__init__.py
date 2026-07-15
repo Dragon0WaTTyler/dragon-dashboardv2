@@ -28,7 +28,7 @@ from app.migration import migration_cli
 from app.movies import bp as movies_bp
 from app.playback import bp as playback_bp
 from app.reading import bp as reading_bp
-from app.reading.providers import ArticleExtractor
+from app.reading.providers import ArticleExtractor, FeedClient
 from app.youtube import bp as youtube_bp
 
 
@@ -43,6 +43,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     app.extensions["dragon_settings"] = settings
     if not app.config.get("TESTING"):
         app.extensions["dragon_article_extractor"] = ArticleExtractor()
+        app.extensions["dragon_feed_client"] = FeedClient()
 
     install_request_middleware(app)
     db.init_app(app)
