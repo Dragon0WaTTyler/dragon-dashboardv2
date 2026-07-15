@@ -50,6 +50,11 @@ def detail(movie_id: str):
         current_app.config["DRAGON_PLAYBACK_ENABLED"]
         and current_app.config["DRAGON_MAGNETS_ENABLED"]
     )
+    subtitles_enabled = (
+        local_player_enabled
+        and current_app.config["DRAGON_SUBTITLES_ENABLED"]
+        and bool(current_app.config["DRAGON_SUBDL_API_KEY"])
+    )
     return render_template(
         "movies/detail.html",
         active_module="movies",
@@ -59,6 +64,7 @@ def detail(movie_id: str):
             and current_app.config["DRAGON_VIDSRC_ENABLED"]
         ),
         local_player_enabled=local_player_enabled,
+        subtitles_enabled=subtitles_enabled,
         player_sources=PlaybackService.player_sources(movie_id) if local_player_enabled else [],
     )
 

@@ -15,9 +15,7 @@ def sign_in(page, base_url: str):
     page.wait_for_url(f"{base_url}/")
 
 
-def test_movie_player_switches_between_vidsrc_and_local_without_overflow(
-    page, live_app, app
-):
+def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, live_app, app):
     with app.app_context():
         movie = Movie(
             title="Source Switch",
@@ -31,10 +29,7 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(
                 movie_id=movie.id,
                 kind="magnet",
                 label="FHD magnet",
-                locator=(
-                    "magnet:?xt=urn:btih:0123456789abcdef"
-                    "0123456789abcdef01234567"
-                ),
+                locator=("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"),
             )
         )
         db.session.commit()
@@ -44,6 +39,40 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(
         DRAGON_PLAYBACK_ENABLED=True,
         DRAGON_MAGNETS_ENABLED=True,
         DRAGON_VIDSRC_ENABLED=True,
+        DRAGON_SUBTITLES_ENABLED=True,
+        DRAGON_SUBDL_API_KEY="private-key",
+    )
+    page.route(
+        "**/playback/movie/*/subtitles",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [
+                    {
+                        "language": "ar",
+                        "language_name": "Arabic",
+                        "label": "Arabic release",
+                        "hearing_impaired": False,
+                        "track_url": "/playback/movie/test/subtitles/track/arabic",
+                    },
+                    {
+                        "language": "en",
+                        "language_name": "English",
+                        "label": "English release",
+                        "hearing_impaired": False,
+                        "track_url": "/playback/movie/test/subtitles/track/english",
+                    },
+                ],
+            }
+        ),
+    )
+    page.route(
+        "**/playback/movie/*/subtitles/track/*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="text/vtt",
+            body="WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nمرحبا\n",
+        ),
     )
     page.route(
         "**/playback/movie/*/local",
@@ -93,11 +122,21 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies/{movie_id}")
     source = page.get_by_label("Player source")
+    subtitles = page.get_by_label("Subtitles")
     assert source.input_value() == "vidsrc"
+    assert subtitles.is_disabled()
     source.select_option(label="Local · FHD")
+    assert subtitles.is_enabled()
     assert page.locator("[data-player-badge]").inner_text() == "Local"
     page.get_by_role("button", name="Start local player").click()
     page.get_by_text("Local stream is ready.", exact=False).wait_for()
+    page.get_by_role("option", name="Arabic · Arabic release").wait_for(state="attached")
+    assert subtitles.locator("option").all_text_contents() == [
+        "Arabic · Arabic release",
+        "English · English release",
+        "Off",
+    ]
+    assert page.locator("video track[srclang='ar']").count() == 1
     assert page.locator("[data-player-video]").is_visible()
     assert not page.locator("[data-player-frame]").is_visible()
 

@@ -25,12 +25,12 @@
     </dl>
   </div>
   {% if vidsrc_enabled or player_sources %}
-  <section class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}">
+  <section class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}">
     <div class="movie-player__heading">
       <div><span class="eyebrow">Playback deck</span><h2 id="movie-player-title">Watch {{ movie.title }}</h2></div>
       <span class="badge badge--accent" data-player-badge>{{ 'VidSrc' if vidsrc_enabled else 'Local' }}</span>
     </div>
-    <div class="movie-player__source-rail">
+    <div class="movie-player__source-rail{% if subtitles_enabled %} movie-player__source-rail--subtitles{% endif %}">
       <label class="field movie-player__source">
         <span>Player source</span>
         <select data-player-source>
@@ -38,6 +38,16 @@
           {% for source in player_sources %}<option value="{{ source.id }}" data-kind="local">Local · {{ source.label }}</option>{% endfor %}
         </select>
       </label>
+      {% if subtitles_enabled %}
+      <label class="field movie-player__subtitles">
+        <span>Subtitles</span>
+        <select data-subtitle-select{% if vidsrc_enabled %} disabled{% endif %}>
+          <option value="auto">Arabic first</option>
+          <option value="off">Off</option>
+        </select>
+        <small class="muted" data-subtitle-status aria-live="polite">{% if vidsrc_enabled %}Switch to Local to use Dragon subtitles.{% else %}Arabic will be selected first when Local starts.{% endif %}</small>
+      </label>
+      {% endif %}
       <p>Choose the source first. Nothing starts before you press play.</p>
     </div>
     <div class="movie-player__viewport">

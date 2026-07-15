@@ -95,6 +95,7 @@ creates an ignored instance secret; production fails fast without
 - `DRAGON_PLAYBACK_ENABLED`
 - `DRAGON_VIDSRC_ENABLED`
 - `DRAGON_MAGNETS_ENABLED`
+- `DRAGON_SUBTITLES_ENABLED`
 - `DRAGON_EXTERNAL_SYNC_ENABLED`
 - `DRAGON_NOTION_WRITEBACK_ENABLED`
 - `DRAGON_YOUTUBE_DELETE_ENABLED`
@@ -122,6 +123,13 @@ are rejected. Imported YTS metadata may follow only the explicit `yts.bz` to
 `yts.gg` redirect; other hosts are rejected. Switching sources or pressing
 **Stop local stream** closes the runtime session and removes its temporary
 metadata cache.
+
+Local subtitles require `DRAGON_SUBTITLES_ENABLED=true` and a private
+`DRAGON_SUBDL_API_KEY`. Dragon searches SubDL only after Local playback is
+started, ranks Arabic before English, keeps provider URLs and credentials on
+the server, and converts supported SRT/VTT files to a same-origin WebVTT track.
+VidSrc is a cross-origin iframe, so Dragon cannot synchronize an external track
+with it; use VidSrc's own captions or switch the player source to Local.
 
 Public YouTube playlist synchronization also requires
 `DRAGON_YOUTUBE_API_KEY` and `DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID`. It runs

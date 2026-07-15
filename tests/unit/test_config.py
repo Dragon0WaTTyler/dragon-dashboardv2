@@ -25,12 +25,14 @@ def test_feature_flags_default_safe(tmp_path: Path):
     assert settings.playback_enabled is False
     assert settings.vidsrc_enabled is False
     assert settings.magnets_enabled is False
+    assert settings.subtitles_enabled is False
     assert settings.external_sync_enabled is False
     assert settings.notion_writeback_enabled is False
     assert settings.youtube_delete_enabled is False
     assert settings.youtube_sync_enabled is False
     assert settings.reading_tts_enabled is False
     assert settings.vidsrc_embed_url == "https://v2.vidsrc.me/embed"
+    assert settings.subtitle_languages == "ar,en"
 
 
 def test_prefixed_feature_flag_override(tmp_path: Path):
@@ -79,6 +81,22 @@ def test_false_boolean_override_wins_over_environment(tmp_path: Path, monkeypatc
         {"TESTING": True, "EXTERNAL_SYNC_ENABLED": False},
     )
     assert settings.external_sync_enabled is False
+
+
+def test_subdl_key_enables_subtitles_without_entering_safe_summary(tmp_path: Path):
+    settings = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "DRAGON_SUBDL_API_KEY": "private-key",
+            "DRAGON_SUBTITLE_LANGUAGES": "ar,en",
+        },
+    )
+
+    assert settings.subtitles_enabled is True
+    assert settings.subdl_api_key == "private-key"
+    assert settings.subtitle_languages == "ar,en"
+    assert "subdl_api_key" not in settings.safe_summary()
 
 
 def test_private_youtube_settings_enable_playlist_sync(tmp_path: Path):

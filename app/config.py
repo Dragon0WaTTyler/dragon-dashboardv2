@@ -70,6 +70,9 @@ class Settings:
     tmdb_api_key: str
     tmdb_read_access_token: str
     magnets_enabled: bool
+    subtitles_enabled: bool
+    subdl_api_key: str
+    subtitle_languages: str
     external_sync_enabled: bool
     notion_writeback_enabled: bool
     youtube_delete_enabled: bool
@@ -150,6 +153,18 @@ class Settings:
             or os.getenv("DRAGON_TMDB_READ_ACCESS_TOKEN", "")
             or os.getenv("TMDB_READ_ACCESS_TOKEN", "")
         ).strip()
+        subdl_api_key = str(
+            override_map.get("SUBDL_API_KEY")
+            or override_map.get("DRAGON_SUBDL_API_KEY")
+            or os.getenv("DRAGON_SUBDL_API_KEY", "")
+            or _private_setting(instance_root, "subdl_api_key")
+        ).strip()
+        subtitle_languages = str(
+            override_map.get("SUBTITLE_LANGUAGES")
+            or override_map.get("DRAGON_SUBTITLE_LANGUAGES")
+            or os.getenv("DRAGON_SUBTITLE_LANGUAGES", "")
+            or "ar,en"
+        ).strip()
 
         return cls(
             environment=environment,
@@ -163,6 +178,9 @@ class Settings:
             tmdb_api_key=tmdb_api_key,
             tmdb_read_access_token=tmdb_read_access_token,
             magnets_enabled=feature("MAGNETS_ENABLED", False),
+            subtitles_enabled=feature("SUBTITLES_ENABLED", bool(subdl_api_key)),
+            subdl_api_key=subdl_api_key,
+            subtitle_languages=subtitle_languages,
             external_sync_enabled=feature("EXTERNAL_SYNC_ENABLED", False),
             notion_writeback_enabled=feature("NOTION_WRITEBACK_ENABLED", False),
             youtube_delete_enabled=feature("YOUTUBE_DELETE_ENABLED", False),
@@ -196,6 +214,9 @@ class Settings:
             "DRAGON_TMDB_API_KEY": self.tmdb_api_key,
             "DRAGON_TMDB_READ_ACCESS_TOKEN": self.tmdb_read_access_token,
             "DRAGON_MAGNETS_ENABLED": self.magnets_enabled,
+            "DRAGON_SUBTITLES_ENABLED": self.subtitles_enabled,
+            "DRAGON_SUBDL_API_KEY": self.subdl_api_key,
+            "DRAGON_SUBTITLE_LANGUAGES": self.subtitle_languages,
             "DRAGON_EXTERNAL_SYNC_ENABLED": self.external_sync_enabled,
             "DRAGON_NOTION_WRITEBACK_ENABLED": self.notion_writeback_enabled,
             "DRAGON_YOUTUBE_DELETE_ENABLED": self.youtube_delete_enabled,
@@ -216,6 +237,7 @@ class Settings:
             "vidsrc_embed_url",
             "tmdb_api_key",
             "tmdb_read_access_token",
+            "subdl_api_key",
         }
         return {
             field.name: getattr(self, field.name)

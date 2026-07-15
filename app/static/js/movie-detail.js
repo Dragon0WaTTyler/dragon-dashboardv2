@@ -13,14 +13,21 @@
   const reload = player.querySelector("[data-player-reload]");
   const open = player.querySelector("[data-player-open]");
   const stop = player.querySelector("[data-player-stop]");
+  const subtitleSelect = player.querySelector("[data-subtitle-select]");
+  const subtitleStatus = player.querySelector("[data-subtitle-status]");
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let sourceUrl = "";
   let localSession = null;
   let pollTimer = 0;
   let activeKind = "";
+  let subtitleOptionsLoaded = false;
+  let subtitleRequest = null;
 
   const selectedKind = () => source.selectedOptions[0]?.dataset.kind || "vidsrc";
   const setStatus = (message) => { status.textContent = message; };
+  const setSubtitleStatus = (message) => {
+    if (subtitleStatus) subtitleStatus.textContent = message;
+  };
   const formatSpeed = (bytes) => {
     if (!bytes) return "";
     const megabytes = bytes / 1024 / 1024;
@@ -32,8 +39,99 @@
     pollTimer = 0;
   };
 
+  const clearSubtitleTrack = () => {
+    video.querySelectorAll("track").forEach((track) => track.remove());
+    Array.from(video.textTracks || []).forEach((track) => { track.mode = "disabled"; });
+  };
+
+  const applySelectedSubtitle = () => {
+    if (!subtitleSelect || selectedKind() !== "local") return;
+    clearSubtitleTrack();
+    const option = subtitleSelect.selectedOptions[0];
+    if (!option || option.value === "off" || option.value === "auto") {
+      setSubtitleStatus(option?.value === "off"
+        ? "Subtitles are off."
+        : "Arabic will be selected first when Local starts.");
+      return;
+    }
+    const track = document.createElement("track");
+    track.kind = "subtitles";
+    track.label = option.dataset.languageName || "Subtitles";
+    track.srclang = option.dataset.language || "ar";
+    track.src = option.value;
+    track.default = true;
+    setSubtitleStatus(`Loading ${track.label} subtitles…`);
+    track.addEventListener("load", () => {
+      Array.from(video.textTracks).forEach((item) => {
+        item.mode = item === track.track ? "showing" : "disabled";
+      });
+      setSubtitleStatus(`${track.label} subtitles are ready.`);
+    });
+    track.addEventListener("error", () => {
+      setSubtitleStatus("That subtitle could not be loaded. Try another release.");
+    });
+    video.append(track);
+  };
+
+  const loadSubtitleOptions = () => {
+    if (!subtitleSelect || !player.dataset.subtitleEndpoint) return Promise.resolve();
+    if (subtitleOptionsLoaded) {
+      applySelectedSubtitle();
+      return Promise.resolve();
+    }
+    if (subtitleRequest) return subtitleRequest;
+    subtitleSelect.disabled = true;
+    setSubtitleStatus("Finding Arabic and English subtitles…");
+    subtitleRequest = fetch(player.dataset.subtitleEndpoint, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    })
+      .then(async (response) => {
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error?.message || "Subtitle search is unavailable");
+        }
+        const items = Array.isArray(payload.items) ? payload.items : [];
+        subtitleSelect.replaceChildren();
+        items.forEach((item) => {
+          const option = document.createElement("option");
+          option.value = item.track_url;
+          option.dataset.language = item.language;
+          option.dataset.languageName = item.language_name;
+          option.textContent = `${item.language_name} · ${item.label}${item.hearing_impaired ? " · HI" : ""}`;
+          subtitleSelect.append(option);
+        });
+        const off = document.createElement("option");
+        off.value = "off";
+        off.textContent = "Off";
+        subtitleSelect.append(off);
+        subtitleOptionsLoaded = true;
+        if (items.length) {
+          subtitleSelect.selectedIndex = 0;
+          applySelectedSubtitle();
+        } else {
+          subtitleSelect.value = "off";
+          setSubtitleStatus("No Arabic or English subtitles were found.");
+        }
+      })
+      .catch((error) => {
+        subtitleSelect.replaceChildren();
+        const off = document.createElement("option");
+        off.value = "off";
+        off.textContent = "Off";
+        subtitleSelect.append(off);
+        setSubtitleStatus(String(error?.message || "Subtitle search is unavailable."));
+      })
+      .finally(() => {
+        subtitleRequest = null;
+        subtitleSelect.disabled = selectedKind() !== "local";
+      });
+    return subtitleRequest;
+  };
+
   const stopLocal = async ({ silent = false } = {}) => {
     clearPoll();
+    clearSubtitleTrack();
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -74,6 +172,15 @@
     setStatus(kind === "vidsrc"
       ? "Ready. No external connection has been made."
       : "Ready. The magnet will start only after you press play.");
+    if (subtitleSelect) {
+      subtitleSelect.disabled = kind !== "local" || Boolean(subtitleRequest);
+      if (kind === "vidsrc") {
+        clearSubtitleTrack();
+        setSubtitleStatus("Use VidSrc captions or switch to Local for Dragon subtitles.");
+      } else if (!subtitleOptionsLoaded) {
+        setSubtitleStatus("Arabic will be selected first when Local starts.");
+      }
+    }
   };
 
   const showError = (message) => {
@@ -159,6 +266,7 @@
     open.hidden = true;
     stop.hidden = false;
     renderLocalStatus(payload.session || {});
+    void loadSubtitleOptions();
     pollLocal();
   };
 
@@ -208,5 +316,7 @@
     resetViewport();
     syncSourceUi();
   });
+  subtitleSelect?.addEventListener("change", applySelectedSubtitle);
   window.addEventListener("pagehide", () => { stopLocal({ silent: true }); });
+  syncSourceUi();
 })();

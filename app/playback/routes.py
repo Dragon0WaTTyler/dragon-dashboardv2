@@ -13,6 +13,7 @@ from flask import (
     url_for,
 )
 from flask_login import current_user, login_required
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from app.extensions import db
 from app.movies.providers import TmdbIdentityError, TmdbIdentityProvider
@@ -25,6 +26,7 @@ from app.playback.runtime import (
     build_playback_manager,
 )
 from app.playback.services import PlaybackService
+from app.playback.subtitles import SubdlSubtitleProvider, SubtitleProviderError
 
 bp = Blueprint("playback", __name__, url_prefix="/playback")
 
@@ -44,6 +46,27 @@ def _require_local_player() -> None:
     _require_playback()
     if not current_app.config["DRAGON_MAGNETS_ENABLED"]:
         abort(404)
+
+
+def _require_subtitles() -> None:
+    _require_playback()
+    if not (
+        current_app.config["DRAGON_SUBTITLES_ENABLED"]
+        and current_app.config["DRAGON_SUBDL_API_KEY"]
+    ):
+        abort(404)
+
+
+def _subtitle_provider():
+    provider = current_app.extensions.get("dragon_subtitle_provider")
+    if provider is None:
+        provider = SubdlSubtitleProvider(current_app.config["DRAGON_SUBDL_API_KEY"])
+        current_app.extensions["dragon_subtitle_provider"] = provider
+    return provider
+
+
+def _subtitle_serializer() -> URLSafeTimedSerializer:
+    return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="dragon-subtitle-track-v1")
 
 
 def _runtime_manager():
@@ -97,6 +120,87 @@ def vidsrc_source(movie_id: str):
     return response
 
 
+@bp.get("/movie/<movie_id>/subtitles")
+@login_required
+def subtitle_options(movie_id: str):
+    _require_subtitles()
+    context = get_playback_context(movie_id)
+    if context is None:
+        abort(404)
+    try:
+        candidates = _subtitle_provider().search(
+            context,
+            languages=current_app.config["DRAGON_SUBTITLE_LANGUAGES"],
+        )
+    except SubtitleProviderError as exc:
+        response = jsonify(
+            {
+                "ok": False,
+                "error": {"code": "subtitles_unavailable", "message": str(exc)},
+            }
+        )
+        response.headers["Cache-Control"] = "private, no-store"
+        return response, 503
+
+    serializer = _subtitle_serializer()
+    items = []
+    for candidate in candidates:
+        token = serializer.dumps(
+            {
+                "movie_id": movie_id,
+                "path": candidate.path,
+                "format": candidate.file_format,
+                "member": candidate.member_name,
+                "language": candidate.language,
+            }
+        )
+        items.append(
+            {
+                "language": candidate.language,
+                "language_name": candidate.language_name,
+                "label": candidate.label,
+                "hearing_impaired": candidate.hearing_impaired,
+                "track_url": url_for("playback.subtitle_track", movie_id=movie_id, token=token),
+            }
+        )
+    response = jsonify({"ok": True, "items": items})
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@bp.get("/movie/<movie_id>/subtitles/track/<token>")
+@login_required
+def subtitle_track(movie_id: str, token: str):
+    _require_subtitles()
+    if get_playback_context(movie_id) is None:
+        abort(404)
+    try:
+        payload = _subtitle_serializer().loads(token, max_age=12 * 60 * 60)
+    except (BadSignature, SignatureExpired):
+        abort(404)
+    if not isinstance(payload, dict) or payload.get("movie_id") != movie_id:
+        abort(404)
+    path = str(payload.get("path") or "")
+    file_format = str(payload.get("format") or "")
+    member_name = str(payload.get("member") or "")
+    cache_key = f"{file_format}:{path}:{member_name}"
+    cache = current_app.extensions.setdefault("dragon_subtitle_cache", {})
+    webvtt = cache.get(cache_key)
+    if webvtt is None:
+        try:
+            webvtt = _subtitle_provider().download(
+                path, file_format=file_format, member_name=member_name
+            )
+        except SubtitleProviderError as exc:
+            return current_app.response_class(str(exc), status=503, mimetype="text/plain")
+        if len(cache) >= 32:
+            cache.pop(next(iter(cache)))
+        cache[cache_key] = webvtt
+    response = current_app.response_class(webvtt, mimetype="text/vtt")
+    response.headers["Cache-Control"] = "private, max-age=3600"
+    return response
+
+
 @bp.post("/movie/<movie_id>/local")
 @login_required
 def start_local_source(movie_id: str):
@@ -108,9 +212,7 @@ def start_local_source(movie_id: str):
     source = PlaybackService.magnet_source(movie_id=movie_id, source_id=source_id)
     if source is None:
         abort(404)
-    torrent_fallback = PlaybackService.torrent_fallback(
-        movie_id=movie_id, label=source.label
-    )
+    torrent_fallback = PlaybackService.torrent_fallback(movie_id=movie_id, label=source.label)
     try:
         session = _runtime_manager().start(
             movie_id=movie_id,
