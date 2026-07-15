@@ -137,7 +137,7 @@
 .movie-detail__poster { grid-column: 1; grid-row: 1; border-radius: var(--radius-container); }
 .movie-detail__content--hero { grid-column: 2; grid-row: 1; }
 .movie-detail > .movie-player { grid-column: 1 / -1; grid-row: 2; }
-.movie-detail__content--secondary { grid-column: 2; grid-row: 3; }
+.movie-detail__content--secondary { grid-column: 1 / -1; grid-row: 3; min-width: 0; }
 .movie-detail__content header { padding-bottom: var(--space-6); border-bottom: 1px solid var(--color-border); }
 .movie-detail__content h1 { margin-bottom: var(--space-2); }
 .movie-detail__overview { max-width: 70ch; margin-block: var(--space-8); font-size: 1.08rem; }
