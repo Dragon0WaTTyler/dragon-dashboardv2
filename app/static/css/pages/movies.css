@@ -127,7 +127,11 @@
 .progress-track::-webkit-progress-value { background: var(--color-accent); }
 .progress-track::-moz-progress-bar { background: var(--color-accent); }
 
-.movie-detail { display: grid; grid-template-columns: minmax(220px, 340px) minmax(0, 1fr); gap: clamp(32px, 7vw, 96px); }
+.movie-detail {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  gap: clamp(var(--space-6), 4vw, var(--space-16));
+}
 .movie-detail__poster { border-radius: var(--radius-container); }
 .movie-detail__content header { padding-bottom: var(--space-6); border-bottom: 1px solid var(--color-border); }
 .movie-detail__content h1 { margin-bottom: var(--space-2); }
