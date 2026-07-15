@@ -5,21 +5,20 @@
 {% block content %}
 <a class="back-link" href="{{ url_for('reading.index') }}">← Back to Reading</a>
 <article class="reading-detail reading-detail--{{ article.direction }}">
-  <header class="reading-detail__header">
-    <div class="reading-detail__meta">
-      <span class="eyebrow" dir="auto" lang="{{ article.language }}">{{ article.source }}{% if article.author %} · {{ article.author }}{% endif %}</span>
-      {{ badge(article.status|title, 'accent' if article.status == 'reading' else '') }}
-    </div>
-    <h1 dir="auto" lang="{{ article.language }}">{{ article.title }}</h1>
-    {% if article.content_text and article.excerpt %}<p class="reading-detail__dek" dir="auto" lang="{{ article.language }}">{{ article.excerpt }}</p>{% endif %}
-  </header>
-
   {% if article.image_url %}
   <figure class="reading-detail__hero" data-media-frame>
     <img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" width="1200" height="675">
     <span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>
   </figure>
   {% endif %}
+
+  <header class="reading-detail__header">
+    <h1 dir="auto" lang="{{ article.language }}">{{ article.title }}</h1>
+    <div class="reading-detail__meta">
+      <span class="eyebrow" dir="auto" lang="{{ article.language }}">{{ article.source }}{% if article.author %} · {{ article.author }}{% endif %}</span>
+      {{ badge(article.status|title, 'accent' if article.status == 'reading' else '') }}
+    </div>
+  </header>
 
   <div class="reading-detail__layout">
     <section class="reading-detail__content" aria-label="Article text" lang="{{ article.language }}">

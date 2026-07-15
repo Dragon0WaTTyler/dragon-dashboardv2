@@ -62,6 +62,7 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
     assert "<br>" not in page.locator(".article-body").inner_text()
     assert page.get_by_text("Load full article explicitly").count() == 0
     assert page.get_by_text("Full-text cache").count() == 0
+    assert page.get_by_text("ملخص قصير للمقال قبل فتحه.", exact=True).count() == 0
     assert page.get_by_text("Full article", exact=True).is_visible()
     assert page.get_by_role("button", name="Refresh text").is_visible()
     title_metrics = page.locator(".reading-detail h1").evaluate(
@@ -76,10 +77,17 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
         "() => {"
         "const reader = document.querySelector('.reading-detail');"
         "const title = reader.querySelector('h1');"
+        "const hero = reader.querySelector('.reading-detail__hero');"
+        "const header = reader.querySelector('.reading-detail__header');"
         "const paragraph = reader.querySelector('.article-body p');"
         "const content = reader.querySelector('.reading-detail__content');"
         "const rail = reader.querySelector('.reading-detail__rail');"
         "return {"
+        "heroTop: Math.round(hero.getBoundingClientRect().top),"
+        "heroBottom: Math.round(hero.getBoundingClientRect().bottom),"
+        "headerTop: Math.round(header.getBoundingClientRect().top),"
+        "titleBottom: Math.round(title.getBoundingClientRect().bottom),"
+        "contentTop: Math.round(content.getBoundingClientRect().top),"
         "titleRight: Math.round(title.getBoundingClientRect().right),"
         "readerRight: Math.round(reader.getBoundingClientRect().right),"
         "paragraphDirection: getComputedStyle(paragraph).direction,"
@@ -88,6 +96,9 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
         "railLeft: Math.round(rail.getBoundingClientRect().left)"
         "};}"
     )
+    assert reader_metrics["heroTop"] < reader_metrics["heroBottom"]
+    assert reader_metrics["heroBottom"] <= reader_metrics["headerTop"]
+    assert reader_metrics["titleBottom"] < reader_metrics["contentTop"]
     assert abs(reader_metrics["titleRight"] - reader_metrics["readerRight"]) <= 2
     assert reader_metrics["paragraphDirection"] == "rtl"
     assert reader_metrics["paragraphAlign"] == "right"
