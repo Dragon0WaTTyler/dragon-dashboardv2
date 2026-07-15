@@ -101,6 +101,31 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(
     assert page.locator("[data-player-video]").is_visible()
     assert not page.locator("[data-player-frame]").is_visible()
 
+    desktop_layout = page.evaluate(
+        """() => {
+          const detail = document.querySelector('.movie-detail').getBoundingClientRect();
+          const player = document.querySelector('.movie-player').getBoundingClientRect();
+          const poster = document.querySelector('.movie-detail__poster').getBoundingClientRect();
+          const hero = document
+            .querySelector('.movie-detail__content--hero')
+            .getBoundingClientRect();
+          return {
+            detailLeft: detail.left,
+            detailWidth: detail.width,
+            playerLeft: player.left,
+            playerWidth: player.width,
+            playerTop: player.top,
+            heroBottom: hero.bottom,
+            posterBottom: poster.bottom,
+          };
+        }"""
+    )
+    assert abs(desktop_layout["playerLeft"] - desktop_layout["detailLeft"]) <= 1
+    assert abs(desktop_layout["playerWidth"] - desktop_layout["detailWidth"]) <= 1
+    assert desktop_layout["playerTop"] >= max(
+        desktop_layout["heroBottom"], desktop_layout["posterBottom"]
+    )
+
     page.set_viewport_size({"width": 390, "height": 844})
     metrics = page.evaluate(
         "() => ({scrollWidth: document.documentElement.scrollWidth, "
