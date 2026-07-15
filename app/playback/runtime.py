@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import atexit
+import base64
+import binascii
 import json
 import mimetypes
 import shutil
@@ -10,14 +12,13 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import BinaryIO
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from app.shared.ids import new_id
 
-READY_BYTES = 4 * 1024 * 1024
 STREAM_CHUNK_BYTES = 256 * 1024
+STREAM_RESPONSE_BYTES = 2 * 1024 * 1024
 TORRENT_METADATA_HOSTS = {"yts.bz", "yts.gg"}
 
 
@@ -105,12 +106,8 @@ class PlaybackSession:
     root: Path
     state: str = "preparing"
     message: str = "Reading torrent metadata…"
-    file_path: Path | None = None
     file_name: str = ""
     total_bytes: int = 0
-    sequential_bytes: int = 0
-    tail_start: int = 0
-    tail_ready: bool = False
     complete: bool = False
     peers: int = 0
     download_speed: int = 0
@@ -121,7 +118,6 @@ class PlaybackSession:
 
 @dataclass(frozen=True)
 class StreamRange:
-    handle: BinaryIO
     start: int
     end: int
     total: int
@@ -239,17 +235,8 @@ class MagnetPlaybackManager:
             raise PlaybackRuntimeError("Playback session was not found.")
 
     def _apply_runtime_status(self, session: PlaybackSession, result: dict) -> None:
-        candidate = Path(str(result.get("filePath") or "")).resolve()
-        try:
-            candidate.relative_to(session.root)
-        except ValueError as exc:
-            raise PlaybackRuntimeError("The runtime returned an unsafe media path.") from exc
-        session.file_path = candidate
-        session.file_name = str(result.get("fileName") or candidate.name)
+        session.file_name = str(result.get("fileName") or "")
         session.total_bytes = max(0, int(result.get("totalBytes") or 0))
-        session.sequential_bytes = max(0, int(result.get("sequentialBytes") or 0))
-        session.tail_start = max(0, int(result.get("tailStart") or 0))
-        session.tail_ready = bool(result.get("tailReady"))
         session.complete = bool(result.get("complete"))
         session.peers = max(0, int(result.get("peers") or 0))
         session.download_speed = max(0, int(result.get("downloadSpeed") or 0))
@@ -257,12 +244,12 @@ class MagnetPlaybackManager:
         if error:
             session.state = "failed"
             session.message = error
-        elif session.complete or session.sequential_bytes >= min(READY_BYTES, session.total_bytes):
+        elif result.get("directStream") and session.file_name and session.total_bytes:
             session.state = "ready"
-            session.message = "Local stream is ready."
+            session.message = "Local stream is ready. The player can request torrent pieces."
         else:
-            session.state = "buffering"
-            session.message = "Buffering the opening of the movie…"
+            session.state = "preparing"
+            session.message = "Selecting a browser-compatible movie file…"
         session.updated_at = datetime.now(UTC)
 
     def status(self, session_id: str, *, user_id: str) -> dict:
@@ -287,17 +274,12 @@ class MagnetPlaybackManager:
 
     @staticmethod
     def public_status(session: PlaybackSession) -> dict:
-        percent = (
-            round(min(100, session.sequential_bytes * 100 / session.total_bytes), 1)
-            if session.total_bytes
-            else 0
-        )
         return {
             "id": session.id,
             "state": session.state,
             "message": session.message,
             "file_name": session.file_name,
-            "buffer_percent": percent,
+            "buffer_percent": 100 if session.complete else 0,
             "peers": session.peers,
             "download_speed": session.download_speed,
             "complete": session.complete,
@@ -310,24 +292,32 @@ class MagnetPlaybackManager:
             self._owns(session, user_id=user_id)
             if session.state == "failed":
                 raise PlaybackRuntimeError(session.message)
-            if (
-                session.file_path is None
-                or not session.file_path.is_file()
-                or not session.total_bytes
-            ):
+            if session.state != "ready" or not session.total_bytes:
                 raise PlaybackNotReady("The local stream is still preparing.")
             start, requested_end = self._parse_range(range_header, session.total_bytes)
-            prefix_end = min(session.sequential_bytes, session.total_bytes) - 1
-            if start <= prefix_end:
-                end = min(requested_end, prefix_end)
-            elif session.tail_ready and start >= session.tail_start:
-                end = requested_end
-            else:
-                raise PlaybackNotReady("This part of the movie is still buffering.")
-            handle = session.file_path.open("rb")
-            handle.seek(start)
+            end = min(requested_end, start + STREAM_RESPONSE_BYTES - 1)
             mime_type = mimetypes.guess_type(session.file_name)[0] or "video/mp4"
-            return StreamRange(handle, start, end, session.total_bytes, mime_type)
+            return StreamRange(start, end, session.total_bytes, mime_type)
+
+    def read_chunk(
+        self, session_id: str, *, user_id: str, start: int, end: int
+    ) -> bytes:
+        with self._lock:
+            session = self._get(session_id)
+            self._owns(session, user_id=user_id)
+            if session.state != "ready":
+                raise PlaybackNotReady("The local stream is not ready.")
+        result = self.client.request(
+            "read", sessionId=session_id, start=start, end=end
+        )
+        encoded = str(result.get("data") or "")
+        try:
+            payload = base64.b64decode(encoded, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise PlaybackRuntimeError("WebTorrent returned invalid stream data.") from exc
+        if len(payload) != end - start + 1:
+            raise PlaybackRuntimeError("WebTorrent returned an incomplete byte range.")
+        return payload
 
     @staticmethod
     def _parse_range(value: str, total: int) -> tuple[int, int]:

@@ -9,6 +9,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    stream_with_context,
     url_for,
 )
 from flask_login import current_user, login_required
@@ -151,10 +152,12 @@ def local_status(session_id: str):
 @login_required
 def local_stream(session_id: str):
     _require_local_player()
+    user_id = str(current_user.get_id())
+    manager = _runtime_manager()
     try:
-        stream_range = _runtime_manager().open_range(
+        stream_range = manager.open_range(
             session_id,
-            user_id=str(current_user.get_id()),
+            user_id=user_id,
             range_header=str(request.headers.get("Range") or ""),
         )
     except PlaybackNotReady as exc:
@@ -172,25 +175,27 @@ def local_stream(session_id: str):
         "Cache-Control": "private, no-store",
     }
     if request.method == "HEAD":
-        stream_range.handle.close()
         return current_app.response_class(
             status=206, headers=headers, mimetype=stream_range.mime_type
         )
 
     def generate():
-        remaining = stream_range.length
-        try:
-            while remaining > 0:
-                chunk = stream_range.handle.read(min(STREAM_CHUNK_BYTES, remaining))
-                if not chunk:
-                    break
-                remaining -= len(chunk)
-                yield chunk
-        finally:
-            stream_range.handle.close()
+        position = stream_range.start
+        while position <= stream_range.end:
+            chunk_end = min(position + STREAM_CHUNK_BYTES - 1, stream_range.end)
+            yield manager.read_chunk(
+                session_id,
+                user_id=user_id,
+                start=position,
+                end=chunk_end,
+            )
+            position = chunk_end + 1
 
     return current_app.response_class(
-        generate(), status=206, headers=headers, mimetype=stream_range.mime_type
+        stream_with_context(generate()),
+        status=206,
+        headers=headers,
+        mimetype=stream_range.mime_type,
     )
 
 

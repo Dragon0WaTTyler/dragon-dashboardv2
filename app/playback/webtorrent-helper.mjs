@@ -6,19 +6,28 @@ import WebTorrent from "webtorrent";
 const client = new WebTorrent();
 const sessions = new Map();
 const MIN_MEDIA_BYTES = 50 * 1024 * 1024;
-const TAIL_BYTES = 2 * 1024 * 1024;
+const MAX_RANGE_BYTES = 512 * 1024;
+const RANGE_TIMEOUT_MS = 45000;
 
 const send = (id, payload = {}) => {
   process.stdout.write(`${JSON.stringify({ id, ...payload })}\n`);
 };
 
-const safeName = (value) => String(value || "video").replace(/[^a-zA-Z0-9._-]+/g, "_");
+const waitFor = (predicate, timeoutMs, message) => new Promise((resolve, reject) => {
+  const deadline = Date.now() + timeoutMs;
+  const check = () => {
+    if (predicate()) return resolve();
+    if (Date.now() >= deadline) return reject(new Error(message));
+    setTimeout(check, 100);
+  };
+  check();
+});
 
 const chooseMedia = (files) => {
   const candidates = files.filter((file) => {
     const name = String(file.name || "").toLowerCase();
     const extension = path.extname(name);
-    return [".mp4", ".mkv", ".m4v", ".webm"].includes(extension)
+    return [".mp4", ".m4v", ".webm"].includes(extension)
       && Number(file.length || 0) >= MIN_MEDIA_BYTES
       && !/(^|[._ -])(sample|trailer)([._ -]|$)/i.test(name);
   });
@@ -30,70 +39,21 @@ const chooseMedia = (files) => {
   return candidates[0] || null;
 };
 
-const startMaterializer = (session, file) => {
-  fs.mkdirSync(session.root, { recursive: true });
-  const extension = path.extname(file.name).toLowerCase() || ".mp4";
-  session.filePath = path.join(session.root, `${safeName(session.id)}${extension}`);
-  session.fileName = path.basename(file.name);
-  session.totalBytes = file.length;
-  session.sequentialBytes = 0;
-  session.tailStart = Math.max(0, file.length - TAIL_BYTES);
-  session.tailReady = false;
-  session.complete = false;
-  session.error = "";
-
-  const descriptor = fs.openSync(session.filePath, "w");
-  fs.ftruncateSync(descriptor, file.length);
-  fs.closeSync(descriptor);
-
-  const sequential = file.createReadStream();
-  const destination = fs.createWriteStream(session.filePath, { flags: "r+", start: 0 });
-  session.destination = destination;
-  sequential.on("error", (error) => { session.error = String(error.message || error); });
-  destination.on("error", (error) => { session.error = String(error.message || error); });
-  destination.on("finish", () => {
-    session.sequentialBytes = file.length;
-    session.complete = true;
-  });
-  sequential.pipe(destination);
-
-  if (session.tailStart > 0) {
-    const tail = file.createReadStream({ start: session.tailStart, end: file.length - 1 });
-    const tailDestination = fs.createWriteStream(session.filePath, {
-      flags: "r+",
-      start: session.tailStart,
-    });
-    tail.on("error", (error) => { session.error = String(error.message || error); });
-    tailDestination.on("error", (error) => { session.error = String(error.message || error); });
-    tailDestination.on("finish", () => { session.tailReady = true; });
-    tail.pipe(tailDestination);
-  } else {
-    session.tailReady = true;
-  }
-};
-
-const sessionPayload = (session) => ({
+const payload = (session) => ({
   sessionId: session.id,
-  fileName: session.fileName,
-  filePath: session.filePath,
-  totalBytes: session.totalBytes || 0,
-  sequentialBytes: Math.min(
-    Number(session.destination?.bytesWritten || session.sequentialBytes || 0),
-    session.totalBytes || 0,
-  ),
-  tailStart: session.tailStart || 0,
-  tailReady: Boolean(session.tailReady),
-  complete: Boolean(session.complete),
+  fileName: String(session.file?.name || ""),
+  totalBytes: Number(session.file?.length || 0),
   peers: Number(session.torrent?.numPeers || 0),
   downloadSpeed: Number(session.torrent?.downloadSpeed || 0),
+  complete: Boolean(session.torrent?.done),
+  directStream: Boolean(session.file),
+  warning: session.warning || "",
   error: session.error || "",
 });
 
 const start = async (message) => {
   const root = path.resolve(String(message.root || ""));
   fs.mkdirSync(root, { recursive: true });
-  const session = { id: String(message.sessionId), root, torrent: null };
-  sessions.set(session.id, session);
   let torrentInput = String(message.magnet || "");
   if (message.torrentFile) {
     const torrentFile = path.resolve(String(message.torrentFile));
@@ -102,34 +62,82 @@ const start = async (message) => {
   } else if (!torrentInput.startsWith("magnet:?")) {
     throw new Error("Invalid magnet URI");
   }
-  const torrent = await new Promise((resolve, reject) => {
-    const item = client.add(torrentInput, {
+
+  const existingTorrent = await client.get(torrentInput);
+  const torrent = existingTorrent || client.add(torrentInput, {
       path: path.join(root, "pieces"),
       strategy: "sequential",
       deselect: true,
       destroyStoreOnDestroy: false,
-    }, resolve);
-    session.torrent = item;
-    const timer = setTimeout(() => reject(new Error("Torrent metadata timed out")), 30000);
-    item.once("ready", () => clearTimeout(timer));
-    item.once("error", (error) => { clearTimeout(timer); reject(error); });
-  });
-  session.torrent = torrent;
+    });
+  const session = {
+    id: String(message.sessionId),
+    root,
+    torrent,
+    file: null,
+    warning: "",
+    error: "",
+  };
+  sessions.set(session.id, session);
+  torrent.on("warning", (error) => { session.warning = String(error?.message || error || ""); });
+  torrent.on("error", (error) => { session.error = String(error?.message || error || ""); });
+  await waitFor(
+    () => Boolean(torrent.files?.length),
+    30000,
+    "Torrent metadata timed out",
+  );
   const media = chooseMedia(torrent.files);
-  if (!media) throw new Error("No supported movie file was found in this torrent");
+  if (!media) throw new Error("No browser-compatible MP4 file was found in this torrent");
   torrent.files.forEach((file) => file.deselect());
-  media.select(10);
-  startMaterializer(session, media);
-  return sessionPayload(session);
+  session.file = media;
+  return payload(session);
+};
+
+const readRange = async (message) => {
+  const session = sessions.get(String(message.sessionId));
+  if (!session?.file) throw new Error("Playback session was not found");
+  const startByte = Number(message.start);
+  const endByte = Number(message.end);
+  if (!Number.isSafeInteger(startByte) || !Number.isSafeInteger(endByte)
+      || startByte < 0 || endByte < startByte || endByte >= session.file.length) {
+    throw new Error("Invalid playback range");
+  }
+  if (endByte - startByte + 1 > MAX_RANGE_BYTES) throw new Error("Playback range is too large");
+
+  const data = await new Promise((resolve, reject) => {
+    const chunks = [];
+    let settled = false;
+    const stream = session.file.createReadStream({ start: startByte, end: endByte });
+    const finish = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (error) {
+        try { stream.destroy(); } catch (_error) { /* no-op */ }
+        reject(error);
+        return;
+      }
+      resolve(Buffer.concat(chunks));
+    };
+    const timer = setTimeout(
+      () => finish(new Error("Torrent pieces timed out")),
+      RANGE_TIMEOUT_MS,
+    );
+    stream.on("data", (chunk) => chunks.push(chunk));
+    stream.once("end", () => finish());
+    stream.once("error", (error) => finish(error));
+  });
+  const expected = endByte - startByte + 1;
+  if (data.length !== expected) throw new Error("Torrent returned an incomplete byte range");
+  return { data: data.toString("base64"), bytes: data.length };
 };
 
 const close = async (sessionId) => {
   const session = sessions.get(sessionId);
   if (!session) return;
   sessions.delete(sessionId);
-  if (session.torrent) {
-    await new Promise((resolve) => session.torrent.destroy({ destroyStore: true }, resolve));
-  }
+  if ([...sessions.values()].some((candidate) => candidate.torrent === session.torrent)) return;
+  await new Promise((resolve) => session.torrent.destroy({ destroyStore: true }, resolve));
 };
 
 const handle = async (message) => {
@@ -138,8 +146,9 @@ const handle = async (message) => {
   if (command === "status") {
     const session = sessions.get(String(message.sessionId));
     if (!session) throw new Error("Playback session was not found");
-    return sessionPayload(session);
+    return payload(session);
   }
+  if (command === "read") return readRange(message);
   if (command === "close") {
     await close(String(message.sessionId));
     return { closed: true };
@@ -161,6 +170,9 @@ input.on("line", async (line) => {
   }
 });
 
+client.on("error", (error) => {
+  process.stderr.write(`${String(error?.stack || error?.message || error)}\n`);
+});
 const shutdown = async () => {
   await Promise.all([...sessions.keys()].map(close));
   client.destroy(() => process.exit(0));

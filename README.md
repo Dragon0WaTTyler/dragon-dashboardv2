@@ -65,9 +65,10 @@ flask --app app:create_app admin set-password
   freshness, source health, snapshot inspection, and operation reports.
 - **Playback** — one click-gated movie player with a source switcher for VidSrc
   or the local WebTorrent runtime, plus an isolated source review registry. The
-  local runtime selects the main video, buffers it into ignored instance storage,
-  and serves authenticated byte ranges to the native browser player. It never
-  launches a player or torrent client automatically.
+  local runtime selects the main browser-compatible MP4 and bridges authenticated
+  browser byte-range requests directly to WebTorrent pieces. It never waits for
+  or writes a complete movie before playback, and never launches a player or
+  torrent client automatically.
 
 Normal page GET requests use the local database/snapshots and make no external
 calls. External-facing operations are explicit, CSRF-protected, feature-gated,
@@ -114,10 +115,13 @@ when stronger browser isolation is preferred.
 Local magnet playback requires both `DRAGON_PLAYBACK_ENABLED=true` and
 `DRAGON_MAGNETS_ENABLED=true`. Dragon keeps magnet and paired `.torrent`
 locators server-side, starts WebTorrent only after an authenticated click, and
-stores temporary pieces under ignored `instance/playback-cache`. Imported YTS
-metadata may follow only the explicit `yts.bz` to `yts.gg` redirect; other hosts
-are rejected. Switching sources or pressing **Stop local stream** closes the
-session and removes its temporary cache.
+uses Flask `206 Partial Content` responses as the HTTP bridge between the native
+browser player and WebTorrent's requested pieces, including suffix and seek
+ranges. Only browser-compatible MP4 files are selected; sample and trailer files
+are rejected. Imported YTS metadata may follow only the explicit `yts.bz` to
+`yts.gg` redirect; other hosts are rejected. Switching sources or pressing
+**Stop local stream** closes the runtime session and removes its temporary
+metadata cache.
 
 Public YouTube playlist synchronization also requires
 `DRAGON_YOUTUBE_API_KEY` and `DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID`. It runs

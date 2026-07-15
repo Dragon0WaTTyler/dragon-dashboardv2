@@ -1,6 +1,7 @@
 from app.extensions import db
 from app.movies.models import Movie
 from app.playback.models import PlaybackSource
+from app.playback.runtime import StreamRange
 from tests.conftest import csrf_from
 
 
@@ -155,6 +156,16 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
                 "complete": False,
             }
 
+        def open_range(self, session_id, **values):
+            assert session_id == "play_test"
+            assert values["range_header"] == "bytes=0-5"
+            return StreamRange(start=0, end=5, total=12, mime_type="video/mp4")
+
+        def read_chunk(self, session_id, **values):
+            assert session_id == "play_test"
+            assert (values["start"], values["end"]) == (0, 5)
+            return b"dragon"
+
     locator = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
     with app.app_context():
         movie = Movie(title="Local Player", normalized_title="local player")
@@ -197,3 +208,10 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
     payload = response.get_json()
     assert payload["session"]["id"] == "play_test"
     assert payload["stream_url"].endswith("/playback/runtime/play_test/stream")
+
+    stream = authenticated_client.get(
+        payload["stream_url"], headers={"Range": "bytes=0-5"}, buffered=False
+    )
+    assert stream.status_code == 206
+    assert stream.headers["Content-Range"] == "bytes 0-5/12"
+    assert b"".join(stream.response) == b"dragon"

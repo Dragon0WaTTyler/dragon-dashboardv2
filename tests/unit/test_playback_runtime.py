@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import base64
 import time
-from pathlib import Path
 
-from app.playback.runtime import MagnetPlaybackManager
+import pytest
+
+from app.playback.runtime import MagnetPlaybackManager, PlaybackRuntimeError
 
 
 class FakeWebTorrentClient:
-    def __init__(self, *, unsafe_path: Path | None = None) -> None:
-        self.unsafe_path = unsafe_path
+    def __init__(self, *, invalid_data: bool = False) -> None:
+        self.invalid_data = invalid_data
         self.results: dict[str, dict] = {}
 
     def request(self, command: str, **payload: object) -> dict:
@@ -16,24 +18,24 @@ class FakeWebTorrentClient:
         if command == "close":
             return {"closed": True}
         if command == "start":
-            root = Path(str(payload["root"]))
-            root.mkdir(parents=True, exist_ok=True)
-            media = self.unsafe_path or root / "movie.mp4"
-            media.write_bytes(b"dragon-video")
             result = {
-                "filePath": str(media),
                 "fileName": "movie.mp4",
                 "totalBytes": len(b"dragon-video"),
-                "sequentialBytes": len(b"dragon-video"),
-                "tailStart": 0,
-                "tailReady": True,
-                "complete": True,
+                "directStream": True,
+                "complete": False,
                 "peers": 2,
                 "downloadSpeed": 1024,
                 "error": "",
             }
             self.results[session_id] = result
             return result
+        if command == "read":
+            if self.invalid_data:
+                return {"data": "not-base64", "bytes": 0}
+            start = int(payload["start"])
+            end = int(payload["end"])
+            data = b"dragon-video"[start : end + 1]
+            return {"data": base64.b64encode(data).decode(), "bytes": len(data)}
         return self.results[session_id]
 
 
@@ -63,22 +65,21 @@ def test_manager_prepares_owned_range_and_cleans_up(tmp_path):
     assert status["state"] == "ready"
     assert status["file_name"] == "movie.mp4"
     stream = manager.open_range(started["id"], user_id="user-1", range_header="bytes=0-5")
-    try:
-        assert stream.handle.read(stream.length) == b"dragon"
-        assert (stream.start, stream.end, stream.total) == (0, 5, 12)
-    finally:
-        stream.handle.close()
+    payload = manager.read_chunk(
+        started["id"], user_id="user-1", start=stream.start, end=stream.end
+    )
+    assert payload == b"dragon"
+    assert (stream.start, stream.end, stream.total) == (0, 5, 12)
 
     session_root = tmp_path / "cache" / started["id"]
     manager.stop(started["id"], user_id="user-1")
     assert not session_root.exists()
 
 
-def test_manager_rejects_media_path_outside_its_session(tmp_path):
-    unsafe = tmp_path / "outside.mp4"
+def test_manager_rejects_invalid_runtime_stream_data(tmp_path):
     manager = MagnetPlaybackManager(
         cache_root=tmp_path / "cache",
-        client=FakeWebTorrentClient(unsafe_path=unsafe),
+        client=FakeWebTorrentClient(invalid_data=True),
     )
     started = manager.start(
         movie_id="movie-1",
@@ -88,6 +89,6 @@ def test_manager_rejects_media_path_outside_its_session(tmp_path):
         torrent_url="",
     )
 
-    status = wait_until_ready(manager, started["id"])
-    assert status["state"] == "failed"
-    assert "unsafe media path" in status["message"]
+    wait_until_ready(manager, started["id"])
+    with pytest.raises(PlaybackRuntimeError, match="invalid stream data"):
+        manager.read_chunk(started["id"], user_id="user-1", start=0, end=5)
