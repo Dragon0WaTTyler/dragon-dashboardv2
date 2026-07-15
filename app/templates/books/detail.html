@@ -1,3 +1,75 @@
-{% extends "layouts/app.html" %}{% from "components/ui.html" import badge %}
-{% block title %}{{ book.title }} · Dragon{% endblock %}{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
-{% block content %}<a class="back-link" href="{{ url_for('books.index') }}">← Back to Books</a><article class="editorial-detail"><header><span class="eyebrow" dir="auto">{{ book.authors|join(', ') or 'Unknown author' }}{% if book.published_year %} · {{ book.published_year }}{% endif %}</span><h1 dir="auto">{{ book.title }}</h1>{{ badge(book.status|replace('_',' ')|title, 'accent' if book.status == 'reading' else '') }}</header>{% if book.description %}<p class="lead-copy" dir="auto">{{ book.description }}</p>{% endif %}<form class="progress-form" method="post" action="{{ url_for('books.progress', book_id=book.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span>Status</span><select name="status">{% for value in ['want_to_read','reading','paused','finished'] %}<option value="{{ value }}"{% if book.status == value %} selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label><label class="field"><span>Current page</span><input type="number" name="current_page" min="0"{% if book.page_count %} max="{{ book.page_count }}"{% endif %} value="{{ book.current_page }}"></label><button class="button button--primary" type="submit">Save progress</button></form><section class="detail-section"><h2>Quotes</h2>{% if book.quotes %}<div class="quote-list">{% for quote in book.quotes %}<blockquote dir="auto"><p>{{ quote.text }}</p>{% if quote.page %}<footer>Page {{ quote.page }}</footer>{% endif %}</blockquote>{% endfor %}</div>{% else %}<p class="muted">No linked quotes yet.</p>{% endif %}<form class="progress-form" method="post" action="{{ url_for('books.add_quote', book_id=book.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span>Quote</span><textarea name="text" rows="3" required></textarea></label><label class="field"><span>Page</span><input type="number" name="page" min="1"{% if book.page_count %} max="{{ book.page_count }}"{% endif %}></label><label class="field"><span>Note (optional)</span><input name="note"></label><button class="button button--secondary" type="submit">Add quote</button></form></section></article>{% endblock %}
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+{% block title %}{{ book.title }} · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('books.index') }}">← Back to Books</a>
+<article class="book-detail{% if book.direction == 'rtl' %} book-detail--rtl{% endif %}" dir="{{ book.direction }}">
+  <section class="book-detail__hero" aria-labelledby="book-title">
+    <figure class="book-detail__cover" data-media-frame>
+      {% if book.cover_url %}
+      <img data-media-image src="{{ book.cover_url }}" alt="Cover of {{ book.title }}" width="360" height="540">
+      <span class="media-fallback" aria-hidden="true">{{ book.title[:1] }}</span>
+      {% else %}
+      <span class="media-fallback" aria-hidden="true">{{ book.title[:1] }}</span>
+      {% endif %}
+    </figure>
+
+    <header class="book-detail__intro">
+      <span class="eyebrow" dir="auto">{{ book.authors|join(', ') or 'Unknown author' }}</span>
+      <h1 id="book-title" dir="auto">{{ book.title }}</h1>
+      <div class="book-detail__badges">
+        {{ badge(book.status|replace('_',' ')|title, 'accent' if book.status == 'reading' else '') }}
+        {% if book.published_year %}{{ badge(book.published_year) }}{% endif %}
+      </div>
+      {% if book.description %}<p class="book-detail__description" dir="auto">{{ book.description }}</p>{% endif %}
+      <div class="book-detail__progress-summary">
+        <div><span>Current page</span><strong>{{ book.current_page }}</strong></div>
+        <div><span>Total pages</span><strong>{{ book.page_count or '—' }}</strong></div>
+      </div>
+      <progress class="progress-track" value="{{ book.progress_percent }}" max="100" aria-label="{{ book.progress_percent }} percent read">{{ book.progress_percent }}%</progress>
+    </header>
+  </section>
+
+  <div class="book-detail__layout">
+    <aside class="book-detail__controls" aria-labelledby="progress-title">
+      <span class="eyebrow">Progress</span>
+      <h2 id="progress-title">Keep your place</h2>
+      <form class="book-progress-form" method="post" action="{{ url_for('books.progress', book_id=book.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field"><span>Status</span><select name="status">{% for value in ['want_to_read','reading','paused','finished'] %}<option value="{{ value }}"{% if book.status == value %} selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+        <label class="field"><span>Current page</span><input type="number" name="current_page" min="0"{% if book.page_count %} max="{{ book.page_count }}"{% endif %} value="{{ book.current_page }}"></label>
+        <button class="button button--primary button--full" type="submit">Save progress</button>
+      </form>
+    </aside>
+
+    <section class="book-detail__quotes" aria-labelledby="quotes-title">
+      <div class="section-heading section-heading--action">
+        <div><span class="eyebrow">Notebook</span><h2 id="quotes-title">Quotes</h2></div>
+        {{ badge(book.quotes|length ~ ' saved') }}
+      </div>
+      {% if book.quotes %}
+      <div class="quote-list">
+        {% for quote in book.quotes %}
+        <blockquote dir="{{ quote.direction }}">
+          <p>{{ quote.text }}</p>
+          {% if quote.note %}<cite dir="auto">{{ quote.note }}</cite>{% endif %}
+          {% if quote.page %}<footer>Page {{ quote.page }}</footer>{% endif %}
+        </blockquote>
+        {% endfor %}
+      </div>
+      {% else %}
+      <p class="book-detail__empty">No linked quotes yet. Save a line you want to return to.</p>
+      {% endif %}
+
+      <form class="book-quote-form" method="post" action="{{ url_for('books.add_quote', book_id=book.id) }}">
+        <div class="section-heading"><span class="eyebrow">New note</span><h3>Add a quote</h3></div>
+        <label class="field book-quote-form__text"><span>Quote</span><textarea name="text" rows="4" dir="auto" required></textarea></label>
+        <label class="field"><span>Page</span><input type="number" name="page" min="1"{% if book.page_count %} max="{{ book.page_count }}"{% endif %}></label>
+        <label class="field"><span>Note (optional)</span><input name="note" dir="auto"></label>
+        <button class="button button--secondary" type="submit">Add quote</button>
+      </form>
+    </section>
+  </div>
+</article>
+{% endblock %}

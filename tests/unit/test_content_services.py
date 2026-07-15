@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.books.models import Book
-from app.books.services import BookService
+from app.books.services import BookService, book_item
 from app.extensions import db
 from app.movies.models import Movie
 from app.reading.models import Article
@@ -23,6 +23,9 @@ def test_content_direction_detects_arabic_and_mixed_titles():
     assert article_item(Article(title="مقال عربي", url="https://example.test"))[
         "direction"
     ] == "rtl"
+    assert book_item(
+        Book(title="كتاب عربي", normalized_title="كتاب عربي", authors=["كاتب عربي"])
+    )["direction"] == "rtl"
 
 
 def test_watch_later_removal_preserves_local_history(app):

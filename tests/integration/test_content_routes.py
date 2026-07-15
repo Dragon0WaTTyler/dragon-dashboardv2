@@ -75,6 +75,10 @@ def test_primary_content_pages_render(authenticated_client, app):
         assert response.status_code == 200
         assert expected in response.get_data(as_text=True)
 
+    book_detail = authenticated_client.get(f"/books/{ids['book']}").get_data(as_text=True)
+    assert 'class="book-detail' in book_detail
+    assert 'src="https://images.example.test/book.jpg"' in book_detail
+
 
 def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     ids = seed_content(app)

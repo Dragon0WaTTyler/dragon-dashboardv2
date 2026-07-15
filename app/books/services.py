@@ -3,6 +3,7 @@ from __future__ import annotations
 from app.books.models import Book, Quote
 from app.extensions import db
 from app.history.services import HistoryService
+from app.shared.text import text_direction
 from app.shared.time import utc_iso
 
 BOOK_STATUSES = {"want_to_read", "reading", "finished", "paused"}
@@ -10,6 +11,7 @@ BOOK_STATUSES = {"want_to_read", "reading", "finished", "paused"}
 
 def book_item(book: Book) -> dict:
     percent = round(book.current_page / book.page_count * 100) if book.page_count else 0
+    direction_source = " ".join([book.title, *book.authors])
     return {
         "id": book.id,
         "title": book.title,
@@ -20,6 +22,7 @@ def book_item(book: Book) -> dict:
         "page_count": book.page_count,
         "progress_percent": min(percent, 100),
         "personal_score": book.personal_score,
+        "direction": text_direction(direction_source),
     }
 
 
@@ -30,7 +33,13 @@ def book_detail(book: Book) -> dict:
         "published_year": book.published_year,
         "source": book.source,
         "quotes": [
-            {"id": quote.id, "text": quote.text, "page": quote.page, "note": quote.note}
+            {
+                "id": quote.id,
+                "text": quote.text,
+                "page": quote.page,
+                "note": quote.note,
+                "direction": text_direction(quote.text),
+            }
             for quote in book.quotes
         ],
         "metadata_state": book.metadata_state,
