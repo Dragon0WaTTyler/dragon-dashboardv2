@@ -6,7 +6,6 @@
   const playerShell = detail.querySelector("[data-youtube-player]");
   const launch = detail.querySelector("[data-player-launch]");
   const frame = detail.querySelector("[data-player-frame]");
-  const toolbar = detail.querySelector("[data-player-toolbar]");
   const status = detail.querySelector("[data-player-status]");
   const focusButton = detail.querySelector("[data-player-focus]");
   const resumeCopy = detail.querySelector("[data-resume-copy]");
@@ -107,7 +106,6 @@
     frame.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}?${parameters}`;
     frame.hidden = false;
     launch.hidden = true;
-    toolbar.hidden = false;
     playerShell.classList.add("is-loaded");
     if (status) {
       status.textContent = requestedStart > 0

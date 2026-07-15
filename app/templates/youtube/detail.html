@@ -13,7 +13,10 @@
 
 {% block content %}
 <article class="youtube-detail" data-youtube-detail data-video-id="{{ video.external_id }}">
-  <a class="back-link" href="{{ url_for('youtube.index', source=video.source, group=video.group_name) }}">← Back to YouTube</a>
+  <div class="youtube-player__topline">
+    <a class="back-link" href="{{ url_for('youtube.index', source=video.source, group=video.group_name) }}">← Back to YouTube</a>
+    <button class="button button--secondary" type="button" data-player-focus>Enter focus mode</button>
+  </div>
 
   <section class="youtube-player" data-youtube-player aria-labelledby="video-title">
     <button class="youtube-player__launch" type="button" data-player-launch aria-label="Play {{ video.title }} here">
@@ -36,11 +39,8 @@
       allowfullscreen
       hidden
     ></iframe>
-    <div class="youtube-player__toolbar" data-player-toolbar hidden>
-      <span class="youtube-player__status" data-player-status role="status">Player ready.</span>
-      <button class="button button--secondary" type="button" data-player-focus>Enter focus mode</button>
-    </div>
   </section>
+  <span class="visually-hidden" data-player-status role="status" aria-live="polite">Player ready.</span>
 
   <header class="youtube-detail__header">
     <div class="youtube-detail__meta">

@@ -67,6 +67,11 @@ def test_youtube_detail_loads_large_player_only_after_click(page, live_app, app)
         "element => getComputedStyle(element).direction"
     ) == "rtl"
     player = page.locator("[data-youtube-player]")
+    focus_button = page.get_by_role("button", name="Enter focus mode")
+    assert focus_button.is_visible()
+    assert focus_button.evaluate(
+        "button => button.getBoundingClientRect().bottom"
+    ) <= player.evaluate("element => element.getBoundingClientRect().top")
     ratio = player.evaluate(
         "element => element.getBoundingClientRect().width / element.getBoundingClientRect().height"
     )
@@ -78,7 +83,20 @@ def test_youtube_detail_loads_large_player_only_after_click(page, live_app, app)
     ).wait_for()
     assert embed_requests
     assert page.locator("[data-player-frame]").is_visible()
-    assert page.get_by_role("button", name="Enter focus mode").is_visible()
+    assert not page.locator("[data-player-launch]").is_visible()
+    assert not page.get_by_text("Play here", exact=True).is_visible()
+    assert page.locator("[data-player-toolbar]").count() == 0
+    assert focus_button.is_visible()
+
+    title_alignment = page.locator(".youtube-detail__header").evaluate(
+        """header => {
+          const title = header.querySelector('h1');
+          const headerBox = header.getBoundingClientRect();
+          const titleBox = title.getBoundingClientRect();
+          return Math.abs(headerBox.right - titleBox.right);
+        }"""
+    )
+    assert title_alignment < 2
 
     page.set_viewport_size({"width": 390, "height": 844})
     metrics = page.evaluate(
