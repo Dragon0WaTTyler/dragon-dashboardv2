@@ -23,26 +23,38 @@
       <div><dt>Genres</dt><dd>{{ movie.genres|map(attribute='name')|join(', ') if movie.genres else 'Unknown' }}</dd></div>
       <div><dt>Source</dt><dd>{{ movie.source }}</dd></div>
     </dl>
-    {% if vidsrc_enabled %}
-    <section class="movie-player detail-section" aria-labelledby="movie-player-title" data-vidsrc-player data-source-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) }}">
+    {% if vidsrc_enabled or player_sources %}
+    <section class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}">
       <div class="movie-player__heading">
-        <div><span class="eyebrow">External player</span><h2 id="movie-player-title">Watch {{ movie.title }}</h2></div>
-        {{ badge('VidSrc', 'accent') }}
+        <div><span class="eyebrow">Playback deck</span><h2 id="movie-player-title">Watch {{ movie.title }}</h2></div>
+        <span class="badge badge--accent" data-player-badge>{{ 'VidSrc' if vidsrc_enabled else 'Local' }}</span>
+      </div>
+      <div class="movie-player__source-rail">
+        <label class="field movie-player__source">
+          <span>Player source</span>
+          <select data-player-source>
+            {% if vidsrc_enabled %}<option value="vidsrc" data-kind="vidsrc">Player 1 · VidSrc</option>{% endif %}
+            {% for source in player_sources %}<option value="{{ source.id }}" data-kind="local">Local · {{ source.label }}</option>{% endfor %}
+          </select>
+        </label>
+        <p>Choose the source first. Nothing starts before you press play.</p>
       </div>
       <div class="movie-player__viewport">
         <button class="movie-player__launch" type="button" data-player-launch aria-describedby="movie-player-status">
           <span class="movie-player__play" aria-hidden="true">▶</span>
-          <strong>Play with VidSrc</strong>
+          <strong data-player-launch-title>{{ 'Play with VidSrc' if vidsrc_enabled else 'Start local player' }}</strong>
           <span>Loads only after you press play</span>
         </button>
         {# VidSrc rejects every sandboxed iframe; loading remains explicit and feature-gated. #}
         <iframe class="movie-player__frame" data-player-frame title="VidSrc player for {{ movie.title }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer" hidden></iframe>
+        <video class="movie-player__video" data-player-video controls playsinline preload="metadata" hidden></video>
       </div>
       <div class="movie-player__footer">
         <p id="movie-player-status" class="muted" data-player-status aria-live="polite">Ready. No external connection has been made.</p>
         <div class="movie-player__controls" data-player-controls hidden>
           <button class="button button--quiet" type="button" data-player-reload>Reload player</button>
           <a class="button button--secondary" data-player-open target="_blank" rel="noopener noreferrer" hidden>Open separately</a>
+          <button class="button button--secondary" type="button" data-player-stop hidden>Stop local stream</button>
         </div>
       </div>
     </section>

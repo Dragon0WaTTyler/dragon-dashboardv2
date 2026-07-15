@@ -20,6 +20,7 @@ storage. Credential values and personal records never enter Git.
 ## Requirements and setup
 
 - Python 3.13 (`>=3.13,<3.14`)
+- Node.js 24 and npm (required only for local magnet playback)
 - Git
 - A Chromium-based browser for browser tests
 
@@ -30,6 +31,7 @@ py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -e ".[dev,production]"
+npm install
 flask --app app:create_app db upgrade
 flask --app app:create_app admin create
 flask --app app:create_app run
@@ -61,9 +63,11 @@ flask --app app:create_app admin set-password
 - **AI** — lazy contextual workspaces that stay disabled without configuration.
 - **Admin** — protected explicit refresh/sync/repair/diagnostic actions,
   freshness, source health, snapshot inspection, and operation reports.
-- **Playback** — an isolated, optional local-source/magnet review registry plus
-  an independently gated VidSrc player that loads only after an explicit click.
-  It never launches a player or torrent client automatically.
+- **Playback** — one click-gated movie player with a source switcher for VidSrc
+  or the local WebTorrent runtime, plus an isolated source review registry. The
+  local runtime selects the main video, buffers it into ignored instance storage,
+  and serves authenticated byte ranges to the native browser player. It never
+  launches a player or torrent client automatically.
 
 Normal page GET requests use the local database/snapshots and make no external
 calls. External-facing operations are explicit, CSRF-protected, feature-gated,
@@ -106,6 +110,14 @@ explicit action uses configured TMDB credentials to resolve and cache
 VidSrc rejects sandboxed iframes, so enabling its off-by-default feature permits
 the provider's scripts inside the click-loaded frame. Use **Open separately**
 when stronger browser isolation is preferred.
+
+Local magnet playback requires both `DRAGON_PLAYBACK_ENABLED=true` and
+`DRAGON_MAGNETS_ENABLED=true`. Dragon keeps magnet and paired `.torrent`
+locators server-side, starts WebTorrent only after an authenticated click, and
+stores temporary pieces under ignored `instance/playback-cache`. Imported YTS
+metadata may follow only the explicit `yts.bz` to `yts.gg` redirect; other hosts
+are rejected. Switching sources or pressing **Stop local stream** closes the
+session and removes its temporary cache.
 
 Public YouTube playlist synchronization also requires
 `DRAGON_YOUTUBE_API_KEY` and `DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID`. It runs

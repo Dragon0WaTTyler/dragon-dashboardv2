@@ -5,6 +5,7 @@ from flask_login import login_required
 
 from app.movies.repositories import MovieRepository
 from app.movies.services import MovieService, movie_detail, movie_item, parse_movie_filters
+from app.playback.services import PlaybackService
 
 bp = Blueprint("movies", __name__, url_prefix="/movies")
 
@@ -45,6 +46,10 @@ def detail(movie_id: str):
     movie = MovieRepository.get(movie_id)
     if movie is None:
         abort(404)
+    local_player_enabled = (
+        current_app.config["DRAGON_PLAYBACK_ENABLED"]
+        and current_app.config["DRAGON_MAGNETS_ENABLED"]
+    )
     return render_template(
         "movies/detail.html",
         active_module="movies",
@@ -53,6 +58,8 @@ def detail(movie_id: str):
             current_app.config["DRAGON_PLAYBACK_ENABLED"]
             and current_app.config["DRAGON_VIDSRC_ENABLED"]
         ),
+        local_player_enabled=local_player_enabled,
+        player_sources=PlaybackService.player_sources(movie_id) if local_player_enabled else [],
     )
 
 

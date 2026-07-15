@@ -11,12 +11,18 @@ from flask import (
     request,
     url_for,
 )
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from app.extensions import db
 from app.movies.providers import TmdbIdentityError, TmdbIdentityProvider
 from app.movies.public import get_playback_context, save_playback_external_ids
 from app.playback.models import MagnetCandidate
+from app.playback.runtime import (
+    STREAM_CHUNK_BYTES,
+    PlaybackNotReady,
+    PlaybackRuntimeError,
+    build_playback_manager,
+)
 from app.playback.services import PlaybackService
 
 bp = Blueprint("playback", __name__, url_prefix="/playback")
@@ -31,6 +37,20 @@ def _require_vidsrc() -> None:
     _require_playback()
     if not current_app.config["DRAGON_VIDSRC_ENABLED"]:
         abort(404)
+
+
+def _require_local_player() -> None:
+    _require_playback()
+    if not current_app.config["DRAGON_MAGNETS_ENABLED"]:
+        abort(404)
+
+
+def _runtime_manager():
+    manager = current_app.extensions.get("dragon_magnet_playback_manager")
+    if manager is None:
+        manager = build_playback_manager(instance_path=current_app.instance_path)
+        current_app.extensions["dragon_magnet_playback_manager"] = manager
+    return manager
 
 
 @bp.get("/movie/<movie_id>/vidsrc")
@@ -74,6 +94,115 @@ def vidsrc_source(movie_id: str):
     response = jsonify({"ok": True, "source": source})
     response.headers["Cache-Control"] = "private, no-store"
     return response
+
+
+@bp.post("/movie/<movie_id>/local")
+@login_required
+def start_local_source(movie_id: str):
+    _require_local_player()
+    if get_playback_context(movie_id) is None:
+        abort(404)
+    payload = request.get_json(silent=True) or {}
+    source_id = str(payload.get("source_id") or "").strip()
+    source = PlaybackService.magnet_source(movie_id=movie_id, source_id=source_id)
+    if source is None:
+        abort(404)
+    torrent_fallback = PlaybackService.torrent_fallback(
+        movie_id=movie_id, label=source.label
+    )
+    try:
+        session = _runtime_manager().start(
+            movie_id=movie_id,
+            user_id=str(current_user.get_id()),
+            source_id=source.id,
+            magnet=source.locator,
+            torrent_url=torrent_fallback.locator if torrent_fallback is not None else "",
+        )
+    except PlaybackRuntimeError as exc:
+        return jsonify({"ok": False, "error": {"message": str(exc)}}), 400
+    return (
+        jsonify(
+            {
+                "ok": True,
+                "session": session,
+                "status_url": url_for("playback.local_status", session_id=session["id"]),
+                "stream_url": url_for("playback.local_stream", session_id=session["id"]),
+                "stop_url": url_for("playback.stop_local", session_id=session["id"]),
+            }
+        ),
+        202,
+    )
+
+
+@bp.get("/runtime/<session_id>")
+@login_required
+def local_status(session_id: str):
+    _require_local_player()
+    try:
+        status = _runtime_manager().status(session_id, user_id=str(current_user.get_id()))
+    except PlaybackRuntimeError as exc:
+        return jsonify({"ok": False, "error": {"message": str(exc)}}), 404
+    response = jsonify({"ok": True, "session": status})
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@bp.route("/runtime/<session_id>/stream", methods=["GET", "HEAD"])
+@login_required
+def local_stream(session_id: str):
+    _require_local_player()
+    try:
+        stream_range = _runtime_manager().open_range(
+            session_id,
+            user_id=str(current_user.get_id()),
+            range_header=str(request.headers.get("Range") or ""),
+        )
+    except PlaybackNotReady as exc:
+        response = jsonify({"ok": False, "error": {"message": str(exc)}})
+        response.status_code = 425
+        response.headers["Retry-After"] = "1"
+        return response
+    except PlaybackRuntimeError as exc:
+        return jsonify({"ok": False, "error": {"message": str(exc)}}), 416
+
+    headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Length": str(stream_range.length),
+        "Content-Range": f"bytes {stream_range.start}-{stream_range.end}/{stream_range.total}",
+        "Cache-Control": "private, no-store",
+    }
+    if request.method == "HEAD":
+        stream_range.handle.close()
+        return current_app.response_class(
+            status=206, headers=headers, mimetype=stream_range.mime_type
+        )
+
+    def generate():
+        remaining = stream_range.length
+        try:
+            while remaining > 0:
+                chunk = stream_range.handle.read(min(STREAM_CHUNK_BYTES, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+        finally:
+            stream_range.handle.close()
+
+    return current_app.response_class(
+        generate(), status=206, headers=headers, mimetype=stream_range.mime_type
+    )
+
+
+@bp.post("/runtime/<session_id>/stop")
+@login_required
+def stop_local(session_id: str):
+    _require_local_player()
+    try:
+        _runtime_manager().stop(session_id, user_id=str(current_user.get_id()))
+    except PlaybackRuntimeError as exc:
+        return jsonify({"ok": False, "error": {"message": str(exc)}}), 404
+    return jsonify({"ok": True})
 
 
 @bp.get("/movie/<movie_id>")

@@ -37,6 +37,59 @@ def magnet_item(candidate: MagnetCandidate) -> dict:
 
 class PlaybackService:
     @staticmethod
+    def player_sources(movie_id: str) -> list[dict]:
+        sources = list(
+            db.session.scalars(
+                db.select(PlaybackSource)
+                .where(
+                    PlaybackSource.movie_id == movie_id,
+                    PlaybackSource.kind == "magnet",
+                    PlaybackSource.status == "available",
+                )
+                .order_by(PlaybackSource.selected.desc(), PlaybackSource.label.asc())
+            )
+        )
+        unique: list[dict] = []
+        seen: set[str] = set()
+        for source in sources:
+            if source.locator in seen:
+                continue
+            seen.add(source.locator)
+            unique.append(
+                {
+                    "id": source.id,
+                    "label": re.sub(r"\s+magnet$", "", source.label, flags=re.IGNORECASE),
+                    "kind": source.kind,
+                    "selected": source.selected,
+                }
+            )
+        return unique
+
+    @staticmethod
+    def magnet_source(*, movie_id: str, source_id: str) -> PlaybackSource | None:
+        return db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.id == source_id,
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.kind == "magnet",
+                PlaybackSource.status == "available",
+            )
+        )
+
+    @staticmethod
+    def torrent_fallback(*, movie_id: str, label: str) -> PlaybackSource | None:
+        return db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.kind == "torrent",
+                PlaybackSource.label == re.sub(
+                    r"magnet$", "torrent", label, flags=re.IGNORECASE
+                ),
+                PlaybackSource.status == "available",
+            )
+        )
+
+    @staticmethod
     def vidsrc_source(*, movie: dict, base_url: str) -> dict:
         external_ids = dict(movie.get("external_ids") or {})
         imdb_id = ""

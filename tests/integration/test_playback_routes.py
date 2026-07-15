@@ -1,5 +1,6 @@
 from app.extensions import db
 from app.movies.models import Movie
+from app.playback.models import PlaybackSource
 from tests.conftest import csrf_from
 
 
@@ -131,3 +132,68 @@ def test_vidsrc_v2_redirect_hosts_are_allowed_by_csp(authenticated_client, app):
         "frame-src 'self' https://v2.vidsrc.me https://vidsrc.me https://vidsrcme.ru"
         in policy
     )
+
+
+def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
+    authenticated_client, app
+):
+    class StubRuntime:
+        def start(self, **values):
+            assert values["movie_id"] == movie_id
+            assert values["source_id"] == source_id
+            assert values["magnet"].startswith("magnet:?")
+            assert values["torrent_url"] == "https://yts.bz/example.torrent"
+            assert values["user_id"]
+            return {
+                "id": "play_test",
+                "state": "preparing",
+                "message": "Reading torrent metadata…",
+                "file_name": "",
+                "buffer_percent": 0,
+                "peers": 0,
+                "download_speed": 0,
+                "complete": False,
+            }
+
+    locator = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
+    with app.app_context():
+        movie = Movie(title="Local Player", normalized_title="local player")
+        db.session.add(movie)
+        db.session.flush()
+        source = PlaybackSource(
+            movie_id=movie.id,
+            kind="magnet",
+            label="FHD magnet",
+            locator=locator,
+        )
+        db.session.add(source)
+        db.session.add(
+            PlaybackSource(
+                movie_id=movie.id,
+                kind="torrent",
+                label="FHD torrent",
+                locator="https://yts.bz/example.torrent",
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+        source_id = source.id
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = True
+    app.config["DRAGON_MAGNETS_ENABLED"] = True
+    app.extensions["dragon_magnet_playback_manager"] = StubRuntime()
+
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    html = detail.get_data(as_text=True)
+    assert "Local · FHD" in html
+    assert locator not in html
+
+    response = authenticated_client.post(
+        f"/playback/movie/{movie_id}/local",
+        json={"source_id": source_id},
+        headers={"X-CSRFToken": csrf_from(detail)},
+    )
+    assert response.status_code == 202
+    payload = response.get_json()
+    assert payload["session"]["id"] == "play_test"
+    assert payload["stream_url"].endswith("/playback/runtime/play_test/stream")

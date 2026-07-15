@@ -1,0 +1,7 @@
+{
+  "name": "dragon-v2-playback-runtime",
+  "private": true,
+  "dependencies": {
+    "webtorrent": "3.0.6"
+  }
+}
