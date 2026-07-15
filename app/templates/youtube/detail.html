@@ -56,7 +56,7 @@
 
   <div class="youtube-detail__layout">
     <div class="youtube-detail__main">
-      {% if video.description_view.paragraphs or video.description_view.chapters %}
+      {% if dragon_feature('youtube', 'description') and (video.description_view.paragraphs or video.description_view.chapters) %}
       <section class="youtube-description" aria-labelledby="about-video-title">
         <div class="section-heading section-heading--action">
           <div>
@@ -73,7 +73,7 @@
       </section>
       {% endif %}
 
-      {% if related %}
+      {% if dragon_feature('youtube', 'related') and related %}
       <section class="youtube-related" aria-labelledby="related-title">
         <div class="section-heading section-heading--action">
           <div>
@@ -127,7 +127,7 @@
       </nav>
       {% endif %}
 
-      {% if video.description_view.chapters %}
+      {% if dragon_feature('youtube', 'description') and video.description_view.chapters %}
       <section class="youtube-chapters" aria-labelledby="chapters-title">
         <span class="eyebrow">Timeline</span>
         <h2 id="chapters-title">Chapters</h2>

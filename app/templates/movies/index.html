@@ -14,9 +14,10 @@
 </header>
 <div class="movie-actions">
   <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index', status='want_to_watch') }}">Watch next</a><a href="{{ url_for('movies.index', status='watching') }}">Continue watching</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a><a href="{{ url_for('movies.index', status='watched', sort='recently_updated') }}">Recently watched</a></nav>
-  <button class="button button--primary movie-actions__recommend" type="button" data-recommendation-load aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>
+  {% if dragon_feature('movies', 'recommendation') %}<button class="button button--primary movie-actions__recommend" type="button" data-recommendation-load aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}
 </div>
 
+{% if dragon_feature('movies', 'recommendation') %}
 <section
   id="movie-recommendation"
   class="movie-recommendation"
@@ -47,6 +48,7 @@
     </div>
   </article>
 </section>
+{% endif %}
 
 <form class="filter-bar" method="get" aria-label="Filter movies">
   <label class="field filter-bar__search"><span>Search</span><input name="q" type="search" value="{{ filters.q }}" placeholder="Title or original title"></label>

@@ -43,7 +43,7 @@
       </form>
     </aside>
 
-    <section class="book-detail__quotes" aria-labelledby="quotes-title">
+    {% if dragon_feature('books', 'quotes') %}<section class="book-detail__quotes" aria-labelledby="quotes-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Notebook</span><h2 id="quotes-title">Quotes</h2></div>
         {{ badge(book.quotes|length ~ ' saved') }}
@@ -69,7 +69,7 @@
         <label class="field"><span>Note (optional)</span><input name="note" dir="auto"></label>
         <button class="button button--secondary" type="submit">Add quote</button>
       </form>
-    </section>
+    </section>{% endif %}
   </div>
 </article>
 {% endblock %}

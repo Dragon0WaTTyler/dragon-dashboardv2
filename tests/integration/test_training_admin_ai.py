@@ -38,7 +38,7 @@ def test_training_pages_and_ai_disabled_state(authenticated_client, app):
         f"/chess/puzzles/{ids['puzzle']}": "puzzle-ui",
         "/german": "Deutsch A1",
         "/ai/workspace?mode=film_analysis&context_type=movie&context_id=mov_1": "safely disabled",
-        "/admin": "Nothing refreshes during normal page rendering",
+        "/admin": "Control Center",
     }
     for path, expected in pages.items():
         response = authenticated_client.get(path)

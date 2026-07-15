@@ -41,6 +41,7 @@ def app(tmp_path: Path):
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{database_path.as_posix()}",
             "WTF_CSRF_ENABLED": True,
             "SERVER_NAME": "localhost",
+            "DRAGON_CONTROL_CENTER_ROOT": str(tmp_path / "control-center"),
         }
     )
     with application.app_context():

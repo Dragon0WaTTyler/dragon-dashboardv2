@@ -108,8 +108,8 @@
   }
 
   function updateCountdowns() {
-    movieCountdown.textContent = remainingLabel(movieNextAt, "pick");
-    youtubeCountdown.textContent = remainingLabel(youtubeNextAt, "mix");
+    if (movieCountdown) movieCountdown.textContent = remainingLabel(movieNextAt, "pick");
+    if (youtubeCountdown) youtubeCountdown.textContent = remainingLabel(youtubeNextAt, "mix");
   }
 
   async function refreshLive() {
@@ -137,7 +137,7 @@
       youtubeNextAt = Date.parse(rotation.youtube_next_at);
       retryAt = 0;
       if (movieChanged || youtubeChanged) {
-        announcer.textContent = movieChanged && youtubeChanged
+        if (announcer) announcer.textContent = movieChanged && youtubeChanged
           ? "Movie pick and YouTube mix updated."
           : movieChanged
             ? "Movie pick updated."

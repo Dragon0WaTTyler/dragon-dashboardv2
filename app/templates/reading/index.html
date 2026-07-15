@@ -24,7 +24,7 @@
   <label class="field"><span>View</span><select name="view"><option value="grid"{% if view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if view == 'list' %} selected{% endif %}>Compact list</option></select></label>
   <button class="button button--primary" type="submit">Apply</button>
 </form>
-{% if sources %}<div class="source-health" aria-label="Source health">{% for source in sources %}<span dir="auto">{{ source.name }} <small>{{ source.health_state }}</small></span>{% endfor %}</div>{% endif %}
+{% if dragon_feature('reading', 'source_health') and sources %}<div class="source-health" aria-label="Source health">{% for source in sources %}<span dir="auto">{{ source.name }} <small>{{ source.health_state }}</small></span>{% endfor %}</div>{% endif %}
 {% if articles %}
 <div class="article-list{% if view == 'grid' %} article-list--grid{% endif %}" aria-label="Reading results">
   {% for article in articles %}

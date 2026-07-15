@@ -1,0 +1,46 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+{% set section = section_state.definition %}
+{% block title %}{{ section.label }} controls · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/control-center.css') }}">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('admin.index') }}">← Control Center</a>
+<header class="section-control-header section-control-header--{{ section_state.status }}">
+  <div><span class="eyebrow">{{ section_state.status }} · section {{ section.key }}</span><h1>{{ section.label }}</h1><p>{{ section.description }}</p></div>
+  <div class="section-control-header__actions">
+    {{ badge(section_state.count ~ ' records' if section_state.count is not none else 'Runtime module', 'success' if section_state.status == 'healthy' else 'warning') }}
+    {% if section_state.available %}<a class="button button--secondary" href="{{ url_for(section.endpoint) }}">Open section ↗</a>{% endif %}
+  </div>
+</header>
+
+<div class="section-control-grid">
+  <section class="control-panel" aria-labelledby="preferences-title">
+    <div class="section-heading"><span class="eyebrow">Persistent preferences</span><h2 id="preferences-title">Shape this section</h2></div>
+    <form method="post" action="{{ url_for('admin.update_section_preferences', section_key=section.key) }}" class="preference-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="preference-switch"><span><strong>Primary navigation</strong><small>Show {{ section.label }} in the header, mobile nav, and command menu.</small></span><input type="checkbox" name="show_in_navigation"{% if section_state.preferences.show_in_navigation %} checked{% endif %}></label>
+      {% if section.show_on_today %}<label class="preference-switch"><span><strong>Today workspace</strong><small>Include this module’s live card on the home screen.</small></span><input type="checkbox" name="show_on_today"{% if section_state.preferences.show_on_today %} checked{% endif %}></label>{% endif %}
+      {% for feature in section.features %}<label class="preference-switch"><span><strong>{{ feature.label }}</strong><small>{{ feature.description }}</small></span><input type="checkbox" name="feature_{{ feature.key }}"{% if section_state.preferences.features[feature.key] %} checked{% endif %}></label>{% endfor %}
+      <button class="button button--primary" type="submit">Save preferences</button>
+    </form>
+  </section>
+
+  <aside class="control-panel" aria-labelledby="health-title">
+    <div class="section-heading"><span class="eyebrow">Section pulse</span><h2 id="health-title">State and next action</h2></div>
+    {% if section_state.issues %}<ul class="control-signals">{% for issue in section_state.issues %}<li><span aria-hidden="true">!</span>{{ issue }}</li>{% endfor %}</ul>{% else %}<p class="control-clear"><span aria-hidden="true">✓</span> No active issue detected.</p>{% endif %}
+    <dl class="control-facts"><div><dt>Records</dt><dd>{{ section_state.count if section_state.count is not none else 'Not applicable' }}</dd></div><div><dt>Navigation</dt><dd>{{ 'Visible' if section_state.preferences.show_in_navigation else 'Hidden' }}</dd></div><div><dt>Last operation</dt><dd>{{ section_state.last_operation.status|title if section_state.last_operation else 'Never' }}</dd></div></dl>
+  </aside>
+
+  <section class="control-panel" aria-labelledby="capabilities-title">
+    <div class="section-heading"><span class="eyebrow">Read-only runtime</span><h2 id="capabilities-title">Capabilities</h2></div>
+    <div class="capability-list">{% for capability in section_state.capabilities %}<div><span class="capability-dot capability-dot--{{ 'on' if capability.enabled else 'off' }}" aria-hidden="true"></span><span><strong>{{ capability.label }}</strong><small>{{ capability.note }}</small></span></div>{% endfor %}</div>
+    <p class="control-note">Secret values are never rendered here. Runtime changes stay in your private environment and require a restart.</p>
+  </section>
+
+  <section class="control-panel" aria-labelledby="freshness-title">
+    <div class="section-heading"><span class="eyebrow">Local data</span><h2 id="freshness-title">Freshness and operations</h2></div>
+    {% if section_state.freshness %}<div class="freshness-list">{% for item in section_state.freshness %}<div><span><strong>{{ item.domain|replace('_', ' ')|title }}</strong><small>{{ item.message }}</small></span>{{ badge(item.state|title, 'success' if item.state == 'fresh' else 'warning') }}</div>{% endfor %}</div>{% else %}<p class="muted">This module does not depend on an external snapshot.</p>{% endif %}
+    {% if section.operation_domain %}<form class="section-operation" method="post" action="{{ url_for('admin.run_operation') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="domain" value="{{ section.operation_domain }}"><input type="hidden" name="next" value="{{ request.path }}"><label class="field"><span>Operation</span><select name="kind"><option value="refresh">Refresh snapshot</option><option value="sync">Synchronize</option><option value="repair">Repair metadata</option><option value="diagnose">Diagnose</option></select></label><button class="button button--secondary" type="submit">Run for {{ section.label }}</button></form>{% endif %}
+  </section>
+</div>
+{% endblock %}

@@ -350,7 +350,7 @@ def test_vidsrc_player_loads_only_after_explicit_click(page, live_app, app):
         ("/chess", "Chess"),
         ("/german", "German"),
         ("/history", "History"),
-        ("/admin", "Admin"),
+        ("/admin", "Control Center"),
         ("/ai/workspace", "Movie Curation"),
     ],
 )

@@ -25,6 +25,7 @@
   data-youtube-next-at="{{ workspace.rotation.youtube_next_at }}"
 >
   <section class="today-main" aria-label="Today’s media queue">
+    {% if dragon_feature('movies', 'today') %}
     <section class="today-section" aria-labelledby="recommended-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Recommended movie</span><h2 id="recommended-title">One from your queue</h2></div>
@@ -65,7 +66,9 @@
       </div>
     </section>
     {% endif %}
+    {% endif %}
 
+    {% if dragon_feature('youtube', 'today') %}
     <section class="today-section report-section" aria-labelledby="youtube-today-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Shuffled from Watch Later</span><h2 id="youtube-today-title">YouTube mix</h2></div>
@@ -89,7 +92,9 @@
       {{ empty_state('No Watch Later videos', 'Sync your local Watch Later snapshot from Admin.') }}
       {% endif %}
     </section>
+    {% endif %}
 
+    {% if dragon_feature('reading', 'today') %}
     <section class="today-section report-section" aria-labelledby="reading-today-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Continue reading</span><h2 id="reading-today-title">Saved reads</h2></div>
@@ -120,10 +125,11 @@
       {{ empty_state('No saved reads', 'Your next unread or in-progress article will appear here.') }}
       {% endif %}
     </section>
+    {% endif %}
   </section>
 
   <aside class="today-aside" aria-labelledby="guardrails-title">
-    <section aria-labelledby="book-today-title">
+    {% if dragon_feature('books', 'today') %}<section aria-labelledby="book-today-title">
       <span class="eyebrow">Current book</span>
       <h2 id="book-today-title">Reading now</h2>
       {% if workspace.current_book %}
@@ -134,18 +140,18 @@
         <div class="today-book__body"><h3 dir="auto"><a href="{{ url_for('books.detail', book_id=workspace.current_book.id) }}">{{ workspace.current_book.title }}</a></h3><p dir="auto">{{ workspace.current_book.authors|join(', ') or 'Unknown author' }}</p><progress class="progress-track" value="{{ workspace.current_book.progress_percent }}" max="100" aria-label="{{ workspace.current_book.progress_percent }} percent read">{{ workspace.current_book.progress_percent }}%</progress><small>Page {{ workspace.current_book.current_page }} of {{ workspace.current_book.page_count or '?' }}</small></div>
       </article>
       {% else %}<p class="muted">No current book.</p>{% endif %}
-    </section>
+    </section>{% endif %}
 
-    <section class="report-section" aria-labelledby="guardrails-title">
+    {% if dragon_feature('today', 'freshness') %}<section class="report-section" aria-labelledby="guardrails-title">
       <span class="eyebrow">Data health</span>
       <h2 id="guardrails-title">Freshness warnings</h2>
       {% if workspace.freshness_warnings %}<ul class="check-list">{% for item in workspace.freshness_warnings[:6] %}<li><span aria-hidden="true">!</span>{{ item.domain|replace('_', ' ')|title }}: {{ item.state }}</li>{% endfor %}</ul>{% else %}<p class="muted">All tracked snapshots are fresh.</p>{% endif %}
-    </section>
+    </section>{% endif %}
 
-    <section class="report-section" aria-labelledby="chess-today-title">
+    {% if dragon_feature('chess', 'today') %}<section class="report-section" aria-labelledby="chess-today-title">
       <span class="eyebrow">Today’s chess</span><h2 id="chess-today-title">Training queue</h2>
       {% if workspace.chess_training %}<ul class="check-list">{% for puzzle in workspace.chess_training %}<li><span aria-hidden="true">→</span><a href="{{ url_for('chess.puzzle', puzzle_id=puzzle.id) }}">Puzzle {{ puzzle.external_id }} · {{ puzzle.rating }}</a></li>{% endfor %}</ul>{% else %}<p class="muted">No puzzles in the local queue.</p>{% endif %}
-    </section>
+    </section>{% endif %}
   </aside>
   <span class="visually-hidden" data-live-announcer aria-live="polite"></span>
 </div>
