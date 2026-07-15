@@ -7,15 +7,16 @@
   <div><span class="eyebrow">Editorial inbox</span><h1>Reading</h1><p>Cached articles, deliberate full-text loading, and visible source health.</p></div>
   {{ badge(articles|length ~ ' articles', 'accent') }}
 </header>
-<form class="compact-filters" method="get">
+<form class="compact-filters compact-filters--wide" method="get">
   <label class="field"><span>Search</span><input type="search" name="q" value="{{ q }}"></label>
   <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for source in sources %}<option value="{{ source.id }}"{% if source_id == source.id %} selected{% endif %}>{{ source.name }}</option>{% endfor %}</select></label>
   <label class="field"><span>Status</span><select name="status"><option value="">All</option>{% for value in ['unread','reading','saved','finished'] %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
+  <label class="field"><span>View</span><select name="view"><option value="grid"{% if view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if view == 'list' %} selected{% endif %}>Compact list</option></select></label>
   <button class="button button--primary" type="submit">Apply</button>
 </form>
 {% if sources %}<div class="source-health" aria-label="Source health">{% for source in sources %}<span dir="auto">{{ source.name }} <small>{{ source.health_state }}</small></span>{% endfor %}</div>{% endif %}
 {% if articles %}
-<div class="article-list">
+<div class="article-list{% if view == 'grid' %} article-list--grid{% endif %}" aria-label="Reading results">
   {% for article in articles %}
   <article class="article-card">
     <a class="article-card__image" data-media-frame href="{{ url_for('reading.detail', article_id=article.id) }}">

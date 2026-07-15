@@ -23,6 +23,7 @@ def index():
     group = str(request.args.get("group") or "")
     q = str(request.args.get("q") or "")
     order = str(request.args.get("order") or "normal")
+    view = str(request.args.get("view") or "grid")
     page = _positive_int(request.args.get("page"), 1, 100000)
     per_page = _positive_int(request.args.get("per_page"), 50, 100)
     errors = {}
@@ -32,6 +33,8 @@ def index():
     if order not in ORDERS:
         errors["order"] = "Unknown order."
         order = "normal"
+    if view not in {"grid", "list"}:
+        view = "grid"
     offset = (page - 1) * per_page
     feed = YouTubeService.feed(
         source=source,
@@ -50,6 +53,7 @@ def index():
         group=group,
         q=q,
         order=order,
+        view=view,
         groups=YouTubeRepository.groups(),
         errors=errors,
         page=page,

@@ -144,9 +144,23 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
 
     page.goto(f"{live_app}/reading")
     assert page.locator(".article-card__image img").is_visible()
+    assert page.locator(".article-list--grid").evaluate(
+        "element => getComputedStyle(element).gridTemplateColumns.split(' ').length"
+    ) == 3
     assert page.locator(".article-card h2").evaluate(
         "element => getComputedStyle(element).direction"
     ) == "rtl"
+    page.get_by_label("View").select_option("list")
+    page.get_by_role("button", name="Apply").click()
+    assert page.locator(".article-list--grid").count() == 0
+
+    page.goto(f"{live_app}/youtube")
+    assert page.locator(".media-list--grid").evaluate(
+        "element => getComputedStyle(element).gridTemplateColumns.split(' ').length"
+    ) == 3
+    page.get_by_label("View").select_option("list")
+    page.get_by_role("button", name="Apply").click()
+    assert page.locator(".media-list--grid").count() == 0
 
     page.route(
         "**/api/v1/home/live",

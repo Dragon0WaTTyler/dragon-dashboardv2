@@ -68,19 +68,33 @@ def test_primary_content_pages_render(authenticated_client, app):
         assert expected in response.get_data(as_text=True)
 
 
-def test_books_grid_and_reading_thumbnails_render(authenticated_client, app):
+def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     seed_content(app)
     grid = authenticated_client.get("/books?view=grid")
     compact = authenticated_client.get("/books?view=list")
     invalid = authenticated_client.get("/books?view=unknown")
-    reading = authenticated_client.get("/reading")
+    reading_grid = authenticated_client.get("/reading?view=grid")
+    reading_list = authenticated_client.get("/reading?view=list")
+    reading_invalid = authenticated_client.get("/reading?view=unknown")
+    youtube_grid = authenticated_client.get("/youtube?source=pockettube&view=grid")
+    youtube_list = authenticated_client.get("/youtube?source=pockettube&view=list")
+    youtube_invalid = authenticated_client.get(
+        "/youtube?source=pockettube&view=unknown"
+    )
     today = authenticated_client.get("/")
 
     assert 'class="book-grid"' in grid.get_data(as_text=True)
     assert "book-grid--list" in compact.get_data(as_text=True)
     assert "book-grid--list" not in invalid.get_data(as_text=True)
-    assert 'src="https://images.example.test/article.jpg"' in reading.get_data(as_text=True)
-    assert 'dir="auto"' in reading.get_data(as_text=True)
+    assert "article-list--grid" in reading_grid.get_data(as_text=True)
+    assert "article-list--grid" not in reading_list.get_data(as_text=True)
+    assert "article-list--grid" in reading_invalid.get_data(as_text=True)
+    assert "media-list--grid" in youtube_grid.get_data(as_text=True)
+    assert "media-list--grid" not in youtube_list.get_data(as_text=True)
+    assert "media-list--grid" in youtube_invalid.get_data(as_text=True)
+    reading_html = reading_grid.get_data(as_text=True)
+    assert 'src="https://images.example.test/article.jpg"' in reading_html
+    assert 'dir="auto"' in reading_html
     today_html = today.get_data(as_text=True)
     assert 'class="today-feature"' in today_html
     assert 'src="https://images.example.test/movie.jpg"' in today_html
@@ -104,13 +118,16 @@ def test_watch_later_paginates_large_playlists(authenticated_client, app):
         )
         db.session.commit()
 
-    first = authenticated_client.get("/youtube?source=watch_later&per_page=50")
+    first = authenticated_client.get(
+        "/youtube?source=watch_later&view=list&per_page=50"
+    )
     second = authenticated_client.get("/youtube?source=watch_later&per_page=50&page=2")
     shuffled = authenticated_client.get(
         "/youtube?source=watch_later&order=shuffle&seed=stable-seed&per_page=50"
     )
 
     assert ">Next</a>" in first.get_data(as_text=True)
+    assert "view=list" in first.get_data(as_text=True)
     assert "Watch video 50" in second.get_data(as_text=True)
     assert ">Previous</a>" in second.get_data(as_text=True)
     assert "seed=stable-seed" in shuffled.get_data(as_text=True)

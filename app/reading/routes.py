@@ -15,6 +15,9 @@ def index():
     q = str(request.args.get("q") or "")
     source_id = str(request.args.get("source") or "")
     status = str(request.args.get("status") or "")
+    view = str(request.args.get("view") or "grid")
+    if view not in {"grid", "list"}:
+        view = "grid"
     articles = ReadingRepository.list(q=q, source_id=source_id, status=status)
     return render_template(
         "reading/index.html",
@@ -24,6 +27,7 @@ def index():
         q=q,
         source_id=source_id,
         status=status,
+        view=view,
     )
 
 
