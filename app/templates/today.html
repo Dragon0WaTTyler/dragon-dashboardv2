@@ -1,75 +1,151 @@
 {% extends "layouts/app.html" %}
-{% from "components/ui.html" import badge, empty_state, notice %}
+{% from "components/ui.html" import badge, empty_state %}
 {% block title %}Today · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/today.css') }}">{% endblock %}
 {% block content %}
 <header class="page-header page-header--today">
   <div>
     <span class="eyebrow">Daily workspace</span>
     <h1>Today</h1>
-    <p>Choose one useful next step from local data. Refreshes stay explicit.</p>
+    <p>Your watch, read, and learning queue—shaped from local data.</p>
   </div>
   {{ badge('Local workspace', 'success') }}
 </header>
 
 <section class="focus-strip" aria-label="Daily focus">
   <div>
-    <span class="focus-strip__index">M1</span>
+    <span class="focus-strip__index">NOW</span>
     <div>
-      <strong>Your next action stays visible.</strong>
-      <p>Continue a film when progress exists; otherwise build your queue in Movies.</p>
+      <strong>Choose one thing. Make progress.</strong>
+      <p>Everything below is already saved in your private workspace.</p>
     </div>
   </div>
-  <a class="button button--secondary" href="{{ url_for('movies.index') }}">Open movies</a>
+  <a class="button button--secondary" href="{{ url_for('movies.index') }}">Explore library</a>
 </section>
 
 <div class="today-grid">
-  <section class="today-main" aria-labelledby="next-title">
-    <div class="section-heading">
-      <div>
-        <span class="eyebrow">Continue watching</span>
-        <h2 id="next-title">Pick up where you stopped</h2>
+  <section class="today-main" aria-label="Today’s media queue">
+    <section class="today-section" aria-labelledby="recommended-title">
+      <div class="section-heading section-heading--action">
+        <div><span class="eyebrow">Recommended movie</span><h2 id="recommended-title">One from your queue</h2></div>
+        <a href="{{ url_for('movies.index') }}">View all</a>
       </div>
-    </div>
-    {% if workspace.continue_watching %}
-    <div class="content-list">
-      {% for movie in workspace.continue_watching %}
-      <article class="content-row">
-        <span class="content-row__marker" aria-hidden="true"></span>
-        <div><span class="eyebrow">{{ movie.progress.percent }}% watched</span><h3>{{ movie.title }}</h3><p>{{ movie.year or 'Year unknown' }}</p></div>
-        <a class="button button--secondary" href="{{ url_for('movies.detail', movie_id=movie.id) }}">Continue</a>
+      {% if workspace.recommended_movie %}
+      <article class="today-feature">
+        <a class="today-feature__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">
+          {% if workspace.recommended_movie.poster_url %}<img data-media-image src="{{ workspace.recommended_movie.poster_url }}" alt="Poster for {{ workspace.recommended_movie.title }}" width="280" height="420"><span class="media-fallback" aria-hidden="true">{{ workspace.recommended_movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ workspace.recommended_movie.title[:1]|upper }}</span>{% endif %}
+        </a>
+        <div class="today-feature__body">
+          <span class="eyebrow">Tonight’s pick</span>
+          <h3 dir="auto"><a href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">{{ workspace.recommended_movie.title }}</a></h3>
+          <p>{{ workspace.recommended_movie.year or 'Year unknown' }}{% if workspace.recommended_movie.personal_score is not none %} · {{ workspace.recommended_movie.personal_score }}/5{% endif %}</p>
+          <a class="button button--primary" href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">View details</a>
+        </div>
       </article>
-      {% endfor %}
-    </div>
-    {% else %}
-    {{ empty_state('Nothing in progress', 'Start a movie or add playback progress. This page never calls an external service.') }}
+      {% else %}
+      {{ empty_state('No movie recommendation yet', 'Add a movie to Watch Next to build this daily pick.') }}
+      {% endif %}
+    </section>
+
+    {% if workspace.continue_watching %}
+    <section class="today-section report-section" aria-labelledby="next-title">
+      <div class="section-heading section-heading--action">
+        <div><span class="eyebrow">Continue watching</span><h2 id="next-title">Pick up where you stopped</h2></div>
+      </div>
+      <div class="today-poster-grid">
+        {% for movie in workspace.continue_watching %}
+        <article class="today-poster-card">
+          <a class="today-poster-card__image" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}">
+            {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="240" height="360"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+          </a>
+          <h3 dir="auto"><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h3>
+          <progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
     {% endif %}
 
-    <section class="report-section" aria-labelledby="recommended-title">
-      <div class="section-heading"><span class="eyebrow">Recommended movie</span><h2 id="recommended-title">One from your queue</h2></div>
-      {% if workspace.recommended_movie %}<div class="content-list"><article class="content-row"><span class="content-row__marker" aria-hidden="true"></span><div><h3>{{ workspace.recommended_movie.title }}</h3><p>{{ workspace.recommended_movie.year or 'Year unknown' }}{% if workspace.recommended_movie.personal_score is not none %} · {{ workspace.recommended_movie.personal_score }}/5{% endif %}</p></div><a class="button button--secondary" href="{{ url_for('movies.detail', movie_id=workspace.recommended_movie.id) }}">Review</a></article></div>{% else %}<p class="muted">Add a movie to Watch Next to receive a local recommendation.</p>{% endif %}
+    <section class="today-section report-section" aria-labelledby="youtube-today-title">
+      <div class="section-heading section-heading--action">
+        <div><span class="eyebrow">Latest saved</span><h2 id="youtube-today-title">YouTube Watch Later</h2></div>
+        <a href="{{ url_for('youtube.index', source='watch_later') }}">View all</a>
+      </div>
+      {% if workspace.latest_youtube %}
+      <div class="today-media-grid">
+        {% for video in workspace.latest_youtube %}
+        <article class="today-media-card">
+          <a class="today-media-card__image" data-media-frame href="{{ url_for('youtube.detail', video_id=video.id) }}">
+            {% if video.thumbnail_url %}<img data-media-image src="{{ video.thumbnail_url }}" alt="Thumbnail for {{ video.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" aria-hidden="true">▶</span>{% else %}<span class="media-fallback" aria-hidden="true">▶</span>{% endif %}
+          </a>
+          <div class="today-media-card__body">
+            <span class="eyebrow" dir="auto">{{ video.channel_title or 'Unknown channel' }}</span>
+            <h3 dir="auto"><a href="{{ url_for('youtube.detail', video_id=video.id) }}">{{ video.title }}</a></h3>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      {{ empty_state('No Watch Later videos', 'Sync your local Watch Later snapshot from Admin.') }}
+      {% endif %}
     </section>
 
-    <section class="report-section" aria-labelledby="youtube-today-title">
-      <div class="section-heading"><span class="eyebrow">Latest saved</span><h2 id="youtube-today-title">YouTube Watch Later</h2></div>
-      {% if workspace.latest_youtube %}<div class="content-list">{% for video in workspace.latest_youtube %}<article class="content-row"><span class="content-row__marker" aria-hidden="true"></span><div><span class="eyebrow">{{ video.channel_title }}</span><h3>{{ video.title }}</h3></div><a class="button button--secondary" href="{{ url_for('youtube.detail', video_id=video.id) }}">Open</a></article>{% endfor %}</div>{% else %}<p class="muted">No Watch Later snapshot has been imported.</p>{% endif %}
+    <section class="today-section report-section" aria-labelledby="reading-today-title">
+      <div class="section-heading section-heading--action">
+        <div><span class="eyebrow">Continue reading</span><h2 id="reading-today-title">Saved reads</h2></div>
+        <a href="{{ url_for('reading.index') }}">View all</a>
+      </div>
+      {% if workspace.continue_reading %}
+      <div class="today-media-grid">
+        {% for article in workspace.continue_reading %}
+        <article class="today-media-card">
+          <a class="today-media-card__image" data-media-frame href="{{ url_for('reading.detail', article_id=article.id) }}">
+            {% if article.image_url %}<img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" aria-hidden="true">R</span>{% else %}<span class="media-fallback" aria-hidden="true">R</span>{% endif %}
+          </a>
+          <div class="today-media-card__body">
+            <span class="eyebrow" dir="auto">{{ article.source }}</span>
+            <h3 dir="auto"><a href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h3>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% elif workspace.article_of_day %}
+      <article class="today-article-feature">
+        <a class="today-article-feature__image" data-media-frame href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">
+          {% if workspace.article_of_day.image_url %}<img data-media-image src="{{ workspace.article_of_day.image_url }}" alt="Thumbnail for {{ workspace.article_of_day.title }}" loading="lazy" width="640" height="360"><span class="media-fallback" aria-hidden="true">R</span>{% else %}<span class="media-fallback" aria-hidden="true">R</span>{% endif %}
+        </a>
+        <div><span class="eyebrow" dir="auto">Article of the day · {{ workspace.article_of_day.source }}</span><h3 dir="auto"><a href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">{{ workspace.article_of_day.title }}</a></h3><p dir="auto">{{ workspace.article_of_day.excerpt or 'A saved local read, ready when you are.' }}</p></div>
+      </article>
+      {% else %}
+      {{ empty_state('No saved reads', 'Your next unread or in-progress article will appear here.') }}
+      {% endif %}
     </section>
-
-    <section class="report-section" aria-labelledby="reading-today-title">
-      <div class="section-heading"><span class="eyebrow">Continue reading</span><h2 id="reading-today-title">Articles in progress</h2></div>
-      {% if workspace.continue_reading %}<div class="content-list">{% for article in workspace.continue_reading %}<article class="content-row"><span class="content-row__marker" aria-hidden="true"></span><div><span class="eyebrow">{{ article.source }}</span><h3>{{ article.title }}</h3></div><a class="button button--secondary" href="{{ url_for('reading.detail', article_id=article.id) }}">Continue</a></article>{% endfor %}</div>{% else %}<p class="muted">No article is currently in progress.</p>{% endif %}
-    </section>
-
-    <section class="report-section" aria-labelledby="article-day-title"><div class="section-heading"><span class="eyebrow">Article of the day</span><h2 id="article-day-title">One saved read</h2></div>{% if workspace.article_of_day %}<div class="content-list"><article class="content-row"><span class="content-row__marker" aria-hidden="true"></span><div><span class="eyebrow">{{ workspace.article_of_day.source }}</span><h3>{{ workspace.article_of_day.title }}</h3></div><a class="button button--secondary" href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">Read</a></article></div>{% else %}<p class="muted">No unread local article is available.</p>{% endif %}</section>
   </section>
 
   <aside class="today-aside" aria-labelledby="guardrails-title">
-    <div class="section-heading">
+    <section aria-labelledby="book-today-title">
+      <span class="eyebrow">Current book</span>
+      <h2 id="book-today-title">Reading now</h2>
+      {% if workspace.current_book %}
+      <article class="today-book">
+        <a class="today-book__cover" data-media-frame href="{{ url_for('books.detail', book_id=workspace.current_book.id) }}">
+          {% if workspace.current_book.cover_url %}<img data-media-image src="{{ workspace.current_book.cover_url }}" alt="Cover of {{ workspace.current_book.title }}" loading="lazy" width="240" height="360"><span class="media-fallback" aria-hidden="true">{{ workspace.current_book.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ workspace.current_book.title[:1]|upper }}</span>{% endif %}
+        </a>
+        <div class="today-book__body"><h3 dir="auto"><a href="{{ url_for('books.detail', book_id=workspace.current_book.id) }}">{{ workspace.current_book.title }}</a></h3><p dir="auto">{{ workspace.current_book.authors|join(', ') or 'Unknown author' }}</p><progress class="progress-track" value="{{ workspace.current_book.progress_percent }}" max="100" aria-label="{{ workspace.current_book.progress_percent }} percent read">{{ workspace.current_book.progress_percent }}%</progress><small>Page {{ workspace.current_book.current_page }} of {{ workspace.current_book.page_count or '?' }}</small></div>
+      </article>
+      {% else %}<p class="muted">No current book.</p>{% endif %}
+    </section>
+
+    <section class="report-section" aria-labelledby="guardrails-title">
       <span class="eyebrow">Data health</span>
       <h2 id="guardrails-title">Freshness warnings</h2>
-    </div>
-    {% if workspace.freshness_warnings %}<ul class="check-list">{% for item in workspace.freshness_warnings[:6] %}<li><span aria-hidden="true">!</span>{{ item.domain|replace('_', ' ')|title }}: {{ item.state }}</li>{% endfor %}</ul>{% else %}<p class="muted">All tracked snapshots are fresh.</p>{% endif %}
-    <section class="report-section" aria-labelledby="book-today-title"><span class="eyebrow">Current book</span><h2 id="book-today-title">Reading now</h2>{% if workspace.current_book %}<p><a href="{{ url_for('books.detail', book_id=workspace.current_book.id) }}"><strong>{{ workspace.current_book.title }}</strong></a></p><p class="muted">Page {{ workspace.current_book.current_page }} of {{ workspace.current_book.page_count or '?' }}</p>{% else %}<p class="muted">No current book.</p>{% endif %}</section>
-    <section class="report-section" aria-labelledby="chess-today-title"><span class="eyebrow">Today’s chess</span><h2 id="chess-today-title">Training queue</h2>{% if workspace.chess_training %}<ul class="check-list">{% for puzzle in workspace.chess_training %}<li><span aria-hidden="true">→</span><a href="{{ url_for('chess.puzzle', puzzle_id=puzzle.id) }}">Puzzle {{ puzzle.external_id }} · {{ puzzle.rating }}</a></li>{% endfor %}</ul>{% else %}<p class="muted">No puzzles in the local queue.</p>{% endif %}</section>
+      {% if workspace.freshness_warnings %}<ul class="check-list">{% for item in workspace.freshness_warnings[:6] %}<li><span aria-hidden="true">!</span>{{ item.domain|replace('_', ' ')|title }}: {{ item.state }}</li>{% endfor %}</ul>{% else %}<p class="muted">All tracked snapshots are fresh.</p>{% endif %}
+    </section>
+
+    <section class="report-section" aria-labelledby="chess-today-title">
+      <span class="eyebrow">Today’s chess</span><h2 id="chess-today-title">Training queue</h2>
+      {% if workspace.chess_training %}<ul class="check-list">{% for puzzle in workspace.chess_training %}<li><span aria-hidden="true">→</span><a href="{{ url_for('chess.puzzle', puzzle_id=puzzle.id) }}">Puzzle {{ puzzle.external_id }} · {{ puzzle.rating }}</a></li>{% endfor %}</ul>{% else %}<p class="muted">No puzzles in the local queue.</p>{% endif %}
+    </section>
   </aside>
 </div>
 {% endblock %}

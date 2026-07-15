@@ -6,6 +6,7 @@ from app.books.models import Book
 from app.extensions import db
 from app.movies.models import Movie
 from app.reading.models import Article, ReadingSource
+from app.youtube.models import YouTubeVideo
 
 pytestmark = pytest.mark.browser
 
@@ -87,12 +88,26 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
                     normalized_title="كتاب عربي",
                     authors=["كاتب"],
                     cover_url=image,
+                    status="reading",
                 ),
                 Article(
                     source=source,
                     title="مقال عربي",
                     url="https://example.test/article",
                     image_url=image,
+                ),
+                Movie(
+                    title="Daily Movie",
+                    normalized_title="daily movie",
+                    status="want_to_watch",
+                    poster_url=image,
+                ),
+                YouTubeVideo(
+                    external_id="home-video",
+                    source="watch_later",
+                    channel_title="Home Channel",
+                    title="Home video",
+                    thumbnail_url=image,
                 ),
             ]
         )
@@ -114,6 +129,12 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
     assert page.locator(".article-card h2").evaluate(
         "element => getComputedStyle(element).direction"
     ) == "rtl"
+
+    page.goto(f"{live_app}/")
+    assert page.locator(".today-feature__poster img").is_visible()
+    assert page.locator(".today-media-card__image img").is_visible()
+    assert page.locator(".today-article-feature__image img").is_visible()
+    assert page.locator(".today-book__cover img").is_visible()
 
 
 def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app):

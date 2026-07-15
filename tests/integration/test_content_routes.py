@@ -1,5 +1,6 @@
 from app.books.models import Book
 from app.extensions import db
+from app.movies.models import Movie
 from app.reading.models import Article, ReadingSource
 from app.youtube.models import YouTubeVideo
 from tests.conftest import csrf_from
@@ -13,6 +14,14 @@ def seed_content(app) -> dict[str, str]:
             group_name="Learning",
             channel_title="Calm Channel",
             title="A focused lesson",
+            thumbnail_url="https://images.example.test/video.jpg",
+        )
+        watch_video = YouTubeVideo(
+            external_id="watch-seed",
+            source="watch_later",
+            channel_title="Saved Channel",
+            title="A saved video",
+            thumbnail_url="https://images.example.test/watch-video.jpg",
         )
         source = ReadingSource(name="Example Journal", feed_url="https://example.test/feed.xml")
         article = Article(
@@ -31,7 +40,13 @@ def seed_content(app) -> dict[str, str]:
             current_page=25,
             cover_url="https://images.example.test/book.jpg",
         )
-        db.session.add_all([video, source, article, book])
+        movie = Movie(
+            title="A Daily Film",
+            normalized_title="a daily film",
+            status="want_to_watch",
+            poster_url="https://images.example.test/movie.jpg",
+        )
+        db.session.add_all([video, watch_video, source, article, book, movie])
         db.session.commit()
         return {"video": video.id, "article": article.id, "book": book.id}
 
@@ -59,12 +74,19 @@ def test_books_grid_and_reading_thumbnails_render(authenticated_client, app):
     compact = authenticated_client.get("/books?view=list")
     invalid = authenticated_client.get("/books?view=unknown")
     reading = authenticated_client.get("/reading")
+    today = authenticated_client.get("/")
 
     assert 'class="book-grid"' in grid.get_data(as_text=True)
     assert "book-grid--list" in compact.get_data(as_text=True)
     assert "book-grid--list" not in invalid.get_data(as_text=True)
     assert 'src="https://images.example.test/article.jpg"' in reading.get_data(as_text=True)
     assert 'dir="auto"' in reading.get_data(as_text=True)
+    today_html = today.get_data(as_text=True)
+    assert 'class="today-feature"' in today_html
+    assert 'src="https://images.example.test/movie.jpg"' in today_html
+    assert 'src="https://images.example.test/watch-video.jpg"' in today_html
+    assert 'src="https://images.example.test/article.jpg"' in today_html
+    assert 'src="https://images.example.test/book.jpg"' in today_html
 
 
 def test_watch_later_paginates_large_playlists(authenticated_client, app):
