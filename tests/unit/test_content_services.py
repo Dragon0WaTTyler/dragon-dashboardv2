@@ -22,6 +22,37 @@ def test_watch_later_removal_preserves_local_history(app):
         assert [event["event"] for event in video.local_history] == ["watched", "removed"]
 
 
+def test_shuffle_happens_before_playlist_pagination(app):
+    with app.app_context():
+        db.session.add_all(
+            [
+                YouTubeVideo(
+                    external_id=f"shuffle-{index}",
+                    source="watch_later",
+                    title=f"Shuffle video {index}",
+                    position=index,
+                )
+                for index in range(120)
+            ]
+        )
+        db.session.commit()
+
+        first = YouTubeService.feed(
+            source="watch_later", order="shuffle", limit=50, offset=0, seed="fixed-seed"
+        )
+        second = YouTubeService.feed(
+            source="watch_later", order="shuffle", limit=50, offset=50, seed="fixed-seed"
+        )
+        first_ids = {item["external_id"] for item in first["items"]}
+        second_ids = {item["external_id"] for item in second["items"]}
+
+        assert first["total"] == 120
+        assert first["seed"] == second["seed"] == "fixed-seed"
+        assert len(first_ids) == len(second_ids) == 50
+        assert first_ids.isdisjoint(second_ids)
+        assert any(int(video_id.removeprefix("shuffle-")) >= 50 for video_id in first_ids)
+
+
 def test_reading_status_and_status_projection(app):
     with app.app_context():
         article = Article(title="Local first", url="https://example.test/article")

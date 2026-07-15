@@ -40,6 +40,7 @@ def index():
         order=order,
         limit=per_page,
         offset=offset,
+        seed=str(request.args.get("seed") or ""),
     )
     return render_template(
         "youtube/index.html",

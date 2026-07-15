@@ -18,23 +18,25 @@ def collection_response(
     limit: int,
     offset: int,
     status: int = 200,
+    meta: dict[str, Any] | None = None,
 ):
     count = len(items)
     has_more = offset + count < total
+    payload: dict[str, Any] = {
+        "ok": True,
+        "api_version": API_VERSION,
+        "items": items,
+        "count": count,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "has_more": has_more,
+        "next_offset": offset + count if has_more else None,
+    }
+    if meta:
+        payload["meta"] = meta
     return (
-        jsonify(
-            {
-                "ok": True,
-                "api_version": API_VERSION,
-                "items": items,
-                "count": count,
-                "total": total,
-                "limit": limit,
-                "offset": offset,
-                "has_more": has_more,
-                "next_offset": offset + count if has_more else None,
-            }
-        ),
+        jsonify(payload),
         status,
     )
 

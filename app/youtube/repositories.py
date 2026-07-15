@@ -22,7 +22,12 @@ class YouTubeRepository:
 
     @staticmethod
     def list(
-        *, source: str, group: str = "", q: str = "", limit: int = 50, offset: int = 0
+        *,
+        source: str,
+        group: str = "",
+        q: str = "",
+        limit: int | None = 50,
+        offset: int = 0,
     ) -> tuple[list[YouTubeVideo], int]:
         conditions = [YouTubeVideo.source == source]
         if source == "watch_later":
@@ -44,13 +49,12 @@ class YouTubeRepository:
             )
             or 0
         )
-        items = list(
-            db.session.scalars(
-                base.order_by(YouTubeVideo.position, YouTubeVideo.published_at.desc())
-                .limit(limit)
-                .offset(offset)
-            )
-        )
+        query = base.order_by(YouTubeVideo.position, YouTubeVideo.published_at.desc())
+        if limit is not None:
+            query = query.limit(limit)
+        if offset:
+            query = query.offset(offset)
+        items = list(db.session.scalars(query))
         return items, total
 
     @staticmethod

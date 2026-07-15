@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-import random
+import secrets
 from datetime import UTC, datetime
 from typing import Any
 
@@ -69,23 +69,40 @@ class YouTubeService:
         order: str = "normal",
         limit: int = 50,
         offset: int = 0,
+        seed: str = "",
     ) -> dict:
         if source not in SOURCES:
             raise ValueError("Unknown YouTube source.")
         if order not in ORDERS:
             raise ValueError("Unknown order.")
-        videos, total = YouTubeRepository.list(
-            source=source,
-            group=group,
-            q=q,
-            limit=limit,
-            offset=offset,
-        )
+        shuffle_seed = ""
         if order in {"shuffle", "shuffle_video"}:
-            random.SystemRandom().shuffle(videos)
-            if order == "shuffle_video":
-                videos = videos[:1]
-        return {"items": [video_item(video) for video in videos], "total": total}
+            videos, total = YouTubeRepository.list(
+                source=source,
+                group=group,
+                q=q,
+                limit=None,
+            )
+            shuffle_seed = seed.strip()[:128] or secrets.token_hex(16)
+            videos.sort(
+                key=lambda video: hashlib.sha256(
+                    f"{shuffle_seed}\0{video.id}".encode()
+                ).digest()
+            )
+            videos = videos[:1] if order == "shuffle_video" else videos[offset : offset + limit]
+        else:
+            videos, total = YouTubeRepository.list(
+                source=source,
+                group=group,
+                q=q,
+                limit=limit,
+                offset=offset,
+            )
+        return {
+            "items": [video_item(video) for video in videos],
+            "total": total,
+            "seed": shuffle_seed,
+        }
 
     @staticmethod
     def latest_watch_later(limit: int = 4) -> list[dict]:

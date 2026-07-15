@@ -29,7 +29,7 @@ from app.shared.freshness import get_freshness, list_freshness
 from app.shared.operations import OperationService
 from app.today.services import TodayService
 from app.youtube.repositories import YouTubeRepository
-from app.youtube.services import ORDERS, SOURCES, YouTubeService, video_detail, video_item
+from app.youtube.services import ORDERS, SOURCES, YouTubeService, video_detail
 
 bp = Blueprint("api_v1", __name__, url_prefix="/api/v1")
 
@@ -174,19 +174,19 @@ def youtube_collection():
         return error_response("validation_error", "Invalid YouTube view.", 422)
     limit = max(_bounded_int(request.args.get("limit"), 50, 100), 1)
     offset = _bounded_int(request.args.get("offset"), 0, 1_000_000)
-    videos, total = YouTubeRepository.list(
+    feed = YouTubeService.feed(
         source=source,
         group=str(request.args.get("group") or ""),
         q=str(request.args.get("q") or ""),
+        order=order,
         limit=limit,
         offset=offset,
+        seed=str(request.args.get("seed") or ""),
     )
-    items = [video_item(video) for video in videos]
-    if order == "shuffle_video":
-        feed = YouTubeService.feed(source=source, order=order)
-        items = feed["items"]
-        total = feed["total"]
-    return collection_response(items, total=total, limit=limit, offset=offset)
+    meta = {"shuffle_seed": feed["seed"]} if feed["seed"] else None
+    return collection_response(
+        feed["items"], total=feed["total"], limit=limit, offset=offset, meta=meta
+    )
 
 
 @bp.get("/youtube/<video_id>")

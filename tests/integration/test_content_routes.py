@@ -106,10 +106,14 @@ def test_watch_later_paginates_large_playlists(authenticated_client, app):
 
     first = authenticated_client.get("/youtube?source=watch_later&per_page=50")
     second = authenticated_client.get("/youtube?source=watch_later&per_page=50&page=2")
+    shuffled = authenticated_client.get(
+        "/youtube?source=watch_later&order=shuffle&seed=stable-seed&per_page=50"
+    )
 
     assert ">Next</a>" in first.get_data(as_text=True)
     assert "Watch video 50" in second.get_data(as_text=True)
     assert ">Previous</a>" in second.get_data(as_text=True)
+    assert "seed=stable-seed" in shuffled.get_data(as_text=True)
 
 
 def test_fulltext_status_get_is_read_only(authenticated_client, app):
