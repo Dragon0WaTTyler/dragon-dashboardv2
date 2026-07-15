@@ -23,7 +23,8 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
     )
     content = (
         "هذا نص المقال الكامل الذي تم تحميله بعد اختيار القارئ للمقال. "
-        "يظهر المحتوى في مساحة قراءة هادئة بعرض مريح واتجاه صحيح للغة العربية.\n\n"
+        "يظهر المحتوى في مساحة قراءة هادئة بعرض مريح واتجاه صحيح للغة العربية."
+        "&lt;br&gt;&lt;br&gt;"
         "وتبقى نسخة المقال محفوظة محلياً حتى تفتح الصفحة بسرعة في المرات المقبلة."
     )
 
@@ -58,6 +59,7 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
     page.wait_for_url(f"{live_app}/reading/{article_id}")
 
     assert page.get_by_text("هذا نص المقال الكامل").is_visible()
+    assert "<br>" not in page.locator(".article-body").inner_text()
     assert page.get_by_text("Load full article explicitly").count() == 0
     assert page.get_by_text("Full-text cache").count() == 0
     title_metrics = page.locator(".reading-detail h1").evaluate(

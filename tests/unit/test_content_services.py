@@ -8,6 +8,7 @@ from app.extensions import db
 from app.movies.models import Movie
 from app.reading.models import Article
 from app.reading.services import ReadingService, article_item
+from app.reading.text import normalize_article_text
 from app.shared.text import text_direction
 from app.today.services import TodayService
 from app.youtube.models import YouTubeVideo
@@ -167,6 +168,20 @@ def test_explicit_fulltext_extraction_uses_injected_adapter(app):
         assert article.content_text == "Full local article text."
         assert article.fulltext_state == "cached"
         assert article.status == "reading"
+
+
+def test_article_text_normalizer_cleans_escaped_breaks_and_markup():
+    dirty = (
+        "الفقرة الأولى&lt;br&gt;&lt;br&gt;الفقرة الثانية"
+        "<script>hidden tracker</script><p>الفقرة الأخيرة</p>"
+    )
+
+    cleaned = normalize_article_text(dirty)
+
+    assert "الفقرة الأولى\n\nالفقرة الثانية" in cleaned
+    assert "الفقرة الأخيرة" in cleaned
+    assert "<br>" not in cleaned
+    assert "hidden tracker" not in cleaned
 
 
 def test_watch_later_sync_keeps_pockettube_membership_separate(app):

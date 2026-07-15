@@ -24,7 +24,9 @@
   <div class="reading-detail__layout">
     <section class="reading-detail__content" aria-label="Article text">
       {% if article.content_text %}
-      <div class="article-body" dir="auto">{{ article.content_text|e|replace('\n', '<br>')|safe }}</div>
+      <div class="article-body" dir="auto">
+        {% for paragraph in article.content_paragraphs %}<p>{{ paragraph }}</p>{% endfor %}
+      </div>
       {% elif article.excerpt %}
       <p class="lead-copy" dir="auto">{{ article.excerpt }}</p>
       {% else %}

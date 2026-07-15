@@ -5,6 +5,7 @@ from sqlalchemy import or_
 from app.extensions import db
 from app.history.services import HistoryService
 from app.reading.models import Article, ReadingSource
+from app.reading.text import article_paragraphs, normalize_article_text
 from app.shared.operations.service import safe_error_text
 from app.shared.text import text_direction
 from app.shared.time import utc_iso, utc_now
@@ -21,7 +22,7 @@ def article_item(article: Article) -> dict:
         "source_id": article.source_id,
         "author": article.author,
         "topic": article.topic,
-        "excerpt": article.excerpt,
+        "excerpt": normalize_article_text(article.excerpt),
         "image_url": article.image_url,
         "status": article.status,
         "published_at": article.published_at.isoformat() if article.published_at else None,
@@ -30,10 +31,12 @@ def article_item(article: Article) -> dict:
 
 
 def article_detail(article: Article) -> dict:
+    content_text = normalize_article_text(article.content_text)
     return {
         **article_item(article),
         "url": article.url,
-        "content_text": article.content_text,
+        "content_text": content_text,
+        "content_paragraphs": article_paragraphs(content_text),
         "fulltext_error": article.fulltext_error,
         "history": article.history,
     }
@@ -58,7 +61,7 @@ class ReadingService:
     def extract_fulltext(article: Article, extractor) -> None:
         try:
             result = extractor.extract(article.url)
-            content = str(result.get("content_text") or "").replace("\x00", "").strip()
+            content = normalize_article_text(result.get("content_text"))
             if not content:
                 raise ValueError("Extractor returned no readable text.")
         except Exception as exc:
