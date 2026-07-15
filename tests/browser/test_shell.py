@@ -119,10 +119,28 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
         "element => getComputedStyle(element).display"
     )
     assert display == "grid"
+    column_count = page.locator(".book-grid").evaluate(
+        "element => getComputedStyle(element).gridTemplateColumns.split(' ').length"
+    )
+    assert column_count == 5
     assert page.locator(".book-cover img").is_visible()
+    book_card_metrics = page.locator(".book-card").first.evaluate(
+        "element => ({"
+        "cardWidth: element.getBoundingClientRect().width,"
+        "badgeWidth: element.querySelector('.badge').getBoundingClientRect().width"
+        "})"
+    )
+    assert book_card_metrics["badgeWidth"] < book_card_metrics["cardWidth"]
     assert page.locator(".book-card h2").evaluate(
         "element => getComputedStyle(element).direction"
     ) == "rtl"
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    mobile_column_count = page.locator(".book-grid").evaluate(
+        "element => getComputedStyle(element).gridTemplateColumns.split(' ').length"
+    )
+    assert mobile_column_count == 2
+    page.set_viewport_size({"width": 1280, "height": 720})
 
     page.goto(f"{live_app}/reading")
     assert page.locator(".article-card__image img").is_visible()
