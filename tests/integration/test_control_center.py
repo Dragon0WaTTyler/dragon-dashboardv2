@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from tests.conftest import csrf_from
 
 
@@ -68,3 +70,28 @@ def test_unknown_section_and_unsafe_operation_return_are_rejected(authenticated_
     )
     assert response.status_code == 302
     assert response.headers["Location"].startswith("/admin/operations/")
+
+
+def test_movies_control_center_reports_and_clears_inactive_playback_cache(
+    authenticated_client, app
+):
+    page = authenticated_client.get("/admin/sections/movies")
+    assert "Torrent cache" in page.get_data(as_text=True)
+    cache_file = (
+        Path(app.instance_path)
+        / "playback-cache"
+        / "torrents"
+        / ("a" * 40)
+        / "fixture.mp4"
+    )
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_bytes(b"inactive-cache")
+
+    response = authenticated_client.post(
+        "/admin/sections/movies/playback-cache/clear",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+    assert response.status_code == 200
+    assert "inactive playback cache" in response.get_data(as_text=True)
+    assert not cache_file.exists()

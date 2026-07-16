@@ -25,10 +25,18 @@ class MovieRepository:
         )
 
     @staticmethod
-    def list(filters: dict[str, Any], *, limit: int, offset: int) -> tuple[list[Movie], int]:
+    def list(
+        filters: dict[str, Any],
+        *,
+        limit: int,
+        offset: int,
+        library_ids: list[str] | None = None,
+    ) -> tuple[list[Movie], int]:
         query = db.select(Movie).options(selectinload(Movie.progress))
         count_query = db.select(func.count()).select_from(Movie)
         conditions = []
+        if library_ids is not None:
+            conditions.append(Movie.id.in_(library_ids))
         search = str(filters.get("q") or "").strip().lower()
         if search:
             pattern = f"%{search}%"
@@ -66,13 +74,28 @@ class MovieRepository:
         return items, total
 
     @staticmethod
-    def filter_options() -> dict[str, list[str]]:
+    def notion_library_ids() -> list[str]:
+        ids = []
+        for movie in db.session.scalars(db.select(Movie)):
+            external_ids = dict(movie.external_ids or {})
+            metadata = dict(movie.metadata_state or {})
+            if external_ids.get("notion_page_id") or metadata.get("library_origin") == "notion":
+                ids.append(movie.id)
+        return ids
+
+    @staticmethod
+    def filter_options(library_ids: list[str] | None = None) -> dict[str, list[str]]:
         def values(column):
             query = db.select(column).where(column != "").distinct().order_by(column)
+            if library_ids is not None:
+                query = query.where(Movie.id.in_(library_ids))
             return [str(value) for value in db.session.scalars(query) if value]
 
         genres: set[str] = set()
-        for movie_genres in db.session.scalars(db.select(Movie.genres)):
+        genre_query = db.select(Movie.genres)
+        if library_ids is not None:
+            genre_query = genre_query.where(Movie.id.in_(library_ids))
+        for movie_genres in db.session.scalars(genre_query):
             for genre in movie_genres or []:
                 name = genre.get("name") if isinstance(genre, dict) else genre
                 if name:

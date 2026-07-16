@@ -2,7 +2,7 @@
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/movie-detail.js') }}" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}" defer></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
@@ -25,12 +25,12 @@
     </dl>
   </div>
   {% if vidsrc_enabled or player_sources %}
-  <section class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}">
+  <section id="movie-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}">
     <div class="movie-player__heading">
       <div><span class="eyebrow">Playback deck</span><h2 id="movie-player-title">Watch {{ movie.title }}</h2></div>
       <span class="badge badge--accent" data-player-badge>{{ 'VidSrc' if vidsrc_enabled else 'Local' }}</span>
     </div>
-    <div class="movie-player__source-rail{% if subtitles_enabled %} movie-player__source-rail--subtitles{% endif %}">
+    <div class="movie-player__source-rail">
       <label class="field movie-player__source">
         <span>Player source</span>
         <select data-player-source>
@@ -39,16 +39,10 @@
         </select>
       </label>
       {% if subtitles_enabled %}
-      <label class="field movie-player__subtitles">
-        <span>Subtitles</span>
-        <select data-subtitle-select{% if vidsrc_enabled %} disabled{% endif %}>
-          <option value="auto">Arabic first</option>
-          <option value="off">Off</option>
-        </select>
-        <small class="muted" data-subtitle-status aria-live="polite">{% if vidsrc_enabled %}Switch to Local to use Dragon subtitles.{% else %}Arabic will be selected first when Local starts.{% endif %}</small>
-      </label>
-      {% endif %}
+      <p class="movie-player__subtitle-status" data-subtitle-status aria-live="polite">{% if vidsrc_enabled %}Switch to Local to load Dragon subtitles inside the player controls.{% else %}Arabic will be selected first; switch or turn subtitles off from the player controls.{% endif %}</p>
+      {% else %}
       <p>Choose the source first. Nothing starts before you press play.</p>
+      {% endif %}
     </div>
     <div class="movie-player__viewport">
       <button class="movie-player__launch" type="button" data-player-launch aria-describedby="movie-player-status">
@@ -71,6 +65,37 @@
   </section>
   {% endif %}
   <div class="movie-detail__content movie-detail__content--secondary">
+    {% if movie.external_ids.tmdb_id %}
+    <section
+      id="release-browser"
+      class="movie-release-browser detail-section"
+      data-inline-release-browser
+      data-media-type="{{ movie.media_type }}"
+      data-tmdb-id="{{ movie.external_ids.tmdb_id }}"
+      data-library-endpoint="{{ url_for('movies.api_library') }}"
+      data-import-endpoint="{{ url_for('movies.api_import') }}"
+      data-releases-endpoint="{{ url_for('movies.api_releases') }}"
+      data-seasons-template="{{ url_for('movies.api_tv_seasons', tmdb_id=999999999) }}"
+      data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}"
+    >
+      <div class="movie-release-browser__header">
+        <div><span class="eyebrow">{{ 'Series browser' if movie.media_type == 'tv' else 'Release browser' }}</span><h2>{{ 'Choose a season and episode' if movie.media_type == 'tv' else 'Find a playable release' }}</h2></div>
+      </div>
+      <p class="movie-release-browser__summary" data-release-summary>{% if movie.media_type == 'tv' %}Pick the exact episode you want. Dragon now prefers that episode first, then falls back to season-level packs instead of random different episodes.{% else %}Use this when the movie is in your library but still needs a magnet to start local playback.{% endif %}</p>
+      {% if movie.media_type == 'tv' %}
+      <div class="movie-release-browser__controls release-dialog__episode-picker">
+        <label class="field"><span>Season</span><select data-season-select><option value="">Choose a season</option></select></label>
+        <label class="field"><span>Episode</span><select data-episode-select disabled><option value="">Choose an episode</option></select></label>
+      </div>
+      {% else %}
+      <div class="movie-release-browser__controls">
+        <button class="button button--primary" type="button" data-release-load>Find releases</button>
+      </div>
+      {% endif %}
+      <p class="movie-release-browser__status" data-release-status role="status" aria-live="polite"></p>
+      <div class="release-list" data-release-list></div>
+    </section>
+    {% endif %}
     {% if movie.progress %}<section class="detail-section"><h2>Playback progress</h2><progress class="progress-track" value="{{ movie.progress.percent }}" max="100">{{ movie.progress.percent }}%</progress><p class="muted">{{ movie.progress.percent }}% watched</p></section>{% endif %}
     <section class="detail-section" aria-labelledby="actions-title">
       <h2 id="actions-title">Your library</h2>

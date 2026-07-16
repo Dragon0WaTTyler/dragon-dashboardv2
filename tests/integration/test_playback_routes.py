@@ -1,7 +1,6 @@
 from app.extensions import db
 from app.movies.models import Movie
 from app.playback.models import PlaybackSource
-from app.playback.runtime import StreamRange
 from app.playback.subtitles import SubtitleCandidate
 from tests.conftest import csrf_from
 
@@ -193,7 +192,9 @@ def test_subtitles_are_private_ranked_and_delivered_as_webvtt(authenticated_clie
 
     detail = authenticated_client.get(f"/movies/{movie_id}")
     detail_html = detail.get_data(as_text=True)
-    assert "Arabic first" in detail_html
+    assert "data-subtitle-status" in detail_html
+    assert "from the player controls" in detail_html
+    assert "data-subtitle-select" not in detail_html
     assert "private-key" not in detail_html
     assert "dl.subdl.com" not in detail_html
 
@@ -226,26 +227,22 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
             assert values["magnet"].startswith("magnet:?")
             assert values["torrent_url"] == "https://yts.bz/example.torrent"
             assert values["user_id"]
+            assert values["origin"] == "http://localhost"
             return {
                 "id": "play_test",
-                "state": "preparing",
-                "message": "Reading torrent metadata…",
-                "file_name": "",
-                "buffer_percent": 0,
-                "peers": 0,
-                "download_speed": 0,
+                "state": "ready",
+                "message": "Direct stream ready",
+                "file_name": "movie.mp4",
+                "stream_url": "http://127.0.0.1:54321/dragon-stream/secret/hash/movie.mp4",
+                "buffer_percent": 50,
+                "file_progress": 0.1,
+                "downloaded_bytes": 100,
+                "peers": 2,
+                "download_speed": 1024,
+                "cache_hit": True,
+                "startup_timings": {"metadata_ms": 10},
                 "complete": False,
             }
-
-        def open_range(self, session_id, **values):
-            assert session_id == "play_test"
-            assert values["range_header"] == "bytes=0-5"
-            return StreamRange(start=0, end=5, total=12, mime_type="video/mp4")
-
-        def read_chunk(self, session_id, **values):
-            assert session_id == "play_test"
-            assert (values["start"], values["end"]) == (0, 5)
-            return b"dragon"
 
     locator = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567"
     with app.app_context():
@@ -279,6 +276,10 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
     html = detail.get_data(as_text=True)
     assert "Local · FHD" in html
     assert locator not in html
+    assert "http://127.0.0.1:" not in html
+    assert "media-src 'self' http://127.0.0.1:*" in detail.headers[
+        "Content-Security-Policy"
+    ]
 
     response = authenticated_client.post(
         f"/playback/movie/{movie_id}/local",
@@ -288,11 +289,5 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
     assert response.status_code == 202
     payload = response.get_json()
     assert payload["session"]["id"] == "play_test"
-    assert payload["stream_url"].endswith("/playback/runtime/play_test/stream")
-
-    stream = authenticated_client.get(
-        payload["stream_url"], headers={"Range": "bytes=0-5"}, buffered=False
-    )
-    assert stream.status_code == 206
-    assert stream.headers["Content-Range"] == "bytes 0-5/12"
-    assert b"".join(stream.response) == b"dragon"
+    assert payload["stream_url"].startswith("http://127.0.0.1:54321/dragon-stream/")
+    assert authenticated_client.get("/playback/runtime/play_test/stream").status_code == 404

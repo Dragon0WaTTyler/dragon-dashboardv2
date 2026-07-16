@@ -4,33 +4,33 @@ import atexit
 import base64
 import binascii
 import json
-import mimetypes
+import os
+import re
 import shutil
 import subprocess
 import threading
+import time
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 from app.shared.ids import new_id
 
-STREAM_CHUNK_BYTES = 256 * 1024
-STREAM_RESPONSE_BYTES = 2 * 1024 * 1024
 TORRENT_METADATA_HOSTS = {"yts.bz", "yts.gg"}
+MAX_TORRENT_METADATA_BYTES = 2 * 1024 * 1024
+INFO_HASH_PATTERN = re.compile(r"^[a-fA-F0-9]{40}$|^[A-Z2-7a-z2-7]{32}$")
 
 
 class PlaybackRuntimeError(RuntimeError):
     pass
 
 
-class PlaybackNotReady(PlaybackRuntimeError):
-    pass
-
-
 class WebTorrentClient:
+    """Small JSON control channel. Media bytes never cross this process pipe."""
+
     def __init__(self, *, project_root: Path, helper_path: Path) -> None:
         self.project_root = project_root
         self.helper_path = helper_path
@@ -44,7 +44,7 @@ class WebTorrentClient:
         node = shutil.which("node")
         if not node:
             raise PlaybackRuntimeError("Node.js is required for local magnet playback.")
-        self._process = subprocess.Popen(  # noqa: S603 - executable and helper are trusted paths
+        self._process = subprocess.Popen(  # noqa: S603 - trusted executable and helper
             [node, str(self.helper_path)],
             cwd=self.project_root,
             stdin=subprocess.PIPE,
@@ -103,38 +103,79 @@ class PlaybackSession:
     movie_id: str
     user_id: str
     source_id: str
+    cache_key: str
     root: Path
-    state: str = "preparing"
+    cache_hit: bool = False
+    state: str = "metadata"
     message: str = "Reading torrent metadata…"
     file_name: str = ""
     total_bytes: int = 0
+    downloaded_bytes: int = 0
+    file_progress: float = 0.0
+    buffer_percent: int = 0
     complete: bool = False
     peers: int = 0
     download_speed: int = 0
+    stream_url: str = ""
+    startup_timings: dict[str, int | None] = field(default_factory=dict)
     runtime_started: bool = False
     stopped: bool = False
     updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 
-@dataclass(frozen=True)
-class StreamRange:
-    start: int
-    end: int
-    total: int
-    mime_type: str
+def _magnet_info_hash(magnet: str) -> str:
+    if not magnet.startswith("magnet:?"):
+        raise PlaybackRuntimeError("This local source is not a valid magnet.")
+    values = parse_qs(urlparse(magnet).query).get("xt", [])
+    for value in values:
+        prefix = "urn:btih:"
+        if value.lower().startswith(prefix):
+            candidate = value[len(prefix) :]
+            if INFO_HASH_PATTERN.fullmatch(candidate):
+                if len(candidate) == 32:
+                    try:
+                        return base64.b32decode(candidate.upper()).hex()
+                    except (binascii.Error, ValueError):
+                        continue
+                return candidate.lower()
+    raise PlaybackRuntimeError("This magnet does not contain a valid BitTorrent info hash.")
 
-    @property
-    def length(self) -> int:
-        return self.end - self.start + 1
+
+def _tree_size(path: Path) -> int:
+    total = 0
+    if path.is_file():
+        with suppress(OSError):
+            return path.stat().st_size
+        return 0
+    if not path.exists():
+        return 0
+    for item in path.rglob("*"):
+        if item.is_file():
+            with suppress(OSError):
+                total += item.stat().st_size
+    return total
 
 
 class MagnetPlaybackManager:
-    def __init__(self, *, cache_root: Path, client: WebTorrentClient) -> None:
+    def __init__(
+        self,
+        *,
+        cache_root: Path,
+        client: WebTorrentClient,
+        cache_limit_gb: int = 10,
+        cache_ttl_hours: int = 168,
+    ) -> None:
         self.cache_root = cache_root.resolve()
-        self.cache_root.mkdir(parents=True, exist_ok=True)
+        self.torrent_root = self.cache_root / "torrents"
+        self.metadata_root = self.cache_root / "metadata"
+        self.torrent_root.mkdir(parents=True, exist_ok=True)
+        self.metadata_root.mkdir(parents=True, exist_ok=True)
+        self.cache_limit_bytes = cache_limit_gb * 1024**3
+        self.cache_ttl_hours = cache_ttl_hours
         self.client = client
         self._sessions: dict[str, PlaybackSession] = {}
         self._lock = threading.RLock()
+        self.cleanup_cache()
 
     def start(
         self,
@@ -144,40 +185,62 @@ class MagnetPlaybackManager:
         source_id: str,
         magnet: str,
         torrent_url: str = "",
+        origin: str,
     ) -> dict:
-        if not magnet.startswith("magnet:?"):
-            raise PlaybackRuntimeError("This local source is not a valid magnet.")
+        cache_key = _magnet_info_hash(magnet)
+        parsed_origin = urlparse(origin)
+        if (
+            parsed_origin.scheme not in {"http", "https"}
+            or parsed_origin.hostname not in {"127.0.0.1", "localhost"}
+            or parsed_origin.username
+            or parsed_origin.password
+        ):
+            raise PlaybackRuntimeError("Local playback requires a loopback application origin.")
         session_id = new_id("play")
-        root = (self.cache_root / session_id).resolve()
-        root.relative_to(self.cache_root)
+        root = (self.torrent_root / cache_key).resolve()
+        root.relative_to(self.torrent_root)
+        metadata_path = self.metadata_root / f"{cache_key}.torrent"
+        cache_hit = metadata_path.is_file() or _tree_size(root) > 0
         session = PlaybackSession(
             id=session_id,
             movie_id=movie_id,
             user_id=user_id,
             source_id=source_id,
+            cache_key=cache_key,
             root=root,
+            cache_hit=cache_hit,
         )
         with self._lock:
             self._sessions[session_id] = session
         threading.Thread(
             target=self._prepare,
-            args=(session_id, magnet, torrent_url),
+            args=(session_id, magnet, torrent_url, origin.rstrip("/")),
             daemon=True,
             name=f"dragon-playback-{session_id[-8:]}",
         ).start()
         return self.public_status(session)
 
-    def _prepare(self, session_id: str, magnet: str, torrent_url: str) -> None:
+    def _prepare(self, session_id: str, magnet: str, torrent_url: str, origin: str) -> None:
+        started_at = time.monotonic()
         try:
-            torrent_file = self._download_torrent_file(
-                torrent_url, self._get(session_id).root
-            ) if torrent_url else None
+            session = self._get(session_id)
+            torrent_file = (
+                self._torrent_metadata(torrent_url, session.cache_key)
+                if torrent_url
+                else self._cached_metadata(session.cache_key)
+            )
+            session.root.mkdir(parents=True, exist_ok=True)
+            with suppress(OSError):
+                os.utime(session.root)
             result = self.client.request(
                 "start",
                 sessionId=session_id,
                 magnet=magnet,
-                root=str(self._get(session_id).root),
+                cacheKey=session.cache_key,
+                cacheRoot=str(self.cache_root),
+                root=str(session.root),
                 torrentFile=str(torrent_file) if torrent_file else "",
+                origin=origin,
             )
             with self._lock:
                 session = self._get(session_id)
@@ -185,6 +248,9 @@ class MagnetPlaybackManager:
                     self.client.request("close", sessionId=session_id)
                     return
                 session.runtime_started = True
+                session.startup_timings.setdefault(
+                    "control_ready_ms", int((time.monotonic() - started_at) * 1000)
+                )
                 self._apply_runtime_status(session, result)
         except PlaybackRuntimeError as exc:
             with self._lock:
@@ -193,34 +259,44 @@ class MagnetPlaybackManager:
                     session.state = "failed"
                     session.message = str(exc)
                     session.updated_at = datetime.now(UTC)
-        finally:
-            with self._lock:
-                session = self._sessions.get(session_id)
-                stopped_root = session.root if session is not None and session.stopped else None
-            if stopped_root is not None:
-                shutil.rmtree(stopped_root, ignore_errors=True)
 
-    @staticmethod
-    def _download_torrent_file(url: str, root: Path) -> Path:
+    def _cached_metadata(self, cache_key: str) -> Path | None:
+        path = self.metadata_root / f"{cache_key}.torrent"
+        try:
+            if (
+                path.is_file()
+                and path.stat().st_size <= MAX_TORRENT_METADATA_BYTES
+                and path.read_bytes()[:1] == b"d"
+            ):
+                os.utime(path)
+                return path
+        except OSError:
+            pass
+        path.unlink(missing_ok=True)
+        return None
+
+    def _torrent_metadata(self, url: str, cache_key: str) -> Path:
+        cached = self._cached_metadata(cache_key)
+        if cached is not None:
+            return cached
         parsed = urlparse(url)
         if parsed.scheme != "https" or parsed.hostname not in TORRENT_METADATA_HOSTS:
             raise PlaybackRuntimeError("The paired torrent metadata source is not trusted.")
-        root.mkdir(parents=True, exist_ok=True)
-        destination = root / "source.torrent"
-        request = Request(  # noqa: S310 - URL is allowlisted above
-            url, headers={"User-Agent": "DragonV2/1.0"}
-        )
+        destination = self.metadata_root / f"{cache_key}.torrent"
+        request = Request(url, headers={"User-Agent": "DragonV2/1.0"})  # noqa: S310
         try:
-            with urlopen(request, timeout=20) as response:  # noqa: S310 - URL is allowlisted
+            with urlopen(request, timeout=20) as response:  # noqa: S310 - allowlisted URL
                 final = urlparse(response.geturl())
                 if final.scheme != "https" or final.hostname not in TORRENT_METADATA_HOSTS:
                     raise PlaybackRuntimeError("Torrent metadata redirected to an untrusted host.")
-                payload = response.read(2 * 1024 * 1024 + 1)
+                payload = response.read(MAX_TORRENT_METADATA_BYTES + 1)
         except (OSError, ValueError) as exc:
             raise PlaybackRuntimeError("Torrent metadata could not be downloaded.") from exc
-        if len(payload) > 2 * 1024 * 1024 or not payload.startswith(b"d"):
+        if len(payload) > MAX_TORRENT_METADATA_BYTES or not payload.startswith(b"d"):
             raise PlaybackRuntimeError("Torrent metadata is invalid.")
-        destination.write_bytes(payload)
+        temporary = destination.with_suffix(".torrent.tmp")
+        temporary.write_bytes(payload)
+        os.replace(temporary, destination)
         return destination
 
     def _get(self, session_id: str) -> PlaybackSession:
@@ -231,24 +307,37 @@ class MagnetPlaybackManager:
 
     @staticmethod
     def _owns(session: PlaybackSession, *, user_id: str, movie_id: str | None = None) -> None:
-        if session.user_id != user_id or (movie_id is not None and session.movie_id != movie_id):
+        if session.user_id != user_id or (
+            movie_id is not None and session.movie_id != movie_id
+        ):
             raise PlaybackRuntimeError("Playback session was not found.")
 
     def _apply_runtime_status(self, session: PlaybackSession, result: dict) -> None:
         session.file_name = str(result.get("fileName") or "")
         session.total_bytes = max(0, int(result.get("totalBytes") or 0))
+        session.downloaded_bytes = max(0, int(result.get("downloadedBytes") or 0))
+        session.file_progress = min(1.0, max(0.0, float(result.get("fileProgress") or 0)))
+        session.buffer_percent = min(100, max(0, int(result.get("bufferPercent") or 0)))
         session.complete = bool(result.get("complete"))
         session.peers = max(0, int(result.get("peers") or 0))
         session.download_speed = max(0, int(result.get("downloadSpeed") or 0))
+        session.stream_url = str(result.get("streamUrl") or "")
+        timings = result.get("timings")
+        if isinstance(timings, dict):
+            for key, value in timings.items():
+                session.startup_timings[str(key)] = int(value) if value is not None else None
         error = str(result.get("error") or "").strip()
         if error:
             session.state = "failed"
             session.message = error
-        elif result.get("directStream") and session.file_name and session.total_bytes:
+        elif session.stream_url and session.file_name and session.total_bytes:
             session.state = "ready"
-            session.message = "Local stream is ready. The player can request torrent pieces."
+            if session.peers:
+                session.message = "Stream ready; the browser is buffering directly from peers."
+            else:
+                session.message = "Stream ready; waiting for torrent peers or cached pieces."
         else:
-            session.state = "preparing"
+            session.state = "metadata"
             session.message = "Selecting a browser-compatible movie file…"
         session.updated_at = datetime.now(UTC)
 
@@ -279,68 +368,17 @@ class MagnetPlaybackManager:
             "state": session.state,
             "message": session.message,
             "file_name": session.file_name,
-            "buffer_percent": 100 if session.complete else 0,
+            "stream_url": session.stream_url or None,
+            "buffer_percent": session.buffer_percent,
+            "file_progress": round(session.file_progress, 4),
+            "downloaded_bytes": session.downloaded_bytes,
+            "total_bytes": session.total_bytes,
             "peers": session.peers,
             "download_speed": session.download_speed,
+            "cache_hit": session.cache_hit,
+            "startup_timings": dict(session.startup_timings),
             "complete": session.complete,
         }
-
-    def open_range(self, session_id: str, *, user_id: str, range_header: str) -> StreamRange:
-        self.status(session_id, user_id=user_id)
-        with self._lock:
-            session = self._get(session_id)
-            self._owns(session, user_id=user_id)
-            if session.state == "failed":
-                raise PlaybackRuntimeError(session.message)
-            if session.state != "ready" or not session.total_bytes:
-                raise PlaybackNotReady("The local stream is still preparing.")
-            start, requested_end = self._parse_range(range_header, session.total_bytes)
-            end = min(requested_end, start + STREAM_RESPONSE_BYTES - 1)
-            mime_type = mimetypes.guess_type(session.file_name)[0] or "video/mp4"
-            return StreamRange(start, end, session.total_bytes, mime_type)
-
-    def read_chunk(
-        self, session_id: str, *, user_id: str, start: int, end: int
-    ) -> bytes:
-        with self._lock:
-            session = self._get(session_id)
-            self._owns(session, user_id=user_id)
-            if session.state != "ready":
-                raise PlaybackNotReady("The local stream is not ready.")
-        result = self.client.request(
-            "read", sessionId=session_id, start=start, end=end
-        )
-        encoded = str(result.get("data") or "")
-        try:
-            payload = base64.b64decode(encoded, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise PlaybackRuntimeError("WebTorrent returned invalid stream data.") from exc
-        if len(payload) != end - start + 1:
-            raise PlaybackRuntimeError("WebTorrent returned an incomplete byte range.")
-        return payload
-
-    @staticmethod
-    def _parse_range(value: str, total: int) -> tuple[int, int]:
-        if not value:
-            return 0, total - 1
-        if not value.startswith("bytes=") or "," in value:
-            raise PlaybackRuntimeError("Unsupported byte range.")
-        start_text, separator, end_text = value[6:].partition("-")
-        if not separator:
-            raise PlaybackRuntimeError("Invalid byte range.")
-        try:
-            if not start_text:
-                length = int(end_text)
-                if length <= 0:
-                    raise ValueError
-                return max(0, total - length), total - 1
-            start = int(start_text)
-            end = int(end_text) if end_text else total - 1
-        except ValueError as exc:
-            raise PlaybackRuntimeError("Invalid byte range.") from exc
-        if start < 0 or start >= total or end < start:
-            raise PlaybackRuntimeError("Requested byte range is outside the movie.")
-        return start, min(end, total - 1)
 
     def stop(self, session_id: str, *, user_id: str) -> None:
         with self._lock:
@@ -348,14 +386,94 @@ class MagnetPlaybackManager:
             self._owns(session, user_id=user_id)
             session.stopped = True
             session.state = "stopped"
+            session.message = "Local playback stopped. Cached pieces were kept."
             runtime_started = session.runtime_started
         if runtime_started:
             with suppress(PlaybackRuntimeError):
                 self.client.request("close", sessionId=session_id)
-        shutil.rmtree(session.root, ignore_errors=True)
+        self.cleanup_cache()
+
+    def _active_cache_keys(self) -> set[str]:
+        with self._lock:
+            return {
+                session.cache_key
+                for session in self._sessions.values()
+                if not session.stopped and session.state != "failed"
+            }
+
+    def _cache_entries(self) -> list[dict[str, object]]:
+        keys = {item.name for item in self.torrent_root.iterdir() if item.is_dir()}
+        keys.update(item.stem for item in self.metadata_root.glob("*.torrent"))
+        entries: list[dict[str, object]] = []
+        for key in keys:
+            data_path = self.torrent_root / key
+            metadata_path = self.metadata_root / f"{key}.torrent"
+            paths = [item for item in (data_path, metadata_path) if item.exists()]
+            if not paths:
+                continue
+            modified = max(item.stat().st_mtime for item in paths)
+            entries.append(
+                {
+                    "key": key,
+                    "data_path": data_path,
+                    "metadata_path": metadata_path,
+                    "bytes": sum(_tree_size(item) for item in paths),
+                    "modified": modified,
+                }
+            )
+        return entries
+
+    @staticmethod
+    def _remove_entry(entry: dict[str, object]) -> None:
+        shutil.rmtree(entry["data_path"], ignore_errors=True)  # type: ignore[arg-type]
+        Path(entry["metadata_path"]).unlink(missing_ok=True)  # type: ignore[arg-type]
+
+    def cleanup_cache(self, *, clear_all_inactive: bool = False) -> dict:
+        active = self._active_cache_keys()
+        entries = self._cache_entries()
+        cutoff = datetime.now(UTC) - timedelta(hours=self.cache_ttl_hours)
+        removed_bytes = 0
+        for entry in entries:
+            if entry["key"] in active:
+                continue
+            expired = datetime.fromtimestamp(float(entry["modified"]), UTC) < cutoff
+            if clear_all_inactive or expired:
+                removed_bytes += int(entry["bytes"])
+                self._remove_entry(entry)
+        entries = self._cache_entries()
+        used = sum(int(entry["bytes"]) for entry in entries)
+        for entry in sorted(entries, key=lambda value: float(value["modified"])):
+            if used <= self.cache_limit_bytes:
+                break
+            if entry["key"] in active:
+                continue
+            size = int(entry["bytes"])
+            self._remove_entry(entry)
+            used -= size
+            removed_bytes += size
+        return {**self.cache_status(), "removed_bytes": removed_bytes}
+
+    def clear_inactive_cache(self) -> dict:
+        return self.cleanup_cache(clear_all_inactive=True)
+
+    def cache_status(self) -> dict:
+        entries = self._cache_entries()
+        active = self._active_cache_keys()
+        return {
+            "used_bytes": sum(int(entry["bytes"]) for entry in entries),
+            "limit_bytes": self.cache_limit_bytes,
+            "ttl_hours": self.cache_ttl_hours,
+            "entries": len(entries),
+            "active_entries": sum(entry["key"] in active for entry in entries),
+        }
 
 
-def build_playback_manager(*, instance_path: str) -> MagnetPlaybackManager:
+def build_playback_manager(
+    *,
+    instance_path: str,
+    cache_limit_gb: int = 10,
+    cache_ttl_hours: int = 168,
+) -> MagnetPlaybackManager:
     helper_path = Path(__file__).with_name("webtorrent-helper.mjs").resolve()
     project_root = helper_path.parents[2]
     client = WebTorrentClient(project_root=project_root, helper_path=helper_path)
@@ -363,4 +481,6 @@ def build_playback_manager(*, instance_path: str) -> MagnetPlaybackManager:
     return MagnetPlaybackManager(
         cache_root=Path(instance_path) / "playback-cache",
         client=client,
+        cache_limit_gb=cache_limit_gb,
+        cache_ttl_hours=cache_ttl_hours,
     )

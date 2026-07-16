@@ -57,6 +57,21 @@ def _https_base_url(value: str, *, name: str) -> str:
     return normalized
 
 
+def _service_base_url(value: str, *, name: str) -> str:
+    normalized = value.strip().rstrip("/")
+    parsed = urlsplit(normalized)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise ValueError(f"{name} must be a plain HTTP(S) base URL.")
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     environment: str
@@ -69,12 +84,22 @@ class Settings:
     vidsrc_embed_url: str
     tmdb_api_key: str
     tmdb_read_access_token: str
+    jackett_url: str
+    jackett_api_key: str
+    jackett_min_seeders: int
     magnets_enabled: bool
+    playback_cache_gb: int
+    playback_cache_ttl_hours: int
     subtitles_enabled: bool
     subdl_api_key: str
     subtitle_languages: str
     external_sync_enabled: bool
+    notion_sync_enabled: bool
     notion_writeback_enabled: bool
+    notion_token: str
+    notion_database_id: str
+    notion_data_source_id: str
+    notion_sync_ttl_seconds: int
     youtube_delete_enabled: bool
     youtube_sync_enabled: bool
     youtube_api_key: str
@@ -119,6 +144,22 @@ class Settings:
                 value = os.getenv(f"DRAGON_{name}")
             return parse_bool(value, default=default)
 
+        def positive_integer(name: str, default: int, *, maximum: int) -> int:
+            value = override_map.get(name)
+            if value is None:
+                value = override_map.get(f"DRAGON_{name}")
+            if value is None:
+                value = os.getenv(f"DRAGON_{name}")
+            if value is None or str(value).strip() == "":
+                return default
+            try:
+                parsed = int(value)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(f"DRAGON_{name} must be a whole number.") from exc
+            if parsed < 1 or parsed > maximum:
+                raise ValueError(f"DRAGON_{name} must be between 1 and {maximum}.")
+            return parsed
+
         youtube_api_key = str(
             override_map.get("YOUTUBE_API_KEY")
             or override_map.get("DRAGON_YOUTUBE_API_KEY")
@@ -153,6 +194,40 @@ class Settings:
             or os.getenv("DRAGON_TMDB_READ_ACCESS_TOKEN", "")
             or os.getenv("TMDB_READ_ACCESS_TOKEN", "")
         ).strip()
+        jackett_url = _service_base_url(
+            str(
+                override_map.get("JACKETT_URL")
+                or override_map.get("DRAGON_JACKETT_URL")
+                or os.getenv("DRAGON_JACKETT_URL", "")
+                or os.getenv("JACKETT_URL", "")
+                or "http://127.0.0.1:9117"
+            ),
+            name="DRAGON_JACKETT_URL",
+        )
+        jackett_api_key = str(
+            override_map.get("JACKETT_API_KEY")
+            or override_map.get("DRAGON_JACKETT_API_KEY")
+            or os.getenv("DRAGON_JACKETT_API_KEY", "")
+            or os.getenv("JACKETT_API_KEY", "")
+        ).strip()
+        notion_token = str(
+            override_map.get("NOTION_TOKEN")
+            or override_map.get("DRAGON_NOTION_TOKEN")
+            or os.getenv("DRAGON_NOTION_TOKEN", "")
+            or os.getenv("NOTION_TOKEN", "")
+        ).strip()
+        notion_database_id = str(
+            override_map.get("NOTION_DATABASE_ID")
+            or override_map.get("DRAGON_NOTION_DATABASE_ID")
+            or os.getenv("DRAGON_NOTION_DATABASE_ID", "")
+            or os.getenv("NOTION_DATABASE_ID", "")
+        ).strip()
+        notion_data_source_id = str(
+            override_map.get("NOTION_DATA_SOURCE_ID")
+            or override_map.get("DRAGON_NOTION_DATA_SOURCE_ID")
+            or os.getenv("DRAGON_NOTION_DATA_SOURCE_ID", "")
+            or os.getenv("NOTION_DATA_SOURCE_ID", "")
+        ).strip()
         subdl_api_key = str(
             override_map.get("SUBDL_API_KEY")
             or override_map.get("DRAGON_SUBDL_API_KEY")
@@ -177,12 +252,42 @@ class Settings:
             vidsrc_embed_url=vidsrc_embed_url,
             tmdb_api_key=tmdb_api_key,
             tmdb_read_access_token=tmdb_read_access_token,
+            jackett_url=jackett_url,
+            jackett_api_key=jackett_api_key,
+            jackett_min_seeders=positive_integer(
+                "JACKETT_MIN_SEEDERS", 5, maximum=100000
+            ),
             magnets_enabled=feature("MAGNETS_ENABLED", False),
+            playback_cache_gb=positive_integer("PLAYBACK_CACHE_GB", 10, maximum=1000),
+            playback_cache_ttl_hours=positive_integer(
+                "PLAYBACK_CACHE_TTL_HOURS", 168, maximum=8760
+            ),
             subtitles_enabled=feature("SUBTITLES_ENABLED", bool(subdl_api_key)),
             subdl_api_key=subdl_api_key,
             subtitle_languages=subtitle_languages,
             external_sync_enabled=feature("EXTERNAL_SYNC_ENABLED", False),
-            notion_writeback_enabled=feature("NOTION_WRITEBACK_ENABLED", False),
+            notion_sync_enabled=feature(
+                "NOTION_SYNC_ENABLED",
+                bool(
+                    not is_testing
+                    and notion_token
+                    and (notion_database_id or notion_data_source_id)
+                ),
+            ),
+            notion_writeback_enabled=feature(
+                "NOTION_WRITEBACK_ENABLED",
+                bool(
+                    not is_testing
+                    and notion_token
+                    and (notion_database_id or notion_data_source_id)
+                ),
+            ),
+            notion_token=notion_token,
+            notion_database_id=notion_database_id,
+            notion_data_source_id=notion_data_source_id,
+            notion_sync_ttl_seconds=positive_integer(
+                "NOTION_SYNC_TTL_SECONDS", 120, maximum=86400
+            ),
             youtube_delete_enabled=feature("YOUTUBE_DELETE_ENABLED", False),
             youtube_sync_enabled=feature(
                 "YOUTUBE_SYNC_ENABLED",
@@ -213,12 +318,22 @@ class Settings:
             "DRAGON_VIDSRC_EMBED_URL": self.vidsrc_embed_url,
             "DRAGON_TMDB_API_KEY": self.tmdb_api_key,
             "DRAGON_TMDB_READ_ACCESS_TOKEN": self.tmdb_read_access_token,
+            "DRAGON_JACKETT_URL": self.jackett_url,
+            "DRAGON_JACKETT_API_KEY": self.jackett_api_key,
+            "DRAGON_JACKETT_MIN_SEEDERS": self.jackett_min_seeders,
             "DRAGON_MAGNETS_ENABLED": self.magnets_enabled,
+            "DRAGON_PLAYBACK_CACHE_GB": self.playback_cache_gb,
+            "DRAGON_PLAYBACK_CACHE_TTL_HOURS": self.playback_cache_ttl_hours,
             "DRAGON_SUBTITLES_ENABLED": self.subtitles_enabled,
             "DRAGON_SUBDL_API_KEY": self.subdl_api_key,
             "DRAGON_SUBTITLE_LANGUAGES": self.subtitle_languages,
             "DRAGON_EXTERNAL_SYNC_ENABLED": self.external_sync_enabled,
+            "DRAGON_NOTION_SYNC_ENABLED": self.notion_sync_enabled,
             "DRAGON_NOTION_WRITEBACK_ENABLED": self.notion_writeback_enabled,
+            "DRAGON_NOTION_TOKEN": self.notion_token,
+            "DRAGON_NOTION_DATABASE_ID": self.notion_database_id,
+            "DRAGON_NOTION_DATA_SOURCE_ID": self.notion_data_source_id,
+            "DRAGON_NOTION_SYNC_TTL_SECONDS": self.notion_sync_ttl_seconds,
             "DRAGON_YOUTUBE_DELETE_ENABLED": self.youtube_delete_enabled,
             "DRAGON_YOUTUBE_SYNC_ENABLED": self.youtube_sync_enabled,
             "DRAGON_YOUTUBE_API_KEY": self.youtube_api_key,
@@ -237,6 +352,11 @@ class Settings:
             "vidsrc_embed_url",
             "tmdb_api_key",
             "tmdb_read_access_token",
+            "jackett_url",
+            "jackett_api_key",
+            "notion_token",
+            "notion_database_id",
+            "notion_data_source_id",
             "subdl_api_key",
         }
         return {

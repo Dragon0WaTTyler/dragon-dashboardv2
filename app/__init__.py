@@ -5,6 +5,7 @@ from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
+from dotenv import load_dotenv
 from flask import Flask
 
 from app.admin import bp as admin_bp
@@ -26,6 +27,7 @@ from app.logging_config import configure_logging
 from app.middleware import install_request_middleware
 from app.migration import migration_cli
 from app.movies import bp as movies_bp
+from app.mytv import bp as mytv_bp
 from app.playback import bp as playback_bp
 from app.reading import bp as reading_bp
 from app.reading.providers import ArticleExtractor, FeedClient
@@ -33,6 +35,8 @@ from app.youtube import bp as youtube_bp
 
 
 def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
+    if not (config_override or {}).get("TESTING"):
+        load_dotenv(Path.cwd() / ".env", override=False)
     configure_logging()
     app = Flask(__name__, instance_relative_config=True)
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
@@ -73,6 +77,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     app.register_blueprint(auth_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(movies_bp)
+    app.register_blueprint(mytv_bp)
     app.register_blueprint(playback_bp)
     app.register_blueprint(youtube_bp)
     app.register_blueprint(reading_bp)

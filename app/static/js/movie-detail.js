@@ -13,18 +13,25 @@
   const reload = player.querySelector("[data-player-reload]");
   const open = player.querySelector("[data-player-open]");
   const stop = player.querySelector("[data-player-stop]");
-  const subtitleSelect = player.querySelector("[data-subtitle-select]");
   const subtitleStatus = player.querySelector("[data-subtitle-status]");
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   let sourceUrl = "";
   let localSession = null;
   let pollTimer = 0;
   let activeKind = "";
-  let subtitleOptionsLoaded = false;
+  let subtitleOptions = null;
   let subtitleRequest = null;
+  let watchReported = false;
 
   const selectedKind = () => source.selectedOptions[0]?.dataset.kind || "vidsrc";
   const setStatus = (message) => { status.textContent = message; };
+  const setPlayerState = (state, message = "") => {
+    player.dataset.playbackState = state;
+    if (activeKind === "local") {
+      badge.textContent = `Local · ${state.charAt(0).toUpperCase()}${state.slice(1)}`;
+    }
+    if (message) setStatus(message);
+  };
   const setSubtitleStatus = (message) => {
     if (subtitleStatus) subtitleStatus.textContent = message;
   };
@@ -33,54 +40,74 @@
     const megabytes = bytes / 1024 / 1024;
     return `${megabytes.toFixed(megabytes >= 10 ? 0 : 1)} MB/s`;
   };
+  const formatBytes = (bytes) => {
+    if (!bytes) return "0 MB";
+    const megabytes = bytes / 1024 / 1024;
+    return `${megabytes.toFixed(megabytes >= 100 ? 0 : 1)} MB`;
+  };
+
+  const reportWatchStarted = async () => {
+    if (watchReported || !player.dataset.watchEndpoint) return;
+    watchReported = true;
+    try {
+      const response = await fetch(player.dataset.watchEndpoint, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "X-CSRFToken": csrf, Accept: "application/json" },
+      });
+      if (!response.ok) watchReported = false;
+    } catch (_error) {
+      watchReported = false;
+    }
+  };
 
   const clearPoll = () => {
     window.clearTimeout(pollTimer);
     pollTimer = 0;
   };
 
-  const clearSubtitleTrack = () => {
+  const clearSubtitleTracks = () => {
     video.querySelectorAll("track").forEach((track) => track.remove());
     Array.from(video.textTracks || []).forEach((track) => { track.mode = "disabled"; });
   };
 
-  const applySelectedSubtitle = () => {
-    if (!subtitleSelect || selectedKind() !== "local") return;
-    clearSubtitleTrack();
-    const option = subtitleSelect.selectedOptions[0];
-    if (!option || option.value === "off" || option.value === "auto") {
-      setSubtitleStatus(option?.value === "off"
-        ? "Subtitles are off."
-        : "Arabic will be selected first when Local starts.");
+  const mountSubtitleTracks = (items) => {
+    clearSubtitleTracks();
+    if (!items.length) {
+      setSubtitleStatus("No Arabic or English subtitles were found.");
       return;
     }
-    const track = document.createElement("track");
-    track.kind = "subtitles";
-    track.label = option.dataset.languageName || "Subtitles";
-    track.srclang = option.dataset.language || "ar";
-    track.src = option.value;
-    track.default = true;
-    setSubtitleStatus(`Loading ${track.label} subtitles…`);
-    track.addEventListener("load", () => {
-      Array.from(video.textTracks).forEach((item) => {
-        item.mode = item === track.track ? "showing" : "disabled";
+    items.forEach((item, index) => {
+      const track = document.createElement("track");
+      track.kind = "subtitles";
+      track.label = `${item.language_name} · ${item.label}${item.hearing_impaired ? " · HI" : ""}`;
+      track.srclang = item.language;
+      track.src = item.track_url;
+      track.default = index === 0;
+      track.addEventListener("load", () => {
+        if (index !== 0) return;
+        Array.from(video.textTracks).forEach((candidate) => {
+          candidate.mode = candidate === track.track ? "showing" : "disabled";
+        });
+        setSubtitleStatus(`${track.label} subtitles are ready. Use the captions menu inside the player to switch or turn them off.`);
       });
-      setSubtitleStatus(`${track.label} subtitles are ready.`);
+      track.addEventListener("error", () => {
+        if (index === 0) {
+          setSubtitleStatus("The default subtitle could not be loaded. Try another track from the captions menu inside the player.");
+        }
+      });
+      video.append(track);
     });
-    track.addEventListener("error", () => {
-      setSubtitleStatus("That subtitle could not be loaded. Try another release.");
-    });
-    video.append(track);
+    setSubtitleStatus(`${items.length} subtitle option${items.length === 1 ? " is" : "s are"} available from the captions menu inside the player.`);
   };
 
   const loadSubtitleOptions = () => {
-    if (!subtitleSelect || !player.dataset.subtitleEndpoint) return Promise.resolve();
-    if (subtitleOptionsLoaded) {
-      applySelectedSubtitle();
+    if (!subtitleStatus || !player.dataset.subtitleEndpoint) return Promise.resolve();
+    if (subtitleOptions !== null) {
+      mountSubtitleTracks(subtitleOptions);
       return Promise.resolve();
     }
     if (subtitleRequest) return subtitleRequest;
-    subtitleSelect.disabled = true;
     setSubtitleStatus("Finding Arabic and English subtitles…");
     subtitleRequest = fetch(player.dataset.subtitleEndpoint, {
       credentials: "same-origin",
@@ -92,46 +119,21 @@
           throw new Error(payload?.error?.message || "Subtitle search is unavailable");
         }
         const items = Array.isArray(payload.items) ? payload.items : [];
-        subtitleSelect.replaceChildren();
-        items.forEach((item) => {
-          const option = document.createElement("option");
-          option.value = item.track_url;
-          option.dataset.language = item.language;
-          option.dataset.languageName = item.language_name;
-          option.textContent = `${item.language_name} · ${item.label}${item.hearing_impaired ? " · HI" : ""}`;
-          subtitleSelect.append(option);
-        });
-        const off = document.createElement("option");
-        off.value = "off";
-        off.textContent = "Off";
-        subtitleSelect.append(off);
-        subtitleOptionsLoaded = true;
-        if (items.length) {
-          subtitleSelect.selectedIndex = 0;
-          applySelectedSubtitle();
-        } else {
-          subtitleSelect.value = "off";
-          setSubtitleStatus("No Arabic or English subtitles were found.");
-        }
+        subtitleOptions = items;
+        mountSubtitleTracks(items);
       })
       .catch((error) => {
-        subtitleSelect.replaceChildren();
-        const off = document.createElement("option");
-        off.value = "off";
-        off.textContent = "Off";
-        subtitleSelect.append(off);
         setSubtitleStatus(String(error?.message || "Subtitle search is unavailable."));
       })
       .finally(() => {
         subtitleRequest = null;
-        subtitleSelect.disabled = selectedKind() !== "local";
       });
     return subtitleRequest;
   };
 
   const stopLocal = async ({ silent = false } = {}) => {
     clearPoll();
-    clearSubtitleTrack();
+    clearSubtitleTracks();
     video.pause();
     video.removeAttribute("src");
     video.load();
@@ -149,7 +151,7 @@
         keepalive: true,
       });
     } catch (_error) {
-      if (!silent) setStatus("The player stopped, but its cache cleanup could not be confirmed.");
+      if (!silent) setStatus("The player stopped, but the runtime shutdown could not be confirmed.");
     }
   };
 
@@ -172,13 +174,12 @@
     setStatus(kind === "vidsrc"
       ? "Ready. No external connection has been made."
       : "Ready. The magnet will start only after you press play.");
-    if (subtitleSelect) {
-      subtitleSelect.disabled = kind !== "local" || Boolean(subtitleRequest);
+    if (subtitleStatus) {
       if (kind === "vidsrc") {
-        clearSubtitleTrack();
-        setSubtitleStatus("Use VidSrc captions or switch to Local for Dragon subtitles.");
-      } else if (!subtitleOptionsLoaded) {
-        setSubtitleStatus("Arabic will be selected first when Local starts.");
+        clearSubtitleTracks();
+        setSubtitleStatus("Use VidSrc captions or switch to Local to load Dragon subtitles inside the player controls.");
+      } else if (subtitleOptions === null) {
+        setSubtitleStatus("Arabic will be selected first; switch or turn subtitles off from the player controls after Local starts.");
       }
     }
   };
@@ -210,8 +211,13 @@
     if (session.file_name) details.push(session.file_name);
     if (session.peers) details.push(`${session.peers} peer${session.peers === 1 ? "" : "s"}`);
     if (session.download_speed) details.push(formatSpeed(session.download_speed));
-    const progress = session.buffer_percent ? ` ${session.buffer_percent}% cached.` : "";
+    if (session.downloaded_bytes) details.push(`${formatBytes(session.downloaded_bytes)} cached`);
+    if (session.cache_hit) details.push("cache hit");
+    const progress = session.buffer_percent ? ` ${session.buffer_percent}% startup buffer.` : "";
     setStatus(`${session.message || "Preparing local stream…"}${progress}${details.length ? ` · ${details.join(" · ")}` : ""}`);
+    if (!video.hasAttribute("src")) {
+      setPlayerState(session.state === "ready" ? "buffering" : (session.state || "metadata"));
+    }
   };
 
   const pollLocal = async () => {
@@ -228,9 +234,14 @@
         throw new Error(payload.session.message || "Local player failed");
       }
       if (payload.session?.state === "ready") {
+        localSession.streamUrl = payload.session.stream_url || localSession.streamUrl;
         if (!video.hasAttribute("src")) {
+          if (!localSession.streamUrl) throw new Error("Direct local stream URL is unavailable");
+          video.crossOrigin = "anonymous";
           video.src = localSession.streamUrl;
           video.hidden = false;
+          video.preload = "auto";
+          setPlayerState("buffering", "Direct stream connected. Buffering the first playable range…");
           video.load();
           video.play().catch(() => {});
         }
@@ -266,6 +277,7 @@
     open.hidden = true;
     stop.hidden = false;
     renderLocalStatus(payload.session || {});
+    setPlayerState("metadata", "Reading torrent metadata…");
     void loadSubtitleOptions();
     pollLocal();
   };
@@ -281,7 +293,7 @@
     activeKind = selectedKind();
     try {
       if (activeKind === "local") {
-        setStatus("Starting the local WebTorrent runtime…");
+        setPlayerState("metadata", "Starting the local WebTorrent runtime…");
         await startLocal();
         return;
       }
@@ -303,6 +315,7 @@
   frame.addEventListener("load", () => {
     if (activeKind === "vidsrc" && frame.src !== "about:blank") {
       setStatus("VidSrc loaded. Playback controls are inside the player.");
+      void reportWatchStarted();
     }
   });
 
@@ -316,7 +329,38 @@
     resetViewport();
     syncSourceUi();
   });
-  subtitleSelect?.addEventListener("change", applySelectedSubtitle);
+  video.addEventListener("loadstart", () => {
+    if (activeKind === "local") setPlayerState("buffering", "Opening the direct local stream…");
+  });
+  video.addEventListener("waiting", () => {
+    if (activeKind === "local") setPlayerState("buffering", "Buffering requested torrent pieces…");
+  });
+  video.addEventListener("stalled", () => {
+    if (activeKind === "local") setPlayerState("stalled", "The torrent stalled. Waiting for peers; VidSrc remains available as fallback.");
+  });
+  video.addEventListener("playing", () => {
+    if (activeKind === "local") {
+      setPlayerState("playing", "Playing directly from the local WebTorrent runtime.");
+      void reportWatchStarted();
+    }
+  });
+  video.addEventListener("error", () => {
+    if (activeKind !== "local") return;
+    const codecFailure = video.error?.code === window.MediaError?.MEDIA_ERR_DECODE;
+    setPlayerState(
+      "failed",
+      codecFailure
+        ? "This codec is not supported by the browser. Switch to VidSrc."
+        : "Local playback failed or peers are unavailable. Switch to VidSrc as fallback.",
+    );
+  });
+  video.textTracks?.addEventListener("change", () => {
+    if (!subtitleOptions?.length || selectedKind() !== "local") return;
+    const activeTrack = Array.from(video.textTracks).find((track) => track.mode === "showing");
+    setSubtitleStatus(activeTrack
+      ? `${activeTrack.label} subtitles selected. Use the captions menu inside the player to switch or turn them off.`
+      : "Subtitles are off. Use the captions menu inside the player to turn them on.");
+  });
   window.addEventListener("pagehide", () => { stopLocal({ silent: true }); });
   syncSourceUi();
 })();

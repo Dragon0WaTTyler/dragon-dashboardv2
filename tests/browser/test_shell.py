@@ -302,6 +302,115 @@ def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app)
     assert recommendation.locator("h2").inner_text() != first_title
 
 
+def test_movie_discovery_opens_series_detail_and_seeded_release(page, live_app, app):
+    class StubTmdbProvider:
+        def details(self, media_type, tmdb_id):
+            assert (media_type, tmdb_id) == ("tv", 1399)
+            return {
+                "tmdb_id": 1399,
+                "media_type": "tv",
+                "title": "Game of Thrones",
+                "original_title": "Game of Thrones",
+                "year": 2011,
+                "overview": "Nine noble families fight for control.",
+                "poster_url": "",
+                "runtime_minutes": 55,
+                "genres": [{"name": "Drama"}],
+                "directors": [],
+                "cast": [],
+                "external_ids": {"tmdb_id": "1399", "tmdb_type": "tv"},
+                "seasons": [{"season_number": 1, "name": "Season 1", "episode_count": 10}],
+            }
+
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = StubTmdbProvider()
+
+    page.route(
+        "**/movies/api/search?*",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "library": [],
+                "discovery": [
+                    {
+                        "tmdb_id": 1399,
+                        "media_type": "tv",
+                        "title": "Game of Thrones",
+                        "year": 2011,
+                        "overview": "Nine noble families fight for control.",
+                        "poster_url": "",
+                        "in_library": False,
+                        "local_id": None,
+                        "detail_url": f"{live_app}/movies/discover/tv/1399",
+                    }
+                ],
+                "library_error": "",
+            }
+        ),
+    )
+    page.route(
+        "**/movies/api/tv/1399/seasons",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [
+                    {
+                        "name": "Season 1",
+                        "season_number": 1,
+                        "episode_count": 10,
+                    }
+                ],
+            }
+        ),
+    )
+    page.route(
+        "**/movies/api/tv/1399/seasons/1/episodes",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [{"name": "Winter Is Coming", "episode_number": 1}],
+            }
+        ),
+    )
+    page.route(
+        "**/movies/api/releases?*",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [
+                    {
+                        "title": "Game.of.Thrones.S01E01.1080p",
+                        "magnet_uri": "magnet:?xt=urn:btih:AAAA",
+                        "seeders": 42,
+                        "size": 1_500_000_000,
+                        "tracker": "1337x",
+                    }
+                ],
+            }
+        ),
+    )
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies")
+    page.locator("[data-discovery-query]").fill("Game of Thrones")
+    page.get_by_role("button", name="Search", exact=True).click()
+    page.get_by_role("link", name="Open series").click()
+
+    page.wait_for_url(f"{live_app}/movies/discover/tv/1399")
+    assert page.get_by_role("heading", name="Game of Thrones", level=1).count() == 1
+    page.locator("[data-season-select]").select_option("1")
+    page.locator("[data-episode-select] option[value='1']").wait_for(state="attached")
+    page.locator("[data-episode-select]").select_option("1")
+    page.get_by_text("Game.of.Thrones.S01E01.1080p").wait_for()
+    assert page.get_by_text("42 seeders", exact=False).count() == 1
+    assert page.get_by_role("button", name="+ Add season 1 to Notion").is_visible()
+    assert page.get_by_role("button", name="Add to Notion & play").is_visible()
+    assert page.evaluate(
+        "document.documentElement.scrollWidth === document.documentElement.clientWidth"
+    )
+
+
 def test_vidsrc_player_loads_only_after_explicit_click(page, live_app, app):
     with app.app_context():
         movie = Movie(

@@ -25,6 +25,8 @@ def test_feature_flags_default_safe(tmp_path: Path):
     assert settings.playback_enabled is False
     assert settings.vidsrc_enabled is False
     assert settings.magnets_enabled is False
+    assert settings.playback_cache_gb == 10
+    assert settings.playback_cache_ttl_hours == 168
     assert settings.subtitles_enabled is False
     assert settings.external_sync_enabled is False
     assert settings.notion_writeback_enabled is False
@@ -41,6 +43,21 @@ def test_prefixed_feature_flag_override(tmp_path: Path):
         {"TESTING": True, "DRAGON_EXTERNAL_SYNC_ENABLED": "true"},
     )
     assert settings.external_sync_enabled is True
+
+
+def test_playback_cache_limits_are_typed(tmp_path: Path):
+    settings = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "DRAGON_PLAYBACK_CACHE_GB": "25",
+            "DRAGON_PLAYBACK_CACHE_TTL_HOURS": "48",
+        },
+    )
+    assert settings.playback_cache_gb == 25
+    assert settings.playback_cache_ttl_hours == 48
+    with pytest.raises(ValueError, match="between 1"):
+        Settings.load(tmp_path, {"TESTING": True, "DRAGON_PLAYBACK_CACHE_GB": "0"})
 
 
 def test_vidsrc_configuration_is_typed_and_private(tmp_path: Path):

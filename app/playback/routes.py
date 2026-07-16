@@ -9,7 +9,6 @@ from flask import (
     redirect,
     render_template,
     request,
-    stream_with_context,
     url_for,
 )
 from flask_login import current_user, login_required
@@ -20,8 +19,6 @@ from app.movies.providers import TmdbIdentityError, TmdbIdentityProvider
 from app.movies.public import get_playback_context, save_playback_external_ids
 from app.playback.models import MagnetCandidate
 from app.playback.runtime import (
-    STREAM_CHUNK_BYTES,
-    PlaybackNotReady,
     PlaybackRuntimeError,
     build_playback_manager,
 )
@@ -72,7 +69,11 @@ def _subtitle_serializer() -> URLSafeTimedSerializer:
 def _runtime_manager():
     manager = current_app.extensions.get("dragon_magnet_playback_manager")
     if manager is None:
-        manager = build_playback_manager(instance_path=current_app.instance_path)
+        manager = build_playback_manager(
+            instance_path=current_app.instance_path,
+            cache_limit_gb=current_app.config["DRAGON_PLAYBACK_CACHE_GB"],
+            cache_ttl_hours=current_app.config["DRAGON_PLAYBACK_CACHE_TTL_HOURS"],
+        )
         current_app.extensions["dragon_magnet_playback_manager"] = manager
     return manager
 
@@ -220,6 +221,7 @@ def start_local_source(movie_id: str):
             source_id=source.id,
             magnet=source.locator,
             torrent_url=torrent_fallback.locator if torrent_fallback is not None else "",
+            origin=request.host_url.rstrip("/"),
         )
     except PlaybackRuntimeError as exc:
         return jsonify({"ok": False, "error": {"message": str(exc)}}), 400
@@ -229,7 +231,7 @@ def start_local_source(movie_id: str):
                 "ok": True,
                 "session": session,
                 "status_url": url_for("playback.local_status", session_id=session["id"]),
-                "stream_url": url_for("playback.local_stream", session_id=session["id"]),
+                "stream_url": session.get("stream_url"),
                 "stop_url": url_for("playback.stop_local", session_id=session["id"]),
             }
         ),
@@ -248,57 +250,6 @@ def local_status(session_id: str):
     response = jsonify({"ok": True, "session": status})
     response.headers["Cache-Control"] = "private, no-store"
     return response
-
-
-@bp.route("/runtime/<session_id>/stream", methods=["GET", "HEAD"])
-@login_required
-def local_stream(session_id: str):
-    _require_local_player()
-    user_id = str(current_user.get_id())
-    manager = _runtime_manager()
-    try:
-        stream_range = manager.open_range(
-            session_id,
-            user_id=user_id,
-            range_header=str(request.headers.get("Range") or ""),
-        )
-    except PlaybackNotReady as exc:
-        response = jsonify({"ok": False, "error": {"message": str(exc)}})
-        response.status_code = 425
-        response.headers["Retry-After"] = "1"
-        return response
-    except PlaybackRuntimeError as exc:
-        return jsonify({"ok": False, "error": {"message": str(exc)}}), 416
-
-    headers = {
-        "Accept-Ranges": "bytes",
-        "Content-Length": str(stream_range.length),
-        "Content-Range": f"bytes {stream_range.start}-{stream_range.end}/{stream_range.total}",
-        "Cache-Control": "private, no-store",
-    }
-    if request.method == "HEAD":
-        return current_app.response_class(
-            status=206, headers=headers, mimetype=stream_range.mime_type
-        )
-
-    def generate():
-        position = stream_range.start
-        while position <= stream_range.end:
-            chunk_end = min(position + STREAM_CHUNK_BYTES - 1, stream_range.end)
-            yield manager.read_chunk(
-                session_id,
-                user_id=user_id,
-                start=position,
-                end=chunk_end,
-            )
-            position = chunk_end + 1
-
-    return current_app.response_class(
-        stream_with_context(generate()),
-        status=206,
-        headers=headers,
-        mimetype=stream_range.mime_type,
-    )
 
 
 @bp.post("/runtime/<session_id>/stop")

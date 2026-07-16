@@ -37,6 +37,23 @@
     <p class="control-note">Secret values are never rendered here. Runtime changes stay in your private environment and require a restart.</p>
   </section>
 
+  {% if section_state.playback_cache %}
+  <section class="control-panel" aria-labelledby="playback-cache-title">
+    <div class="section-heading"><span class="eyebrow">Local playback</span><h2 id="playback-cache-title">Torrent cache</h2></div>
+    <dl class="control-facts">
+      <div><dt>Usage</dt><dd>{{ section_state.playback_cache.used_label }} / {{ section_state.playback_cache.limit_label }}</dd></div>
+      <div><dt>Entries</dt><dd>{{ section_state.playback_cache.entries }}</dd></div>
+      <div><dt>Active</dt><dd>{{ section_state.playback_cache.active_entries }}</dd></div>
+      <div><dt>Retention</dt><dd>{{ section_state.playback_cache.ttl_hours }} hours</dd></div>
+    </dl>
+    <p class="control-note">Stop disconnects peers but keeps reusable pieces. Cleanup never removes an active torrent.</p>
+    <form method="post" action="{{ url_for('admin.clear_playback_cache') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button button--secondary" type="submit">Clear inactive cache</button>
+    </form>
+  </section>
+  {% endif %}
+
   <section class="control-panel" aria-labelledby="freshness-title">
     <div class="section-heading"><span class="eyebrow">Local data</span><h2 id="freshness-title">Freshness and operations</h2></div>
     {% if section_state.freshness %}<div class="freshness-list">{% for item in section_state.freshness %}<div><span><strong>{{ item.domain|replace('_', ' ')|title }}</strong><small>{{ item.message }}</small></span>{{ badge(item.state|title, 'success' if item.state == 'fresh' else 'warning') }}</div>{% endfor %}</div>{% else %}<p class="muted">This module does not depend on an external snapshot.</p>{% endif %}

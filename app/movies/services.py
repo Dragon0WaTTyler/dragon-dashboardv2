@@ -70,6 +70,7 @@ def movie_item(movie: Movie) -> dict[str, Any]:
     return {
         "id": movie.id,
         "title": movie.title,
+        "media_type": movie.media_type,
         "year": movie.year,
         "status": movie.status,
         "personal_score": movie.personal_score,

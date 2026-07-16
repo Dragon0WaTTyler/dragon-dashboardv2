@@ -1,6 +1,9 @@
 {
   "name": "dragon-v2-playback-runtime",
   "private": true,
+  "scripts": {
+    "test:playback": "node --test --test-force-exit tests/node/webtorrent-helper.test.mjs"
+  },
   "dependencies": {
     "webtorrent": "3.0.6"
   }

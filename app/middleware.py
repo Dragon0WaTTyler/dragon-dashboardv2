@@ -26,6 +26,7 @@ def install_request_middleware(app: Flask) -> None:
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         frame_sources = ["'self'"]
         script_sources = ["'self'"]
+        media_sources = ["'self'"]
         if request.endpoint == "youtube.detail":
             frame_sources.extend(
                 ("https://www.youtube-nocookie.com", "https://www.youtube.com")
@@ -36,6 +37,12 @@ def install_request_middleware(app: Flask) -> None:
             if parsed.scheme == "https" and parsed.netloc:
                 frame_sources.append(f"{parsed.scheme}://{parsed.netloc}")
                 frame_sources.extend(VIDSRC_REDIRECT_HOSTS.get(parsed.hostname or "", ()))
+        if (
+            request.endpoint == "movies.detail"
+            and app.config.get("DRAGON_PLAYBACK_ENABLED")
+            and app.config.get("DRAGON_MAGNETS_ENABLED")
+        ):
+            media_sources.append("http://127.0.0.1:*")
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
             f"script-src {' '.join(script_sources)}; "
@@ -43,6 +50,7 @@ def install_request_middleware(app: Flask) -> None:
             "font-src 'self'; "
             "img-src 'self' data: https:; "
             "connect-src 'self'; "
+            f"media-src {' '.join(media_sources)}; "
             f"frame-src {' '.join(frame_sources)}; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "

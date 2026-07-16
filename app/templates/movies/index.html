@@ -6,16 +6,65 @@
 {% block content %}
 <header class="page-header">
   <div>
-    <span class="eyebrow">Local library</span>
+    <span class="eyebrow">Notion library</span>
     <h1>Movies</h1>
-    <p>Search and shape your watch queue from normalized local data.</p>
+    <p>Your Notion movies and series, ready to play from one place.</p>
   </div>
   {{ badge(total ~ ' titles', 'accent') }}
 </header>
 <div class="movie-actions">
   <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index', status='want_to_watch') }}">Watch next</a><a href="{{ url_for('movies.index', status='watching') }}">Continue watching</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a><a href="{{ url_for('movies.index', status='watched', sort='recently_updated') }}">Recently watched</a></nav>
-  {% if dragon_feature('movies', 'recommendation') %}<button class="button button--primary movie-actions__recommend" type="button" data-recommendation-load aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}
+  <div class="movie-actions__controls">
+    <button class="button button--secondary movie-actions__add" type="button" data-discovery-open aria-controls="movie-discovery-title" aria-label="Add a movie or series to Notion">+</button>
+    {% if dragon_feature('movies', 'recommendation') %}<button class="button button--primary movie-actions__recommend" type="button" data-recommendation-load aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}
+  </div>
 </div>
+
+<section
+  class="movie-discovery"
+  data-media-discovery
+  data-library-endpoint="{{ url_for('movies.api_library') }}"
+  data-search-endpoint="{{ url_for('movies.api_search') }}"
+  data-releases-endpoint="{{ url_for('movies.api_releases') }}"
+  data-seasons-template="{{ url_for('movies.api_tv_seasons', tmdb_id=999999999) }}"
+  data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}"
+  data-import-endpoint="{{ url_for('movies.api_import') }}"
+  data-details-prefix="{{ url_for('movies.index') }}"
+  data-discover-movie-template="{{ url_for('movies.discover', media_type='movie', tmdb_id=999999999) }}"
+  data-discover-tv-template="{{ url_for('movies.discover', media_type='tv', tmdb_id=999999999) }}"
+  aria-labelledby="movie-discovery-title"
+>
+  <div class="movie-discovery__intro">
+    <div>
+      <span class="eyebrow">Search beyond your library</span>
+      <h2 id="movie-discovery-title">Find any movie or series</h2>
+      <p>Dragon checks Notion first, then uses TMDB and Jackett only when the title is missing.</p>
+    </div>
+  </div>
+  <form class="movie-discovery__form" data-discovery-form>
+    <label class="field movie-discovery__query"><span>Title</span><input type="search" data-discovery-query minlength="2" maxlength="160" placeholder="Search a movie or series" autocomplete="off" required></label>
+    <label class="field"><span>Type</span><select data-discovery-type><option value="all">Movies &amp; series</option><option value="movie">Movies</option><option value="tv">Series</option></select></label>
+    <button class="button button--primary" type="submit" data-discovery-submit>Search</button>
+  </form>
+  <p class="movie-discovery__status" data-discovery-status role="status" aria-live="polite">Searches stay server-side, so your API keys never enter the browser.</p>
+  <div class="movie-discovery__results" data-discovery-results hidden></div>
+</section>
+
+<dialog class="release-dialog" data-release-dialog aria-labelledby="release-dialog-title">
+  <div class="release-dialog__header">
+    <div><span class="eyebrow" data-release-type>Release picker</span><h2 id="release-dialog-title" data-release-title>Choose a release</h2></div>
+    <button class="icon-button" type="button" data-release-close aria-label="Close release picker">×</button>
+  </div>
+  <p class="release-dialog__summary" data-release-summary></p>
+  <div class="release-dialog__episode-picker" data-episode-picker hidden>
+    <label class="field"><span>Season</span><select data-season-select><option value="">Choose a season</option></select></label>
+    <label class="field"><span>Episode</span><select data-episode-select disabled><option value="">Choose an episode</option></select></label>
+  </div>
+  <p class="release-dialog__status" data-release-status role="status" aria-live="polite"></p>
+  <div class="release-list" data-release-list></div>
+</dialog>
+
+{% if library_sync_error %}<div class="notice notice--error" role="status">Notion could not refresh. Showing the last locally synced Notion items. {{ library_sync_error }}</div>{% endif %}
 
 {% if dragon_feature('movies', 'recommendation') %}
 <section
@@ -96,6 +145,6 @@
   {% if has_next %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page+1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Next</a>{% endif %}
 </nav>
 {% else %}
-{{ empty_state('No movies match this view', 'Import data later or loosen the current filters. Page rendering remains fully local.') }}
+{{ empty_state('No Notion titles match this view', 'Use the search above to find a movie or series and add it to Notion.') }}
 {% endif %}
 {% endblock %}

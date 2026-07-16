@@ -10,6 +10,7 @@ from .control_center import (
     build_control_center,
     build_section_state,
     feature_enabled,
+    playback_manager,
     preference_store,
     section_visible,
 )
@@ -58,6 +59,15 @@ def update_section_preferences(section_key: str):
     preference_store().update(section_key, values)
     flash(f"{SECTION_MAP[section_key].label} preferences saved.", "success")
     return redirect(url_for("admin.section_detail", section_key=section_key))
+
+
+@bp.post("/sections/movies/playback-cache/clear")
+@login_required
+def clear_playback_cache():
+    result = playback_manager().clear_inactive_cache()
+    removed_mb = result["removed_bytes"] / 1024 / 1024
+    flash(f"Cleared {removed_mb:.1f} MB from inactive playback cache.", "success")
+    return redirect(url_for("admin.section_detail", section_key="movies"))
 
 
 def _safe_return_url(value: str | None) -> str | None:

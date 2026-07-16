@@ -11,6 +11,7 @@ from flask import current_app, g
 from sqlalchemy import MetaData, Table, func, inspect
 
 from app.extensions import db
+from app.playback.runtime import build_playback_manager
 from app.shared.freshness import get_freshness
 from app.shared.models import Operation
 
@@ -266,6 +267,27 @@ def _capabilities(section: SectionDefinition) -> list[dict[str, Any]]:
     ]
 
 
+def playback_manager():
+    manager = current_app.extensions.get("dragon_magnet_playback_manager")
+    if manager is None:
+        manager = build_playback_manager(
+            instance_path=current_app.instance_path,
+            cache_limit_gb=current_app.config["DRAGON_PLAYBACK_CACHE_GB"],
+            cache_ttl_hours=current_app.config["DRAGON_PLAYBACK_CACHE_TTL_HOURS"],
+        )
+        current_app.extensions["dragon_magnet_playback_manager"] = manager
+    return manager
+
+
+def _human_bytes(value: int) -> str:
+    size = float(value)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{size:.0f} {unit}" if unit in {"B", "KB"} else f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{value} B"
+
+
 def build_section_state(section: SectionDefinition) -> dict[str, Any]:
     preferences = _request_preferences()["sections"][section.key]
     freshness = [get_freshness(domain) for domain in section.freshness_domains]
@@ -294,6 +316,11 @@ def build_section_state(section: SectionDefinition) -> dict[str, Any]:
         issues.append("The module database table is not installed yet.")
     if not preferences["show_in_navigation"]:
         issues.append("Hidden from primary navigation by preference.")
+    playback_cache = None
+    if section.key == "movies":
+        playback_cache = playback_manager().cache_status()
+        playback_cache["used_label"] = _human_bytes(playback_cache["used_bytes"])
+        playback_cache["limit_label"] = _human_bytes(playback_cache["limit_bytes"])
     return {
         "definition": section,
         "available": section.endpoint in current_app.view_functions,
@@ -304,6 +331,7 @@ def build_section_state(section: SectionDefinition) -> dict[str, Any]:
         "freshness": freshness,
         "last_operation": last_operation,
         "capabilities": _capabilities(section),
+        "playback_cache": playback_cache,
     }
 
 

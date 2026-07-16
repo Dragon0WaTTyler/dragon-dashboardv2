@@ -82,12 +82,12 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
                 "ok": True,
                 "session": {
                     "id": "play_browser",
-                    "state": "preparing",
+                    "state": "metadata",
                     "message": "Reading torrent metadata…",
                     "buffer_percent": 0,
                 },
                 "status_url": "/playback/runtime/play_browser",
-                "stream_url": "/playback/runtime/play_browser/stream",
+                "stream_url": None,
                 "stop_url": "/playback/runtime/play_browser/stop",
             },
         ),
@@ -101,7 +101,11 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
                     "state": "ready",
                     "message": "Local stream is ready.",
                     "file_name": "movie.mp4",
-                    "buffer_percent": 1.2,
+                    "stream_url": "http://127.0.0.1:54321/dragon-stream/test/hash/movie.mp4",
+                    "buffer_percent": 12,
+                    "file_progress": 0.1,
+                    "downloaded_bytes": 1048576,
+                    "cache_hit": True,
                     "peers": 3,
                     "download_speed": 1048576,
                     "complete": False,
@@ -110,7 +114,7 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
         ),
     )
     page.route(
-        "**/playback/runtime/play_browser/stream",
+        "http://127.0.0.1:54321/dragon-stream/**",
         lambda route: route.fulfill(status=206, content_type="video/mp4", body=b""),
     )
     page.route(
@@ -122,21 +126,23 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies/{movie_id}")
     source = page.get_by_label("Player source")
-    subtitles = page.get_by_label("Subtitles")
     assert source.input_value() == "vidsrc"
-    assert subtitles.is_disabled()
+    assert page.locator("[data-subtitle-select]").count() == 0
     source.select_option(label="Local · FHD")
-    assert subtitles.is_enabled()
     assert page.locator("[data-player-badge]").inner_text() == "Local"
     page.get_by_role("button", name="Start local player").click()
-    page.get_by_text("Local stream is ready.", exact=False).wait_for()
-    page.get_by_role("option", name="Arabic · Arabic release").wait_for(state="attached")
-    assert subtitles.locator("option").all_text_contents() == [
-        "Arabic · Arabic release",
-        "English · English release",
-        "Off",
+    page.locator("[data-movie-player][data-playback-state]").wait_for()
+    page.locator("video track[srclang='en']").wait_for(state="attached")
+    assert page.locator("video track").count() == 2
+    assert page.locator("video track").evaluate_all(
+        "tracks => tracks.map(track => ({label: track.label, "
+        "language: track.srclang, isDefault: track.default}))"
+    ) == [
+        {"label": "Arabic · Arabic release", "language": "ar", "isDefault": True},
+        {"label": "English · English release", "language": "en", "isDefault": False},
     ]
     assert page.locator("video track[srclang='ar']").count() == 1
+    assert page.locator("[data-player-video]").evaluate("video => video.controls") is True
     assert page.locator("[data-player-video]").is_visible()
     assert not page.locator("[data-player-frame]").is_visible()
 
