@@ -171,12 +171,20 @@
     return `${(value / (1024 ** index)).toFixed(index > 2 ? 1 : 0)} ${units[index]}`;
   };
 
+  const fillTemplate = (template, values = []) => {
+    if (!template || typeof template !== "string") return null;
+    return values.reduce((result, value) => {
+      if (value === null || value === undefined || value === "") return result;
+      return result.replace("999999999", encodeURIComponent(value));
+    }, template);
+  };
+
   const discoverUrl = (item) => {
     if (item.detail_url) return item.detail_url;
     const template = item.media_type === "tv"
       ? discovery.dataset.discoverTvTemplate
       : discovery.dataset.discoverMovieTemplate;
-    return template.replace("999999999", encodeURIComponent(item.tmdb_id));
+    return fillTemplate(template, [item.tmdb_id]) || "#";
   };
 
   const addToLibrary = async (item, button) => {
@@ -208,8 +216,13 @@
   const mediaCard = (item) => {
     const card = element("article", "discovery-card");
     const detailUrl = discoverUrl(item);
+    const hasDetailUrl = detailUrl !== "#";
     const poster = element("a", "discovery-card__poster");
     poster.href = detailUrl;
+    if (!hasDetailUrl) {
+      poster.setAttribute("aria-disabled", "true");
+      poster.addEventListener("click", (event) => event.preventDefault());
+    }
     if (item.poster_url) {
       const image = element("img");
       image.src = item.poster_url;
@@ -226,6 +239,10 @@
     const heading = element("h3");
     const titleLink = element("a", "", item.title || "Untitled");
     titleLink.href = detailUrl;
+    if (!hasDetailUrl) {
+      titleLink.setAttribute("aria-disabled", "true");
+      titleLink.addEventListener("click", (event) => event.preventDefault());
+    }
     heading.append(titleLink);
     body.append(heading);
     if (item.overview) body.append(element("p", "discovery-card__overview", item.overview));
@@ -340,6 +357,14 @@
     return `${(value / (1024 ** index)).toFixed(index > 2 ? 1 : 0)} ${units[index]}`;
   };
 
+  const fillTemplate = (template, values = []) => {
+    if (!template || typeof template !== "string") return null;
+    return values.reduce((result, value) => {
+      if (value === null || value === undefined || value === "") return result;
+      return result.replace("999999999", encodeURIComponent(value));
+    }, template);
+  };
+
   const element = (tag, className = "", text = "") => {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -398,9 +423,11 @@
       return;
     }
     status.textContent = "Loading episodes from TMDB…";
-    const endpoint = browser.dataset.episodesTemplate
-      .replace("999999999", encodeURIComponent(tmdbId))
-      .replace("999999999", encodeURIComponent(season));
+    const endpoint = fillTemplate(browser.dataset.episodesTemplate, [tmdbId, season]);
+    if (!endpoint) {
+      status.textContent = "Episode lookup is not configured yet. Refresh the page and try again.";
+      return;
+    }
     try {
       const payload = await api(endpoint);
       payload.items.forEach((episode) => {
@@ -481,7 +508,11 @@
 
   if (mediaType === "tv" && seasonSelect) {
     status.textContent = "Loading seasons from TMDB…";
-    const endpoint = browser.dataset.seasonsTemplate.replace("999999999", encodeURIComponent(tmdbId));
+    const endpoint = fillTemplate(browser.dataset.seasonsTemplate, [tmdbId]);
+    if (!endpoint) {
+      status.textContent = "Season lookup is not configured yet. Refresh the page and try again.";
+      return;
+    }
     api(endpoint)
       .then((payload) => {
         payload.items.forEach((season) => {

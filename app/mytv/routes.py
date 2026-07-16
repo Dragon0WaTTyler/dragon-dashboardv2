@@ -28,6 +28,7 @@ from app.mytv.services import (
     GithubTVSync,
     sync_coordinator,
 )
+from app.services.streaming import UnsafeStreamUrl, proxy_stream, read_resource_token
 from app.mytv.streaming import (
     StreamUnavailable,
     mark_stream_failure,
@@ -674,6 +675,14 @@ def play(channel_id: int):
         "No working source is available for this channel. Try again later.",
         502,
     )
+
+
+@bp.get("/resource/<token>")
+def hls_resource(token: str):
+    try:
+        return proxy_stream(read_resource_token(token))
+    except (UnsafeStreamUrl, OSError, requests.RequestException) as error:
+        return str(error), 502
 
 
 def _playback_candidates(channel: TVChannel) -> list[TVChannel]:

@@ -25,17 +25,18 @@
     </dl>
   </div>
   {% if vidsrc_enabled or player_sources %}
+  {% set has_selected_player_source = player_sources|selectattr('selected')|list|length > 0 %}
   <section id="movie-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}">
     <div class="movie-player__heading">
       <div><span class="eyebrow">Playback deck</span><h2 id="movie-player-title">Watch {{ movie.title }}</h2></div>
-      <span class="badge badge--accent" data-player-badge>{{ 'VidSrc' if vidsrc_enabled else 'Local' }}</span>
+      <span class="badge badge--accent" data-player-badge>{{ 'Local' if has_selected_player_source else ('VidSrc' if vidsrc_enabled else 'Local') }}</span>
     </div>
     <div class="movie-player__source-rail">
       <label class="field movie-player__source">
         <span>Player source</span>
         <select data-player-source>
-          {% if vidsrc_enabled %}<option value="vidsrc" data-kind="vidsrc">Player 1 · VidSrc</option>{% endif %}
-          {% for source in player_sources %}<option value="{{ source.id }}" data-kind="local">Local · {{ source.label }}</option>{% endfor %}
+          {% if vidsrc_enabled %}<option value="vidsrc" data-kind="vidsrc"{% if not has_selected_player_source %} selected{% endif %}>Player 1 · VidSrc</option>{% endif %}
+          {% for source in player_sources %}<option value="{{ source.id }}" data-kind="local"{% if source.selected %} selected{% endif %}>Local · {{ source.label }}</option>{% endfor %}
         </select>
       </label>
       {% if subtitles_enabled %}

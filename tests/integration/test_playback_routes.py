@@ -234,6 +234,7 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
                 "message": "Direct stream ready",
                 "file_name": "movie.mp4",
                 "stream_url": "http://127.0.0.1:54321/dragon-stream/secret/hash/movie.mp4",
+                "stream_kind": "direct",
                 "buffer_percent": 50,
                 "file_progress": 0.1,
                 "downloaded_bytes": 100,
@@ -290,4 +291,54 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
     payload = response.get_json()
     assert payload["session"]["id"] == "play_test"
     assert payload["stream_url"].startswith("http://127.0.0.1:54321/dragon-stream/")
+    assert payload["session"]["stream_kind"] == "direct"
+    assert payload["transcode_url"].endswith("/playback/runtime/play_test/transcode")
     assert authenticated_client.get("/playback/runtime/play_test/stream").status_code == 404
+
+
+def test_local_transcode_route_uses_private_loopback_stream_safely(
+    authenticated_client, app, monkeypatch
+):
+    class StubRuntime:
+        def status(self, session_id: str, *, user_id: str):
+            assert session_id == "play_test"
+            assert user_id
+            return {
+                "id": session_id,
+                "state": "ready",
+                "message": "Transcode required",
+                "file_name": "episode.mkv",
+                "stream_url": "http://127.0.0.1:54321/dragon-stream/secret/hash/episode.mkv",
+                "stream_kind": "transcode",
+                "buffer_percent": 25,
+                "file_progress": 0.05,
+                "downloaded_bytes": 100,
+                "total_bytes": 1000,
+                "peers": 1,
+                "download_speed": 512,
+                "cache_hit": False,
+                "startup_timings": {},
+                "complete": False,
+            }
+
+    called = {}
+
+    def fake_transcode(url: str, *, allow_private: bool = False, input_headers=None):
+        called["url"] = url
+        called["allow_private"] = allow_private
+        called["input_headers"] = dict(input_headers or {})
+        from flask import Response
+
+        return Response(b"mp4-bytes", content_type="video/mp4")
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = True
+    app.config["DRAGON_MAGNETS_ENABLED"] = True
+    app.extensions["dragon_magnet_playback_manager"] = StubRuntime()
+    monkeypatch.setattr("app.playback.routes.transcode_stream", fake_transcode)
+
+    response = authenticated_client.get("/playback/runtime/play_test/transcode")
+    assert response.status_code == 200
+    assert response.mimetype == "video/mp4"
+    assert called["url"].endswith("/dragon-stream/secret/hash/episode.mkv")
+    assert called["allow_private"] is True
+    assert called["input_headers"]["Origin"] == "http://localhost"

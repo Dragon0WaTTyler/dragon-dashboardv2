@@ -36,11 +36,11 @@ def _resolved_addresses(hostname: str) -> tuple[str, ...]:
     )
 
 
-def validate_stream_url(url: str) -> str:
+def validate_stream_url(url: str, *, allow_private: bool = False) -> str:
     parsed = urlparse(url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise UnsafeStreamUrl("Only HTTP(S) stream URLs are supported")
-    if current_app.config.get("MYTV_ALLOW_PRIVATE_STREAMS"):
+    if allow_private or current_app.config.get("MYTV_ALLOW_PRIVATE_STREAMS"):
         return url
     try:
         addresses = _resolved_addresses(parsed.hostname)
@@ -62,17 +62,23 @@ def validate_stream_url(url: str) -> str:
     return url
 
 
-def _open_upstream(url: str) -> tuple[requests.Response, str]:
+def _open_upstream(
+    url: str,
+    *,
+    allow_private: bool = False,
+    extra_headers: dict[str, str] | None = None,
+) -> tuple[requests.Response, str]:
     headers = {
         "User-Agent": "Mozilla/5.0 (My TV Dashboard)",
         "Accept": request.headers.get("Accept", "*/*"),
     }
+    headers.update(extra_headers or {})
     if request.headers.get("Range"):
         headers["Range"] = request.headers["Range"]
 
     current_url = url
     for _ in range(4):
-        validate_stream_url(current_url)
+        validate_stream_url(current_url, allow_private=allow_private)
         response = requests.get(
             current_url,
             headers=headers,
@@ -128,8 +134,18 @@ def rewrite_hls_manifest(text: str, manifest_url: str) -> str:
     return "\n".join(output) + "\n"
 
 
-def proxy_stream(url: str, force_manifest: bool = False) -> Response:
-    upstream, final_url = _open_upstream(url)
+def proxy_stream(
+    url: str,
+    force_manifest: bool = False,
+    *,
+    allow_private: bool = False,
+    extra_headers: dict[str, str] | None = None,
+) -> Response:
+    upstream, final_url = _open_upstream(
+        url,
+        allow_private=allow_private,
+        extra_headers=extra_headers,
+    )
     content_type = upstream.headers.get("Content-Type", "application/octet-stream")
     is_manifest = force_manifest or "mpegurl" in content_type.lower() or final_url.lower().split("?", 1)[0].endswith((".m3u8", ".m3u"))
 
@@ -168,21 +184,32 @@ def proxy_stream(url: str, force_manifest: bool = False) -> Response:
     )
 
 
-def transcode_stream(url: str) -> Response:
-    validate_stream_url(url)
-    ffmpeg = shutil.which(current_app.config["MYTV_FFMPEG"])
+def transcode_stream(
+    url: str,
+    *,
+    allow_private: bool = False,
+    input_headers: dict[str, str] | None = None,
+) -> Response:
+    validate_stream_url(url, allow_private=allow_private)
+    ffmpeg = shutil.which(current_app.config.get("MYTV_FFMPEG", "ffmpeg"))
     if not ffmpeg:
         return Response(
             "FFmpeg is required for this stream format.", status=503, content_type="text/plain"
         )
 
-    semaphore = _get_transcode_semaphore(current_app.config["MYTV_MAX_TRANSCODES"])
+    semaphore = _get_transcode_semaphore(current_app.config.get("MYTV_MAX_TRANSCODES", 2))
     if not semaphore.acquire(blocking=False):
         return Response(
             "All transcoding slots are busy. Try another channel in a moment.",
             status=429,
             content_type="text/plain",
             headers={"Retry-After": "5"},
+        )
+
+    serialized_headers = ""
+    if input_headers:
+        serialized_headers = "".join(
+            f"{name}: {value}\r\n" for name, value in input_headers.items() if value
         )
 
     command = [
@@ -194,15 +221,27 @@ def transcode_stream(url: str) -> Response:
         "-rw_timeout",
         "15000000",
         "-analyzeduration",
-        "2000000",
+        "15000000",
         "-probesize",
-        "2000000",
+        "50000000",
+    ]
+    if serialized_headers:
+        command.extend(["-headers", serialized_headers])
+    command.extend([
+        "-reconnect",
+        "1",
+        "-reconnect_streamed",
+        "1",
+        "-reconnect_delay_max",
+        "2",
         "-i",
         url,
         "-map",
         "0:v:0?",
         "-map",
         "0:a:0?",
+        "-sn",
+        "-dn",
         "-c:v",
         "libx264",
         "-preset",
@@ -213,6 +252,10 @@ def transcode_stream(url: str) -> Response:
         "yuv420p",
         "-c:a",
         "aac",
+        "-ac",
+        "2",
+        "-ar",
+        "48000",
         "-b:a",
         "128k",
         "-movflags",
@@ -220,7 +263,7 @@ def transcode_stream(url: str) -> Response:
         "-f",
         "mp4",
         "pipe:1",
-    ]
+    ])
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,
@@ -264,4 +307,3 @@ def _get_transcode_semaphore(limit: int) -> threading.BoundedSemaphore:
             _transcode_limit = limit
             _transcode_semaphore = threading.BoundedSemaphore(limit)
     return _transcode_semaphore
-

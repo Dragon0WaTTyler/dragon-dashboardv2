@@ -61,7 +61,7 @@ def test_jackett_filters_low_seed_and_duplicate_results():
     assert results[0]["seeders"] == 18
 
 
-def test_jackett_prefers_exact_episode_and_season_pack_over_wrong_episode():
+def test_jackett_returns_only_exact_episode_when_available():
     provider = JackettReleaseProvider(
         base_url="http://127.0.0.1:9117",
         api_key="secret",
@@ -105,7 +105,46 @@ def test_jackett_prefers_exact_episode_and_season_pack_over_wrong_episode():
         },
     )
 
+    assert [item["title"] for item in results] == ["The Sopranos S01E01 1080p"]
+
+
+def test_jackett_uses_season_pack_only_when_exact_episode_is_missing():
+    provider = JackettReleaseProvider(
+        base_url="http://127.0.0.1:9117",
+        api_key="secret",
+        min_seeders=5,
+        session=FakeSession(),
+    )
+
+    rows = [
+        {
+            "title": "The Sopranos S01E03 1080p",
+            "magnet_uri": "magnet:?xt=urn:btih:1111&dn=sopranos-e03",
+            "seeders": 18,
+            "size": 1,
+            "tracker": "TPB",
+        },
+        {
+            "title": "The Sopranos Season 1 Complete 1080p",
+            "magnet_uri": "magnet:?xt=urn:btih:2222&dn=sopranos-s1",
+            "seeders": 10,
+            "size": 1,
+            "tracker": "TPB",
+        },
+    ]
+
+    results = provider._filter(
+        rows,
+        10,
+        match_context={
+            "title_variants": ["The Sopranos"],
+            "season": 1,
+            "episode": 1,
+            "episode_code": "S01E01",
+            "alt_episode_code": "1x01",
+        },
+    )
+
     assert [item["title"] for item in results] == [
-        "The Sopranos S01E01 1080p",
-        "The Sopranos Season 1 Complete 1080p",
+        "The Sopranos Season 1 Complete 1080p"
     ]

@@ -7,7 +7,11 @@ import { performance } from "node:perf_hooks";
 import { after, before, test } from "node:test";
 import WebTorrent from "webtorrent";
 
-import { createLoopbackServer } from "../../app/playback/webtorrent-helper.mjs";
+import {
+  chooseMedia,
+  createLoopbackServer,
+  resolveTorrentSession,
+} from "../../app/playback/webtorrent-helper.mjs";
 
 const ORIGIN = "http://127.0.0.1:5050";
 const SECRET = "test-secret-path";
@@ -151,4 +155,36 @@ test("returns an available local range within the warm first-byte budget", async
   const elapsed = performance.now() - started;
   assert.equal(response.status, 206);
   assert.ok(elapsed < 250, `warm local first byte took ${elapsed.toFixed(1)}ms`);
+});
+
+test("awaits async client.get before falling back to add", async () => {
+  const existingTorrent = { on() {}, files: [] };
+  let addCalled = false;
+  const fakeClient = {
+    async get(infoHash) {
+      assert.equal(infoHash, "cache-key");
+      return existingTorrent;
+    },
+    add() {
+      addCalled = true;
+      return { on() {}, files: [] };
+    },
+  };
+
+  const torrent = await resolveTorrentSession(fakeClient, "cache-key", "magnet:?xt=urn:btih:test", {
+    path: "/tmp/example",
+  });
+
+  assert.equal(torrent, existingTorrent);
+  assert.equal(addCalled, false);
+});
+
+test("falls back to MKV when no direct MP4-style file exists", () => {
+  const media = chooseMedia([
+    { name: "The.Sopranos.S01E01.sample.mkv", length: 500_000_000 },
+    { name: "The.Sopranos.S01E01.mkv", length: 4_000_000_000 },
+    { name: "The.Sopranos.S01E01.txt", length: 1000 },
+  ]);
+
+  assert.equal(media?.name, "The.Sopranos.S01E01.mkv");
 });

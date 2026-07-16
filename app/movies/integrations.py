@@ -394,7 +394,7 @@ class JackettReleaseProvider:
         season_pack = [item for item in ranked if item[1] == "season_pack"]
         general = [item for item in ranked if item[0] > 0 and item[1] == "general"]
         if exact:
-            ranked = exact + season_pack + general
+            ranked = exact
         elif season_pack:
             ranked = season_pack + general
         else:

@@ -9,18 +9,30 @@ const MIN_MEDIA_BYTES = 50 * 1024 * 1024;
 const HEAD_PREFETCH_BYTES = 8 * 1024 * 1024;
 const TAIL_PREFETCH_BYTES = 1024 * 1024;
 const METADATA_TIMEOUT_MS = 30000;
+const DIRECT_MEDIA_EXTENSIONS = [".mp4", ".m4v", ".webm"];
+const TRANSCODE_MEDIA_EXTENSIONS = [".mkv", ".mov", ".avi", ".ts", ".m2ts", ".mpg", ".mpeg"];
 
 export const chooseMedia = (files, minimumBytes = MIN_MEDIA_BYTES) => {
   const candidates = files.filter((file) => {
     const name = String(file.name || "").toLowerCase();
     const extension = path.extname(name);
-    return [".mp4", ".m4v", ".webm"].includes(extension)
+    return [...DIRECT_MEDIA_EXTENSIONS, ...TRANSCODE_MEDIA_EXTENSIONS].includes(extension)
       && Number(file.length || 0) >= minimumBytes
       && !/(^|[._ -])(sample|trailer)([._ -]|$)/i.test(name);
   });
   candidates.sort((left, right) => {
-    const leftRank = /\.(mp4|m4v)$/i.test(left.name) ? 0 : 1;
-    const rightRank = /\.(mp4|m4v)$/i.test(right.name) ? 0 : 1;
+    const leftExtension = path.extname(String(left.name || "").toLowerCase());
+    const rightExtension = path.extname(String(right.name || "").toLowerCase());
+    const leftRank = DIRECT_MEDIA_EXTENSIONS.includes(leftExtension)
+      ? 0
+      : TRANSCODE_MEDIA_EXTENSIONS.includes(leftExtension)
+        ? 1
+        : 2;
+    const rightRank = DIRECT_MEDIA_EXTENSIONS.includes(rightExtension)
+      ? 0
+      : TRANSCODE_MEDIA_EXTENSIONS.includes(rightExtension)
+        ? 1
+        : 2;
     return leftRank - rightRank || right.length - left.length;
   });
   return candidates[0] || null;
@@ -76,6 +88,11 @@ export const createLoopbackServer = (client, origin, secret = crypto.randomBytes
       resolve(server);
     });
   });
+};
+
+export const resolveTorrentSession = async (client, cacheKey, torrentInput, options) => {
+  const existingTorrent = await client.get(cacheKey);
+  return existingTorrent || client.add(torrentInput, options);
 };
 
 const consumeWindow = async (session, start, end, kind) => {
@@ -164,8 +181,7 @@ export const runRuntime = () => {
       throw new Error("Invalid magnet URI");
     }
 
-    const existingTorrent = client.get(cacheKey);
-    const torrent = existingTorrent || client.add(torrentInput, {
+    const torrent = await resolveTorrentSession(client, cacheKey, torrentInput, {
       path: root,
       strategy: "sequential",
       deselect: true,
@@ -207,7 +223,7 @@ export const runRuntime = () => {
     }
     session.timings.metadata_ms = Date.now() - startedAt;
     const media = chooseMedia(torrent.files);
-    if (!media) throw new Error("No browser-compatible MP4 file was found in this torrent");
+    if (!media) throw new Error("No large video file was found in this torrent");
     torrent.files.forEach((file) => file.deselect());
     session.file = media;
     const streamServer = await ensureServer(String(message.origin || ""));

@@ -24,6 +24,7 @@ from app.playback.runtime import (
 )
 from app.playback.services import PlaybackService
 from app.playback.subtitles import SubdlSubtitleProvider, SubtitleProviderError
+from app.services.streaming import transcode_stream
 
 bp = Blueprint("playback", __name__, url_prefix="/playback")
 
@@ -232,6 +233,9 @@ def start_local_source(movie_id: str):
                 "session": session,
                 "status_url": url_for("playback.local_status", session_id=session["id"]),
                 "stream_url": session.get("stream_url"),
+                "transcode_url": url_for(
+                    "playback.local_transcode", session_id=session["id"]
+                ),
                 "stop_url": url_for("playback.stop_local", session_id=session["id"]),
             }
         ),
@@ -247,9 +251,40 @@ def local_status(session_id: str):
         status = _runtime_manager().status(session_id, user_id=str(current_user.get_id()))
     except PlaybackRuntimeError as exc:
         return jsonify({"ok": False, "error": {"message": str(exc)}}), 404
-    response = jsonify({"ok": True, "session": status})
+    response = jsonify(
+        {
+            "ok": True,
+            "session": {
+                **status,
+                "transcode_url": url_for(
+                    "playback.local_transcode", session_id=session_id
+                ),
+            },
+        }
+    )
     response.headers["Cache-Control"] = "private, no-store"
     return response
+
+
+@bp.get("/runtime/<session_id>/transcode")
+@login_required
+def local_transcode(session_id: str):
+    _require_local_player()
+    try:
+        status = _runtime_manager().status(session_id, user_id=str(current_user.get_id()))
+    except PlaybackRuntimeError as exc:
+        return jsonify({"ok": False, "error": {"message": str(exc)}}), 404
+    stream_url = str(status.get("stream_url") or "").strip()
+    if status.get("state") != "ready" or not stream_url:
+        return jsonify(
+            {"ok": False, "error": {"message": "Local stream is not ready yet."}}
+        ), 409
+    origin = request.host_url.rstrip("/")
+    return transcode_stream(
+        stream_url,
+        allow_private=True,
+        input_headers={"Origin": origin},
+    )
 
 
 @bp.post("/runtime/<session_id>/stop")

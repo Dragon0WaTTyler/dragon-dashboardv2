@@ -22,6 +22,8 @@ from app.shared.ids import new_id
 TORRENT_METADATA_HOSTS = {"yts.bz", "yts.gg"}
 MAX_TORRENT_METADATA_BYTES = 2 * 1024 * 1024
 INFO_HASH_PATTERN = re.compile(r"^[a-fA-F0-9]{40}$|^[A-Z2-7a-z2-7]{32}$")
+DIRECT_PLAYBACK_SUFFIXES = {".mp4", ".m4v", ".webm"}
+TRANSCODE_PLAYBACK_SUFFIXES = {".mkv", ".mov", ".avi", ".ts", ".m2ts", ".mpg", ".mpeg"}
 
 
 class PlaybackRuntimeError(RuntimeError):
@@ -154,6 +156,15 @@ def _tree_size(path: Path) -> int:
             with suppress(OSError):
                 total += item.stat().st_size
     return total
+
+
+def _stream_kind(file_name: str) -> str:
+    suffix = Path(str(file_name or "")).suffix.lower()
+    if suffix in DIRECT_PLAYBACK_SUFFIXES:
+        return "direct"
+    if suffix in TRANSCODE_PLAYBACK_SUFFIXES:
+        return "transcode"
+    return "unknown"
 
 
 class MagnetPlaybackManager:
@@ -332,13 +343,16 @@ class MagnetPlaybackManager:
             session.message = error
         elif session.stream_url and session.file_name and session.total_bytes:
             session.state = "ready"
-            if session.peers:
+            stream_kind = _stream_kind(session.file_name)
+            if stream_kind == "transcode":
+                session.message = "Stream ready; local transcoding is required for this file."
+            elif session.peers:
                 session.message = "Stream ready; the browser is buffering directly from peers."
             else:
                 session.message = "Stream ready; waiting for torrent peers or cached pieces."
         else:
             session.state = "metadata"
-            session.message = "Selecting a browser-compatible movie file…"
+            session.message = "Selecting the best video file from this torrent…"
         session.updated_at = datetime.now(UTC)
 
     def status(self, session_id: str, *, user_id: str) -> dict:
@@ -369,6 +383,7 @@ class MagnetPlaybackManager:
             "message": session.message,
             "file_name": session.file_name,
             "stream_url": session.stream_url or None,
+            "stream_kind": _stream_kind(session.file_name),
             "buffer_percent": session.buffer_percent,
             "file_progress": round(session.file_progress, 4),
             "downloaded_bytes": session.downloaded_bytes,

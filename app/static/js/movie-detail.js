@@ -194,6 +194,26 @@
     setStatus(message);
   };
 
+  const localPlaybackUrl = () => {
+    if (!localSession) return "";
+    if (localSession.streamKind === "transcode") return localSession.transcodeUrl || "";
+    return localSession.streamUrl || "";
+  };
+
+  const switchLocalToTranscode = () => {
+    if (!localSession?.transcodeUrl) return false;
+    localSession.streamKind = "transcode";
+    video.removeAttribute("src");
+    video.load();
+    video.src = localSession.transcodeUrl;
+    video.hidden = false;
+    video.preload = "auto";
+    setPlayerState("buffering", "Direct playback was not supported. Switching to local transcoding…");
+    video.load();
+    video.play().catch(() => {});
+    return true;
+  };
+
   const loadVidSrc = () => {
     frame.hidden = false;
     frame.src = sourceUrl;
@@ -235,13 +255,27 @@
       }
       if (payload.session?.state === "ready") {
         localSession.streamUrl = payload.session.stream_url || localSession.streamUrl;
+        localSession.transcodeUrl = payload.session.transcode_url || localSession.transcodeUrl;
+        localSession.streamKind = payload.session.stream_kind || localSession.streamKind || "direct";
         if (!video.hasAttribute("src")) {
-          if (!localSession.streamUrl) throw new Error("Direct local stream URL is unavailable");
+          const playbackUrl = localPlaybackUrl();
+          if (!playbackUrl) {
+            throw new Error(
+              localSession.streamKind === "transcode"
+                ? "Local transcode URL is unavailable"
+                : "Direct local stream URL is unavailable"
+            );
+          }
           video.crossOrigin = "anonymous";
-          video.src = localSession.streamUrl;
+          video.src = playbackUrl;
           video.hidden = false;
           video.preload = "auto";
-          setPlayerState("buffering", "Direct stream connected. Buffering the first playable range…");
+          setPlayerState(
+            "buffering",
+            localSession.streamKind === "transcode"
+              ? "Local transcoding started. Preparing an MP4 stream for the browser…"
+              : "Direct stream connected. Buffering the first playable range…"
+          );
           video.load();
           video.play().catch(() => {});
         }
@@ -268,6 +302,8 @@
     localSession = {
       statusUrl: payload.status_url,
       streamUrl: payload.stream_url,
+      transcodeUrl: payload.transcode_url,
+      streamKind: payload.session?.stream_kind || "direct",
       stopUrl: payload.stop_url,
     };
     launch.hidden = true;
@@ -347,6 +383,7 @@
   video.addEventListener("error", () => {
     if (activeKind !== "local") return;
     const codecFailure = video.error?.code === window.MediaError?.MEDIA_ERR_DECODE;
+    if (localSession?.streamKind !== "transcode" && switchLocalToTranscode()) return;
     setPlayerState(
       "failed",
       codecFailure
