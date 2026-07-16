@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0b0f12">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>My TV · Live channel control</title>
+  <meta name="description" content="A private live TV player with source, bouquet, and channel controls.">
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/my-tv.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('mytv.page') }}" aria-label="My TV home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M7 4.5 12 9l5-4.5M5.5 8h13A2.5 2.5 0 0 1 21 10.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-7A2.5 2.5 0 0 1 5.5 8Z"/><path d="M8.5 12.25v3.5L12 14l-3.5-1.75Z"/></svg>
+      </span>
+      <span>My TV</span>
+    </a>
+
+    <div class="topbar-actions">
+      <a class="section-link" href="{{ url_for('media.page') }}">Movies &amp; Series</a>
+      <div class="source-health" id="sourceHealth" role="status">
+        <span class="health-dot"></span>
+        <span>Source not checked</span>
+      </div>
+    </div>
+  </header>
+
+  <main id="main-content" class="page-shell">
+    <section class="page-intro" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Your live catalogue</p>
+        <h1 id="page-title">Watch what matters.<br><span>Hide everything else.</span></h1>
+        <p class="intro-copy">Channels are organised by source and bouquet, with a master switch at every level.</p>
+      </div>
+      <div class="intro-actions">
+        <button class="button button-secondary" id="refreshCatalog" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 6v5h-5M4 18v-5h5"/><path d="M18.4 10A7 7 0 0 0 6 7.6L4 11m16 2-2 3.4A7 7 0 0 1 5.6 14"/></svg>
+          Refresh source
+        </button>
+        <button class="button button-primary" id="syncLatest" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v12m0 0 4-4m-4 4-4-4M5 19h14"/></svg>
+          Import latest
+        </button>
+      </div>
+    </section>
+
+    <section class="stat-strip" aria-label="Catalogue summary">
+      <div class="stat-item">
+        <span class="stat-label">Available now</span>
+        <strong id="statEnabled">—</strong>
+        <small>enabled channels</small>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Catalogue</span>
+        <strong id="statTotal">—</strong>
+        <small>total channels</small>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Bouquets</span>
+        <strong id="statGroups">—</strong>
+        <small>organised groups</small>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">Sources</span>
+        <strong id="statSources">—</strong>
+        <small>imported packages</small>
+      </div>
+    </section>
+
+    <div class="sync-banner" id="syncBanner" hidden aria-live="polite">
+      <div class="sync-spinner" aria-hidden="true"></div>
+      <div>
+        <strong id="syncTitle">Synchronising</strong>
+        <p id="syncMessage">Connecting to source…</p>
+      </div>
+      <span id="syncCount"></span>
+    </div>
+
+    <nav class="view-tabs" aria-label="My TV views">
+      <button class="view-tab is-active" id="watchTab" type="button" data-view="watch" aria-selected="true">Watch</button>
+      <button class="view-tab" id="manageTab" type="button" data-view="manage" aria-selected="false">Manage</button>
+    </nav>
+
+    <section class="view-panel is-active" id="watchView" data-panel="watch">
+      <div class="watch-layout">
+        <section class="player-panel" aria-labelledby="nowPlayingTitle">
+          <div class="player-frame" id="playerFrame">
+            <video id="videoPlayer" controls playsinline preload="metadata"></video>
+            <div class="player-empty" id="playerEmpty">
+              <span class="player-empty-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><path d="M7 4.5 12 9l5-4.5M5.5 8h13A2.5 2.5 0 0 1 21 10.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-7A2.5 2.5 0 0 1 5.5 8Z"/><path d="m10 12 4 2-4 2v-4Z"/></svg>
+              </span>
+              <strong>Choose a channel to start</strong>
+              <span>Your stream opens here without exposing its source URL.</span>
+            </div>
+            <div class="player-loading" id="playerLoading" hidden>
+              <div class="sync-spinner"></div>
+              <span>Preparing stream…</span>
+            </div>
+          </div>
+          <div class="now-playing">
+            <div class="now-logo" id="nowLogo" aria-hidden="true">TV</div>
+            <div>
+              <span>Now playing</span>
+              <h2 id="nowPlayingTitle">Nothing selected</h2>
+              <p id="nowPlayingMeta">Select any enabled channel below.</p>
+            </div>
+            <span class="live-pill" id="livePill" hidden><i></i> Live</span>
+          </div>
+        </section>
+
+        <aside class="quick-control" aria-labelledby="quickControlTitle">
+          <div class="section-heading compact">
+            <div>
+              <p class="eyebrow">Quick control</p>
+              <h2 id="quickControlTitle">Browse the catalogue</h2>
+            </div>
+          </div>
+          <label class="field-label" for="sourceFilter">Source package</label>
+          <select class="select" id="sourceFilter">
+            <option value="">All active sources</option>
+          </select>
+          <label class="field-label" for="groupFilter">Bouquet</label>
+          <select class="select" id="groupFilter">
+            <option value="">All bouquets</option>
+          </select>
+          <label class="field-label" for="stateFilter">Visibility</label>
+          <select class="select" id="stateFilter">
+            <option value="enabled">Enabled channels</option>
+            <option value="all">All channels</option>
+            <option value="disabled">Disabled channels</option>
+          </select>
+          <div class="control-note">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"/><path d="M12 11v6m0-10h.01"/></svg>
+            <p>Turn off a bouquet, then enable only the channels you want as exceptions.</p>
+          </div>
+        </aside>
+      </div>
+
+      <section class="channel-section" aria-labelledby="channelHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Channel guide</p>
+            <h2 id="channelHeading">Available channels</h2>
+          </div>
+          <label class="search-field">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <span class="sr-only">Search channels</span>
+            <input id="channelSearch" type="search" placeholder="Search channels or bouquets…" autocomplete="off">
+          </label>
+        </div>
+
+        <div class="channel-grid" id="channelGrid" aria-live="polite"></div>
+        <div class="empty-state" id="channelEmpty" hidden>
+          <span aria-hidden="true">⌁</span>
+          <h3>No channels here yet</h3>
+          <p>Refresh the catalogue, import a source package, or change your filters.</p>
+          <button class="button button-primary" type="button" data-empty-sync>Import latest</button>
+        </div>
+        <div class="pagination" id="pagination" hidden>
+          <button class="button button-secondary button-small" id="previousPage" type="button">Previous</button>
+          <span id="pageStatus">Page 1</span>
+          <button class="button button-secondary button-small" id="nextPage" type="button">Next</button>
+        </div>
+      </section>
+    </section>
+
+    <section class="view-panel" id="manageView" data-panel="manage" hidden>
+      <section class="manage-section" aria-labelledby="sourcesHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Source control</p>
+            <h2 id="sourcesHeading">Playlist packages</h2>
+            <p>Catalogue: <a href="https://github.com/{{ source_repo }}" target="_blank" rel="noreferrer">{{ source_repo }}</a></p>
+          </div>
+          <div class="manage-actions">
+            <button class="button button-secondary" id="importSelected" type="button" disabled>Import selected</button>
+            <button class="button button-quiet" id="importAll" type="button">Import all</button>
+          </div>
+        </div>
+        <div class="source-list" id="sourceList"></div>
+      </section>
+
+      <section class="manage-section" aria-labelledby="bouquetsHeading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Bouquet control</p>
+            <h2 id="bouquetsHeading">Channel groups</h2>
+            <p>A group switch sets the default. Channel overrides always remain under your control.</p>
+          </div>
+          <label class="search-field narrow">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+            <span class="sr-only">Search bouquets</span>
+            <input id="groupSearch" type="search" placeholder="Find a bouquet…" autocomplete="off">
+          </label>
+        </div>
+        <div class="bouquet-list" id="bouquetList"></div>
+        <div class="empty-state compact-empty" id="bouquetEmpty" hidden>
+          <h3>No imported bouquets</h3>
+          <p>Import at least one source package to manage its groups.</p>
+        </div>
+      </section>
+    </section>
+
+    <footer class="page-footer">
+      <p>Use only streams you are authorised to access. Availability is controlled by each upstream provider.</p>
+      <span>My TV · Local dashboard</span>
+    </footer>
+  </main>
+
+  <div class="toast-region" id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js" defer></script>
+  <script src="{{ url_for('static', filename='js/my-tv.js') }}" defer></script>
+</body>
+</html>
