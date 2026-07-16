@@ -110,21 +110,27 @@ def api_tv_episodes(tmdb_id: int, season_number: int):
 @login_required
 def api_releases():
     media_type = str(request.args.get("type") or "movie").strip().lower()
+    mode = str(request.args.get("mode") or "auto").strip().lower()
     if media_type not in {"movie", "tv"}:
         return _api_error("Type must be movie or tv.")
+    if mode not in {"auto", "exact_episode", "season_pack"}:
+        return _api_error("Release mode must be auto, exact_episode, or season_pack.")
     try:
         tmdb_id = int(request.args.get("tmdb_id") or 0)
         season = _optional_positive_int(request.args.get("season"))
         episode = _optional_positive_int(request.args.get("episode"))
         if tmdb_id < 1:
             raise ValueError
-        if media_type == "tv" and (season is None or episode is None):
+        if media_type == "tv" and season is None:
+            return _api_error("Choose a season first.")
+        if media_type == "tv" and mode != "season_pack" and episode is None:
             return _api_error("Choose a season and episode first.")
         lookup = release_lookup(
             media_type=media_type,
             tmdb_id=tmdb_id,
             season=season,
             episode=episode,
+            mode=mode,
         )
     except ValueError:
         return _api_error("The TMDB, season, or episode value is invalid.")
@@ -185,6 +191,7 @@ def api_import():
             size=max(0, int(payload.get("size") or 0)),
             season=_optional_positive_int(payload.get("season")),
             episode=_optional_positive_int(payload.get("episode")),
+            release_mode=str(payload.get("release_mode") or "episode").strip().lower(),
         )
     except (TypeError, ValueError) as exc:
         return _api_error(str(exc) or "The selected release is invalid.")

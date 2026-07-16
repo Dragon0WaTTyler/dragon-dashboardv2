@@ -188,3 +188,22 @@ test("falls back to MKV when no direct MP4-style file exists", () => {
 
   assert.equal(media?.name, "The.Sopranos.S01E01.mkv");
 });
+
+test("selects the requested episode from a season pack", () => {
+  const media = chooseMedia([
+    { name: "The.Sopranos.S01E02.1080p.mkv", length: 4_200_000_000 },
+    { name: "The.Sopranos.S01E01.1080p.mkv", length: 3_800_000_000 },
+    { name: "The.Sopranos.S01E03.1080p.mkv", length: 4_000_000_000 },
+  ], undefined, { season: 1, episode: 1 });
+
+  assert.equal(media?.name, "The.Sopranos.S01E01.1080p.mkv");
+});
+
+test("does not guess a different file when the requested episode is missing", () => {
+  const media = chooseMedia([
+    { name: "The.Sopranos.S01E02.1080p.mkv", length: 4_200_000_000 },
+    { name: "The.Sopranos.S01E03.1080p.mkv", length: 4_000_000_000 },
+  ], undefined, { season: 1, episode: 1 });
+
+  assert.equal(media, null);
+});

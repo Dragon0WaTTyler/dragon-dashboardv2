@@ -333,6 +333,7 @@
   const seasonSelect = browser.querySelector("[data-season-select]");
   const episodeSelect = browser.querySelector("[data-episode-select]");
   const loadButton = browser.querySelector("[data-release-load]");
+  const seasonPackButton = browser.querySelector("[data-season-pack-load]");
   const addButton = browser.querySelector("[data-library-add]");
   const status = browser.querySelector("[data-release-status]");
   const releaseList = browser.querySelector("[data-release-list]");
@@ -372,13 +373,19 @@
     return node;
   };
 
-  const releaseRow = (release, season, episode) => {
+  const releaseRow = (release, season, episode, releaseMode = "episode") => {
     const row = element("article", "release-item");
     const body = element("div", "release-item__body");
     body.append(element("h3", "", release.title));
-    const meta = `${release.seeders} seeders · ${formatBytes(release.size)} · ${release.tracker}`;
+    const kindLabel = releaseMode === "season_pack" ? "Season pack" : "Episode";
+    const meta = `${kindLabel} · ${release.seeders} seeders · ${formatBytes(release.size)} · ${release.tracker}`;
     body.append(element("p", "", meta));
-    const button = element("button", "button button--primary", "Add to Notion & play");
+    const buttonLabel = releaseMode === "season_pack" && !episode
+      ? "Add pack to Notion"
+      : releaseMode === "season_pack"
+        ? `Add pack & play E${String(episode).padStart(2, "0")}`
+        : "Add to Notion & play";
+    const button = element("button", "button button--primary", buttonLabel);
     button.type = "button";
     button.addEventListener("click", async () => {
       button.disabled = true;
@@ -399,9 +406,10 @@
             size: release.size,
             season,
             episode,
+            release_mode: releaseMode,
           }),
         });
-        window.location.assign(`${payload.detail_url}#movie-player`);
+        window.location.assign(`${payload.detail_url}${episode ? "#movie-player" : "#release-browser"}`);
       } catch (error) {
         status.textContent = error.message;
         button.disabled = false;
@@ -442,10 +450,14 @@
     }
   };
 
-  const loadReleases = async () => {
+  const loadReleases = async (mode = "auto") => {
     const season = mediaType === "tv" ? Number(seasonSelect.value || 0) || null : null;
     const episode = mediaType === "tv" ? Number(episodeSelect.value || 0) || null : null;
-    if (mediaType === "tv" && (!season || !episode)) {
+    if (mediaType === "tv" && !season) {
+      status.textContent = "Choose a season first.";
+      return;
+    }
+    if (mediaType === "tv" && mode !== "season_pack" && !episode) {
       status.textContent = "Choose a season and episode first.";
       return;
     }
@@ -454,19 +466,31 @@
       loadButton.disabled = true;
       loadButton.setAttribute("aria-busy", "true");
     }
-    status.textContent = mediaType === "tv"
+    status.textContent = mode === "season_pack"
+      ? "Searching Jackett for full-season packs, strongest seed/size matches first…"
+      : mediaType === "tv"
       ? "Searching Jackett for the exact episode first, then smart fallbacks…"
       : "Searching Jackett across your configured indexers…";
     const endpoint = new URL(browser.dataset.releasesEndpoint, window.location.origin);
     endpoint.searchParams.set("type", mediaType);
     endpoint.searchParams.set("tmdb_id", tmdbId);
+    endpoint.searchParams.set("mode", mode);
     if (season) endpoint.searchParams.set("season", season);
-    if (episode) endpoint.searchParams.set("episode", episode);
+    if (episode && mode !== "season_pack") endpoint.searchParams.set("episode", episode);
     try {
       const payload = await api(endpoint);
-      payload.items.forEach((release) => releaseList.append(releaseRow(release, season, episode)));
+      payload.items.forEach((release) => {
+        const releaseMode = mode === "season_pack" || release.match_kind === "season_pack"
+          ? "season_pack"
+          : "episode";
+        releaseList.append(releaseRow(release, season, episode, releaseMode));
+      });
       if (!payload.items.length) {
-        status.textContent = "No exact episode or useful season-pack release was found with enough seeders.";
+        status.textContent = mode === "season_pack"
+          ? "No useful season pack was found with enough seeders."
+          : "No exact episode or useful season-pack release was found with enough seeders.";
+      } else if (mode === "season_pack") {
+        status.textContent = `${payload.items.length} season pack${payload.items.length === 1 ? "" : "s"} found. Pick one; Dragon will select the chosen episode from inside the pack when playback starts.`;
       } else if (payload.items[0].match_kind === "season_pack") {
         status.textContent = `${payload.items.length} season-level fallback release${payload.items.length === 1 ? "" : "s"} found because no strong exact episode match was available.`;
       } else {
@@ -542,5 +566,6 @@
   loadButton?.addEventListener("click", () => {
     if (mediaType === "movie") loadReleases();
   });
+  seasonPackButton?.addEventListener("click", () => loadReleases("season_pack"));
   addButton?.addEventListener("click", addToLibrary);
 })();

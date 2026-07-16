@@ -107,6 +107,8 @@ class PlaybackSession:
     source_id: str
     cache_key: str
     root: Path
+    target_season: int | None = None
+    target_episode: int | None = None
     cache_hit: bool = False
     state: str = "metadata"
     message: str = "Reading torrent metadata…"
@@ -197,6 +199,8 @@ class MagnetPlaybackManager:
         magnet: str,
         torrent_url: str = "",
         origin: str,
+        season: int | None = None,
+        episode: int | None = None,
     ) -> dict:
         cache_key = _magnet_info_hash(magnet)
         parsed_origin = urlparse(origin)
@@ -219,6 +223,8 @@ class MagnetPlaybackManager:
             source_id=source_id,
             cache_key=cache_key,
             root=root,
+            target_season=season,
+            target_episode=episode,
             cache_hit=cache_hit,
         )
         with self._lock:
@@ -252,6 +258,8 @@ class MagnetPlaybackManager:
                 root=str(session.root),
                 torrentFile=str(torrent_file) if torrent_file else "",
                 origin=origin,
+                season=session.target_season,
+                episode=session.target_episode,
             )
             with self._lock:
                 session = self._get(session_id)
@@ -384,6 +392,8 @@ class MagnetPlaybackManager:
             "file_name": session.file_name,
             "stream_url": session.stream_url or None,
             "stream_kind": _stream_kind(session.file_name),
+            "target_season": session.target_season,
+            "target_episode": session.target_episode,
             "buffer_percent": session.buffer_percent,
             "file_progress": round(session.file_progress, 4),
             "downloaded_bytes": session.downloaded_bytes,

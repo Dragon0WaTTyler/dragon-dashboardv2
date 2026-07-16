@@ -220,11 +220,16 @@ def import_release(
     size: int,
     season: int | None,
     episode: int | None,
+    release_mode: str = "episode",
 ) -> Movie:
     if not current_app.config["DRAGON_NOTION_WRITEBACK_ENABLED"]:
         raise MediaIntegrationError("Notion write-back is disabled.")
-    if media_type == "tv" and (not season or not episode):
-        raise ValueError("Choose a season and episode before importing a series release.")
+    if release_mode not in {"episode", "season_pack"}:
+        release_mode = "episode"
+    if media_type == "tv" and not season:
+        raise ValueError("Choose a season before importing a series release.")
+    if media_type == "tv" and not episode and release_mode != "season_pack":
+        raise ValueError("Choose an episode before importing this series release.")
     details = tmdb_catalog_provider().details(media_type, tmdb_id)
     notion_item = notion_movie_provider().upsert_media(
         details,
@@ -245,11 +250,13 @@ def import_release(
         "playback_sources": [
             {
                 "kind": "magnet",
-                "label": _release_label(media_type, season, episode),
+                "label": _release_label(media_type, season, episode, release_mode),
                 "locator": magnet_uri,
                 "selected": True,
                 "metadata": {
                     "origin": "jackett",
+                    "release_mode": release_mode,
+                    "season_pack": release_mode == "season_pack",
                     "tracker": tracker,
                     "seeders": seeders,
                     "size": size,
@@ -272,17 +279,22 @@ def release_lookup(
     tmdb_id: int,
     season: int | None = None,
     episode: int | None = None,
+    mode: str = "auto",
 ) -> dict[str, Any]:
+    if mode not in {"auto", "exact_episode", "season_pack"}:
+        mode = "auto"
+    query_episode = None if mode == "season_pack" else episode
     details, queries, match_context = tmdb_catalog_provider().release_queries(
         media_type,
         tmdb_id,
         season=season,
-        episode=episode,
+        episode=query_episode,
     )
     releases = jackett_release_provider().search_many(
         queries,
         media_type,
         match_context=match_context,
+        mode=mode,
     )
     return {
         "media": details,
@@ -454,8 +466,15 @@ def _has_playback_source(movie: Movie | None) -> bool:
 
 
 def _release_label(
-    media_type: str, season: int | None, episode: int | None
+    media_type: str,
+    season: int | None,
+    episode: int | None,
+    release_mode: str = "episode",
 ) -> str:
+    if media_type == "tv" and season and release_mode == "season_pack":
+        return f"S{season:02d} season pack Jackett magnet"
+    if media_type == "tv" and season and not episode:
+        return f"S{season:02d} season pack Jackett magnet"
     if media_type == "tv" and season and episode:
         return f"S{season:02d}E{episode:02d} Jackett magnet"
     return "Jackett magnet"

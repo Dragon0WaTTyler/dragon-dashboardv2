@@ -214,6 +214,13 @@ def start_local_source(movie_id: str):
     source = PlaybackService.magnet_source(movie_id=movie_id, source_id=source_id)
     if source is None:
         abort(404)
+    metadata = dict(source.metadata_json or {})
+    target_season = _optional_positive_int(payload.get("season")) or _optional_positive_int(
+        metadata.get("season")
+    )
+    target_episode = _optional_positive_int(payload.get("episode")) or _optional_positive_int(
+        metadata.get("episode")
+    )
     torrent_fallback = PlaybackService.torrent_fallback(movie_id=movie_id, label=source.label)
     try:
         session = _runtime_manager().start(
@@ -223,6 +230,8 @@ def start_local_source(movie_id: str):
             magnet=source.locator,
             torrent_url=torrent_fallback.locator if torrent_fallback is not None else "",
             origin=request.host_url.rstrip("/"),
+            season=target_season,
+            episode=target_episode,
         )
     except PlaybackRuntimeError as exc:
         return jsonify({"ok": False, "error": {"message": str(exc)}}), 400
@@ -364,3 +373,11 @@ def approve_magnet(candidate_id: str):
     PlaybackService.approve_magnet(candidate)
     flash("Magnet candidate approved. No client was launched.", "success")
     return redirect(url_for("playback.movie", movie_id=candidate.movie_id))
+
+
+def _optional_positive_int(value) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None

@@ -148,3 +148,50 @@ def test_jackett_uses_season_pack_only_when_exact_episode_is_missing():
     assert [item["title"] for item in results] == [
         "The Sopranos Season 1 Complete 1080p"
     ]
+
+
+def test_jackett_season_pack_mode_ignores_exact_and_side_mentions():
+    provider = JackettReleaseProvider(
+        base_url="http://127.0.0.1:9117",
+        api_key="secret",
+        min_seeders=5,
+        session=FakeSession(),
+    )
+
+    rows = [
+        {
+            "title": "The Sopranos S01E01 1080p",
+            "magnet_uri": "magnet:?xt=urn:btih:1111&dn=sopranos-e01",
+            "seeders": 50,
+            "size": 3_000_000_000,
+            "tracker": "TPB",
+        },
+        {
+            "title": "The Sopranos Season 1 Complete 1080p",
+            "magnet_uri": "magnet:?xt=urn:btih:2222&dn=sopranos-s1",
+            "seeders": 10,
+            "size": 16_000_000_000,
+            "tracker": "TPB",
+        },
+        {
+            "title": "WISE GUY David Chase and The Sopranos S01 COMPLETE 1080p",
+            "magnet_uri": "magnet:?xt=urn:btih:3333&dn=wise-guy",
+            "seeders": 70,
+            "size": 10_000_000_000,
+            "tracker": "TPB",
+        },
+    ]
+
+    results = provider._filter(
+        rows,
+        10,
+        match_context={
+            "title_variants": ["The Sopranos"],
+            "season": 1,
+        },
+        mode="season_pack",
+    )
+
+    assert [item["title"] for item in results] == [
+        "The Sopranos Season 1 Complete 1080p"
+    ]

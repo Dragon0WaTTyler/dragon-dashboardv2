@@ -228,6 +228,8 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
             assert values["torrent_url"] == "https://yts.bz/example.torrent"
             assert values["user_id"]
             assert values["origin"] == "http://localhost"
+            assert values["season"] == 1
+            assert values["episode"] == 1
             return {
                 "id": "play_test",
                 "state": "ready",
@@ -255,6 +257,7 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
             kind="magnet",
             label="FHD magnet",
             locator=locator,
+            metadata_json={"season": 1, "episode": 1, "season_pack": True},
         )
         db.session.add(source)
         db.session.add(

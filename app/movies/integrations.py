@@ -314,6 +314,7 @@ class JackettReleaseProvider:
         media_type: str = "all",
         *,
         match_context: dict[str, Any] | None = None,
+        mode: str = "auto",
         limit: int = 50,
     ) -> list[dict]:
         if not self.configured:
@@ -335,7 +336,7 @@ class JackettReleaseProvider:
                         f"Jackett returned HTTP {response.status_code}."
                     )
                 rows.extend(self._parse_json(response.json()))
-            return self._filter(rows, limit, match_context=match_context)
+            return self._filter(rows, limit, match_context=match_context, mode=mode)
         except (requests.RequestException, ValueError) as exc:
             raise MediaIntegrationError("Jackett is unavailable.") from exc
 
@@ -372,6 +373,7 @@ class JackettReleaseProvider:
         limit: int,
         *,
         match_context: dict[str, Any] | None = None,
+        mode: str = "auto",
     ) -> list[dict]:
         unique: dict[str, dict] = {}
         for row in rows:
@@ -393,7 +395,11 @@ class JackettReleaseProvider:
         exact = [item for item in ranked if item[1] == "exact_episode"]
         season_pack = [item for item in ranked if item[1] == "season_pack"]
         general = [item for item in ranked if item[0] > 0 and item[1] == "general"]
-        if exact:
+        if mode == "season_pack":
+            ranked = season_pack
+        elif mode == "exact_episode":
+            ranked = exact
+        elif exact:
             ranked = exact
         elif season_pack:
             ranked = season_pack + general
@@ -416,14 +422,23 @@ class JackettReleaseProvider:
         title = _normalize_title(row.get("title"))
         score = float(row.get("seeders") or 0) * 12
         match_kind = "general"
+        title_strength = 0
         for variant in match_context.get("title_variants") or []:
             normalized_variant = _normalize_title(variant)
             if not normalized_variant:
                 continue
             if title.startswith(normalized_variant):
                 score += 80
+                title_strength = max(title_strength, 2)
             elif normalized_variant in title:
-                score += 40
+                variant_index = title.find(normalized_variant)
+                if variant_index <= 14:
+                    score += 40
+                    title_strength = max(title_strength, 1)
+                else:
+                    score += 10
+        if match_context.get("title_variants") and not title_strength:
+            return score - 1000, "unrelated"
         if match_context.get("year") and str(match_context["year"]) in title:
             score += 60
         season = _optional_int(match_context.get("season"))
@@ -431,6 +446,15 @@ class JackettReleaseProvider:
         episode_code = str(match_context.get("episode_code") or "").casefold()
         alt_episode_code = str(match_context.get("alt_episode_code") or "").casefold()
         episode_title = _normalize_title(match_context.get("episode_title"))
+        if season:
+            season_tokens = (
+                f"s{season:02d}",
+                f"season {season}",
+                f"{season}x",
+            )
+            has_season_ref = any(token in title for token in season_tokens)
+        else:
+            has_season_ref = False
         if episode and season:
             if episode_code and episode_code.casefold() in title:
                 return score + 700, "exact_episode"
@@ -438,12 +462,7 @@ class JackettReleaseProvider:
                 return score + 660, "exact_episode"
             if episode_title and episode_title in title:
                 score += 220
-            season_tokens = (
-                f"s{season:02d}",
-                f"season {season}",
-                f"{season}x",
-            )
-            if any(token in title for token in season_tokens):
+            if has_season_ref:
                 score += 120
                 if re.search(rf"\bs{season:02d}e\d{{2}}\b", title) and not re.search(
                     rf"\bs{season:02d}e{episode:02d}\b", title
@@ -458,6 +477,27 @@ class JackettReleaseProvider:
                     score += 180
             elif re.search(r"\bs\d{2}\b", title):
                 return score - 900, "wrong_season"
+        elif season and has_season_ref:
+            score += 180
+            if (
+                "complete" in title
+                or "pack" in title
+                or re.search(rf"\bs{season:02d}\b", title)
+                or f"season {season}" in title
+            ):
+                match_kind = "season_pack"
+                score += 260
+            if title_strength == 2:
+                score += 140
+            if "complete series" in title or re.search(r"\bs\d{2}\s+\d\b", title):
+                score -= 160
+            size = _integer(row.get("size"))
+            if 8 * 1024**3 <= size <= 40 * 1024**3:
+                score += 90
+            if 10 * 1024**3 <= size <= 25 * 1024**3:
+                score += 80
+        elif season and re.search(r"\bs\d{2}\b", title):
+            return score - 900, "wrong_season"
         return score, match_kind
 
 

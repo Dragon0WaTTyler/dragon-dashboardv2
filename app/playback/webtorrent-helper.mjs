@@ -12,7 +12,23 @@ const METADATA_TIMEOUT_MS = 30000;
 const DIRECT_MEDIA_EXTENSIONS = [".mp4", ".m4v", ".webm"];
 const TRANSCODE_MEDIA_EXTENSIONS = [".mkv", ".mov", ".avi", ".ts", ".m2ts", ".mpg", ".mpeg"];
 
-export const chooseMedia = (files, minimumBytes = MIN_MEDIA_BYTES) => {
+const episodeMatches = (fileName, target = {}) => {
+  const season = Number(target.season || 0);
+  const episode = Number(target.episode || 0);
+  if (!season || !episode) return false;
+  const normalized = String(fileName || "");
+  const seasonValue = String(season).padStart(2, "0");
+  const episodeValue = String(episode).padStart(2, "0");
+  const patterns = [
+    new RegExp(`(^|[^a-z0-9])s0*${season}e0*${episode}([^a-z0-9]|$)`, "i"),
+    new RegExp(`(^|[^a-z0-9])${seasonValue}x${episodeValue}([^a-z0-9]|$)`, "i"),
+    new RegExp(`(^|[^a-z0-9])0*${season}x0*${episode}([^a-z0-9]|$)`, "i"),
+    new RegExp(`season[ ._-]*0*${season}.*episode[ ._-]*0*${episode}`, "i"),
+  ];
+  return patterns.some((pattern) => pattern.test(normalized));
+};
+
+export const chooseMedia = (files, minimumBytes = MIN_MEDIA_BYTES, target = {}) => {
   const candidates = files.filter((file) => {
     const name = String(file.name || "").toLowerCase();
     const extension = path.extname(name);
@@ -20,7 +36,10 @@ export const chooseMedia = (files, minimumBytes = MIN_MEDIA_BYTES) => {
       && Number(file.length || 0) >= minimumBytes
       && !/(^|[._ -])(sample|trailer)([._ -]|$)/i.test(name);
   });
-  candidates.sort((left, right) => {
+  const needsExactEpisode = Boolean(Number(target.season || 0) && Number(target.episode || 0));
+  const exactEpisode = candidates.filter((file) => episodeMatches(file.name, target));
+  const ranked = needsExactEpisode ? exactEpisode : candidates;
+  ranked.sort((left, right) => {
     const leftExtension = path.extname(String(left.name || "").toLowerCase());
     const rightExtension = path.extname(String(right.name || "").toLowerCase());
     const leftRank = DIRECT_MEDIA_EXTENSIONS.includes(leftExtension)
@@ -35,7 +54,7 @@ export const chooseMedia = (files, minimumBytes = MIN_MEDIA_BYTES) => {
         : 2;
     return leftRank - rightRank || right.length - left.length;
   });
-  return candidates[0] || null;
+  return ranked[0] || null;
 };
 
 const waitFor = (predicate, timeoutMs, message) => new Promise((resolve, reject) => {
@@ -222,8 +241,16 @@ export const runRuntime = () => {
       throw new Error("Torrent metadata does not match the selected magnet");
     }
     session.timings.metadata_ms = Date.now() - startedAt;
-    const media = chooseMedia(torrent.files);
-    if (!media) throw new Error("No large video file was found in this torrent");
+    const target = {
+      season: Number(message.season || 0),
+      episode: Number(message.episode || 0),
+    };
+    const media = chooseMedia(torrent.files, MIN_MEDIA_BYTES, target);
+    if (!media) {
+      throw new Error(target.season && target.episode
+        ? `No video file matching S${String(target.season).padStart(2, "0")}E${String(target.episode).padStart(2, "0")} was found in this torrent`
+        : "No large video file was found in this torrent");
+    }
     torrent.files.forEach((file) => file.deselect());
     session.file = media;
     const streamServer = await ensureServer(String(message.origin || ""));
