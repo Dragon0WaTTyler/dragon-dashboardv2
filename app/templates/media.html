@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090c0e">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <title>My Library · Movies &amp; series</title>
+  <meta name="description" content="A private Notion-backed movie and series library with TMDB discovery.">
+  <link rel="preconnect" href="https://image.tmdb.org" crossorigin>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/media.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Skip to content</a>
+
+  <header class="topbar">
+    <a class="brand" href="{{ url_for('media.page') }}" aria-label="My Library home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="m7 4.5 5 4.5 5-4.5M5.5 8h13A2.5 2.5 0 0 1 21 10.5v7a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5v-7A2.5 2.5 0 0 1 5.5 8Z"/><path d="m9 12 4 2-4 2v-4Z"/></svg>
+      </span>
+      <span>My Library</span>
+    </a>
+    <nav class="section-nav" aria-label="Dashboard sections">
+      <a href="{{ url_for('mytv.page') }}">Live TV</a>
+      <a class="is-active" href="{{ url_for('media.page') }}" aria-current="page">Movies &amp; Series</a>
+    </nav>
+  </header>
+
+  <main id="main-content" class="page-shell">
+    <section class="hero" aria-labelledby="page-title">
+      <div class="hero-copy">
+        <p class="eyebrow">Notion is your source of truth</p>
+        <h1 id="page-title">Your shelf, plus everything <span>you have not found yet.</span></h1>
+        <p>Search your Notion library first. Missing titles continue through TMDB, then Jackett when you choose a release.</p>
+      </div>
+      <form class="search-panel" id="mediaSearchForm" role="search">
+        <label class="search-input">
+          <span class="sr-only">Search movies and series</span>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg>
+          <input id="mediaSearch" type="search" minlength="2" maxlength="160" placeholder="Search a movie or series…" autocomplete="off" required>
+        </label>
+        <label class="type-select">
+          <span class="sr-only">Media type</span>
+          <select id="mediaType">
+            <option value="all">Movies &amp; series</option>
+            <option value="movie">Movies</option>
+            <option value="tv">Series</option>
+          </select>
+        </label>
+        <button class="button button-primary" id="searchButton" type="submit">Search</button>
+      </form>
+    </section>
+
+    <div class="notice" id="appNotice" role="status" aria-live="polite" hidden></div>
+
+    <section class="player-section" id="playerSection" aria-labelledby="playerTitle" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Now playing</p>
+          <h2 id="playerTitle">Preparing release…</h2>
+          <p id="playerMeta"></p>
+        </div>
+        <button class="button button-secondary" id="stopPlayer" type="button">Stop</button>
+      </div>
+      <div class="player-frame">
+        <video id="mediaPlayer" controls playsinline preload="metadata"></video>
+        <div class="player-state" id="playerState" aria-live="polite">
+          <span class="spinner" aria-hidden="true"></span>
+          <strong>Connecting to peers…</strong>
+          <small id="playerStats">Waiting for torrent metadata</small>
+        </div>
+      </div>
+      <p class="player-note">Browser playback needs WebRTC peers and a browser-supported video codec. An external player adapter can be configured for broader torrent compatibility.</p>
+    </section>
+
+    <section class="content-section" id="searchSection" aria-labelledby="searchTitle" hidden>
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Search</p>
+          <h2 id="searchTitle">Results</h2>
+        </div>
+        <span class="result-count" id="searchCount"></span>
+      </div>
+      <div class="media-grid" id="searchResults"></div>
+      <div class="empty-state" id="searchEmpty" hidden>
+        <strong>No matching titles</strong>
+        <p>Try the original title, fewer words, or switch the media type.</p>
+      </div>
+    </section>
+
+    <section class="content-section" aria-labelledby="libraryTitle">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Synced from Notion</p>
+          <h2 id="libraryTitle">Your library</h2>
+        </div>
+        <span class="result-count" id="libraryCount">Loading…</span>
+      </div>
+      <div class="media-grid" id="libraryGrid" aria-busy="true"></div>
+      <div class="empty-state" id="libraryEmpty" hidden>
+        <strong>Your Notion library is empty</strong>
+        <p>Search above, choose a release, and it will be written back here automatically.</p>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="release-dialog" id="releaseDialog" aria-labelledby="releaseDialogTitle">
+    <div class="dialog-header">
+      <div>
+        <p class="eyebrow" id="releaseEyebrow">Choose a release</p>
+        <h2 id="releaseDialogTitle">Release options</h2>
+        <p id="releaseDialogMeta"></p>
+      </div>
+      <button class="icon-button" id="closeReleaseDialog" type="button" aria-label="Close release options">
+        <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="episode-picker" id="episodePicker" hidden>
+      <label>Season<select id="seasonSelect"></select></label>
+      <label>Episode<select id="episodeSelect"></select></label>
+      <button class="button button-secondary" id="findEpisodeReleases" type="button">Find releases</button>
+    </div>
+
+    <div class="dialog-status" id="releaseStatus" aria-live="polite"></div>
+    <div class="release-list" id="releaseList"></div>
+  </dialog>
+
+  <script>
+    window.MEDIA_CONFIG = {{ {
+      "csrfToken": csrf_token,
+      "playerMode": player_mode,
+      "webtorrentCdnUrl": webtorrent_cdn_url,
+      "serviceWorkerUrl": url_for('media.webtorrent_service_worker')
+    } | tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='js/media.js') }}" defer></script>
+</body>
+</html>
