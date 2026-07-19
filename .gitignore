@@ -23,6 +23,7 @@ instance/*
 *.log
 *.out
 *.err
+*.tgz
 tmp_*
 *.tmp
 
