@@ -114,6 +114,12 @@ export const resolveTorrentSession = async (client, cacheKey, torrentInput, opti
   return existingTorrent || client.add(torrentInput, options);
 };
 
+export const buildStreamUrl = (address, media) => {
+  if (!address || typeof address === "string") throw new Error("Playback server did not bind");
+  const streamPath = String(media?.streamURL || "").replace(/\\/g, "/");
+  return `http://127.0.0.1:${address.port}${streamPath}`;
+};
+
 const consumeWindow = async (session, start, end, kind) => {
   if (!session.file || end < start) return;
   let received = 0;
@@ -255,8 +261,7 @@ export const runRuntime = () => {
     session.file = media;
     const streamServer = await ensureServer(String(message.origin || ""));
     const address = streamServer.address();
-    if (!address || typeof address === "string") throw new Error("Playback server did not bind");
-    session.streamUrl = `http://127.0.0.1:${address.port}${media.streamURL}`;
+    session.streamUrl = buildStreamUrl(address, media);
     session.timings.stream_ready_ms = Date.now() - startedAt;
 
     const headEnd = Math.min(media.length - 1, HEAD_PREFETCH_BYTES - 1);

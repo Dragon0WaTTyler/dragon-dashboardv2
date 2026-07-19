@@ -91,6 +91,9 @@ class Settings:
     playback_cache_gb: int
     playback_cache_ttl_hours: int
     subtitles_enabled: bool
+    subtitle_provider: str
+    wyzie_api_key: str
+    wyzie_base_url: str
     subdl_api_key: str
     subtitle_languages: str
     external_sync_enabled: bool
@@ -234,6 +237,29 @@ class Settings:
             or os.getenv("DRAGON_SUBDL_API_KEY", "")
             or _private_setting(instance_root, "subdl_api_key")
         ).strip()
+        wyzie_api_key = str(
+            override_map.get("WYZIE_API_KEY")
+            or override_map.get("DRAGON_WYZIE_API_KEY")
+            or os.getenv("DRAGON_WYZIE_API_KEY", "")
+            or _private_setting(instance_root, "wyzie_api_key")
+        ).strip()
+        subtitle_provider = str(
+            override_map.get("SUBTITLE_PROVIDER")
+            or override_map.get("DRAGON_SUBTITLE_PROVIDER")
+            or os.getenv("DRAGON_SUBTITLE_PROVIDER", "")
+            or "auto"
+        ).strip().lower()
+        if subtitle_provider not in {"auto", "wyzie", "subdl"}:
+            raise ValueError("DRAGON_SUBTITLE_PROVIDER must be auto, wyzie, or subdl.")
+        wyzie_base_url = _service_base_url(
+            str(
+                override_map.get("WYZIE_BASE_URL")
+                or override_map.get("DRAGON_WYZIE_BASE_URL")
+                or os.getenv("DRAGON_WYZIE_BASE_URL", "")
+                or "https://sub.wyzie.io"
+            ),
+            name="DRAGON_WYZIE_BASE_URL",
+        )
         subtitle_languages = str(
             override_map.get("SUBTITLE_LANGUAGES")
             or override_map.get("DRAGON_SUBTITLE_LANGUAGES")
@@ -262,7 +288,10 @@ class Settings:
             playback_cache_ttl_hours=positive_integer(
                 "PLAYBACK_CACHE_TTL_HOURS", 168, maximum=8760
             ),
-            subtitles_enabled=feature("SUBTITLES_ENABLED", bool(subdl_api_key)),
+            subtitles_enabled=feature("SUBTITLES_ENABLED", bool(wyzie_api_key or subdl_api_key)),
+            subtitle_provider=subtitle_provider,
+            wyzie_api_key=wyzie_api_key,
+            wyzie_base_url=wyzie_base_url,
             subdl_api_key=subdl_api_key,
             subtitle_languages=subtitle_languages,
             external_sync_enabled=feature("EXTERNAL_SYNC_ENABLED", False),
@@ -325,6 +354,9 @@ class Settings:
             "DRAGON_PLAYBACK_CACHE_GB": self.playback_cache_gb,
             "DRAGON_PLAYBACK_CACHE_TTL_HOURS": self.playback_cache_ttl_hours,
             "DRAGON_SUBTITLES_ENABLED": self.subtitles_enabled,
+            "DRAGON_SUBTITLE_PROVIDER": self.subtitle_provider,
+            "DRAGON_WYZIE_API_KEY": self.wyzie_api_key,
+            "DRAGON_WYZIE_BASE_URL": self.wyzie_base_url,
             "DRAGON_SUBDL_API_KEY": self.subdl_api_key,
             "DRAGON_SUBTITLE_LANGUAGES": self.subtitle_languages,
             "DRAGON_EXTERNAL_SYNC_ENABLED": self.external_sync_enabled,
@@ -357,6 +389,7 @@ class Settings:
             "notion_token",
             "notion_database_id",
             "notion_data_source_id",
+            "wyzie_api_key",
             "subdl_api_key",
         }
         return {

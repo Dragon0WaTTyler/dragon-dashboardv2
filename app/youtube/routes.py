@@ -35,6 +35,8 @@ def index():
         order = "normal"
     if view not in {"grid", "list"}:
         view = "grid"
+    if source == "pockettube" and group:
+        group = YouTubeRepository.resolve_group(group)
     offset = (page - 1) * per_page
     feed = YouTubeService.feed(
         source=source,
@@ -61,6 +63,49 @@ def index():
         has_previous=page > 1,
         has_next=offset + len(feed["items"]) < feed["total"],
     )
+
+
+@bp.post("/sync")
+@login_required
+def sync_watch_later():
+    from app.shared.refresh import OperationCoordinator
+
+    operation = OperationCoordinator.run(kind="sync", domain="youtube_watch_later")
+    counts = dict(operation.counts or {})
+    if operation.status == "failed":
+        flash("YouTube playlist sync failed. Your cached videos are unchanged.", "error")
+    elif operation.warnings:
+        flash("YouTube playlist sync is not configured yet.", "warning")
+    else:
+        flash(
+            f'Playlist synced: {counts.get("videos", 0)} active videos, '
+            f'{counts.get("created", 0)} new, {counts.get("updated", 0)} updated, '
+            f'{counts.get("removed", 0)} removed.',
+            "success",
+        )
+    return redirect(url_for("youtube.index", source="watch_later"))
+
+
+@bp.post("/sync-pockettube")
+@login_required
+def sync_pockettube():
+    from app.shared.refresh import OperationCoordinator
+
+    operation = OperationCoordinator.run(kind="sync", domain="youtube_pockettube")
+    counts = dict(operation.counts or {})
+    if operation.status == "failed":
+        flash("PocketTube sync failed. Your cached groups are unchanged.", "error")
+    elif operation.warnings:
+        flash(operation.warnings[0], "warning")
+    else:
+        flash(
+            f'PocketTube synced: {counts.get("videos", 0)} latest videos from '
+            f'{counts.get("channels", 0)} channels, {counts.get("created", 0)} new, '
+            f'{counts.get("updated", 0)} updated, '
+            f'{counts.get("shorts_skipped", 0)} shorts skipped.',
+            "success",
+        )
+    return redirect(url_for("youtube.index", source="pockettube"))
 
 
 @bp.get("/<video_id>")

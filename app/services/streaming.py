@@ -189,6 +189,7 @@ def transcode_stream(
     *,
     allow_private: bool = False,
     input_headers: dict[str, str] | None = None,
+    start_seconds: float | None = None,
 ) -> Response:
     validate_stream_url(url, allow_private=allow_private)
     ffmpeg = shutil.which(current_app.config.get("MYTV_FFMPEG", "ffmpeg"))
@@ -225,6 +226,8 @@ def transcode_stream(
         "-probesize",
         "50000000",
     ]
+    if start_seconds is not None and start_seconds > 0:
+        command.extend(["-ss", f"{float(start_seconds):.3f}"])
     if serialized_headers:
         command.extend(["-headers", serialized_headers])
     command.extend([

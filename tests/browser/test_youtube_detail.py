@@ -67,7 +67,7 @@ def test_youtube_detail_loads_large_player_only_after_click(page, live_app, app)
         "element => getComputedStyle(element).direction"
     ) == "rtl"
     player = page.locator("[data-youtube-player]")
-    focus_button = page.get_by_role("button", name="Enter focus mode")
+    focus_button = page.locator("[data-player-focus]")
     assert focus_button.is_visible()
     assert focus_button.evaluate(
         "button => button.getBoundingClientRect().bottom"
@@ -87,6 +87,17 @@ def test_youtube_detail_loads_large_player_only_after_click(page, live_app, app)
     assert not page.get_by_text("Play here", exact=True).is_visible()
     assert page.locator("[data-player-toolbar]").count() == 0
     assert focus_button.is_visible()
+
+    focus_button.click()
+    assert page.locator("[data-youtube-detail].is-focus-mode").count() == 1
+    assert page.locator(".youtube-detail__header").evaluate(
+        "element => getComputedStyle(element).display"
+    ) == "none"
+    assert focus_button.text_content() == "Exit focus mode"
+
+    page.keyboard.press("Escape")
+    assert page.locator("[data-youtube-detail].is-focus-mode").count() == 0
+    assert focus_button.text_content() == "Enter focus mode"
 
     title_alignment = page.locator(".youtube-detail__header").evaluate(
         """header => {

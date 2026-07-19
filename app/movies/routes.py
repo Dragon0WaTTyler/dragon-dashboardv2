@@ -232,7 +232,10 @@ def detail(movie_id: str):
     subtitles_enabled = (
         local_player_enabled
         and current_app.config["DRAGON_SUBTITLES_ENABLED"]
-        and bool(current_app.config["DRAGON_SUBDL_API_KEY"])
+        and bool(
+            current_app.config["DRAGON_WYZIE_API_KEY"]
+            or current_app.config["DRAGON_SUBDL_API_KEY"]
+        )
     )
     return render_template(
         "movies/detail.html",

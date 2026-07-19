@@ -50,17 +50,26 @@ class PlaybackService:
             )
         )
         unique: list[dict] = []
-        seen: set[str] = set()
+        seen_locators: set[str] = set()
+        seen_labels: set[str] = set()
         for source in sources:
-            if source.locator in seen:
+            label = re.sub(r"\s+magnet$", "", source.label, flags=re.IGNORECASE).strip()
+            label_key = label.casefold()
+            if source.locator in seen_locators or label_key in seen_labels:
                 continue
-            seen.add(source.locator)
+            seen_locators.add(source.locator)
+            seen_labels.add(label_key)
+            metadata = dict(source.metadata_json or {})
             unique.append(
                 {
                     "id": source.id,
-                    "label": re.sub(r"\s+magnet$", "", source.label, flags=re.IGNORECASE),
+                    "label": label,
                     "kind": source.kind,
                     "selected": source.selected,
+                    "season_pack": bool(metadata.get("season_pack")),
+                    "season": metadata.get("season"),
+                    "episode": metadata.get("episode"),
+                    "release_mode": str(metadata.get("release_mode") or ""),
                 }
             )
         return unique

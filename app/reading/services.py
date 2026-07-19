@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from urllib.parse import urlsplit
 
 from sqlalchemy import or_
@@ -8,11 +9,14 @@ from app.extensions import db
 from app.history.services import HistoryService
 from app.reading.models import Article, ReadingSource
 from app.reading.text import article_paragraphs, normalize_article_text
+from app.shared.models import SnapshotRecord
 from app.shared.operations.service import safe_error_text
 from app.shared.text import text_direction
 from app.shared.time import utc_iso, utc_now
 
 ARTICLE_STATUSES = {"unread", "reading", "finished", "saved"}
+READING_CACHE_LIMIT = 200
+PROTECTED_READING_STATUSES = {"reading", "saved"}
 
 
 def article_item(article: Article) -> dict:
@@ -138,7 +142,9 @@ class ReadingService:
             "created": 0,
             "updated": 0,
             "changed": 0,
+            "trimmed": 0,
         }
+        seen: set[str] = set()
         for source in sources:
             try:
                 result = client.fetch(source.feed_url)
@@ -154,6 +160,7 @@ class ReadingService:
                 article_url = str(entry.get("url") or "")[:1500]
                 if not external_id or not article_url:
                     continue
+                seen.add(f"{source.id}:{external_id}")
                 article = db.session.scalar(
                     db.select(Article).where(
                         Article.source_id == source.id,
@@ -188,5 +195,62 @@ class ReadingService:
             counts["sources_synced"] += 1
 
         counts["changed"] = counts["created"] + counts["updated"]
+        counts["trimmed"] = ReadingService.trim_cache(maximum=READING_CACHE_LIMIT)
+        checksum = hashlib.sha256("\n".join(sorted(seen)).encode()).hexdigest()
+        snapshot = db.session.scalar(
+            db.select(SnapshotRecord).where(SnapshotRecord.domain == "reading")
+        )
+        now = utc_now()
+        if snapshot is None:
+            snapshot = SnapshotRecord(
+                domain="reading",
+                schema_version="reading-feed-cache-v1",
+                relative_path="database://articles",
+                checksum=checksum,
+                generated_at=now,
+                last_success_at=now,
+            )
+            db.session.add(snapshot)
+        snapshot.schema_version = "reading-feed-cache-v1"
+        snapshot.relative_path = "database://articles"
+        snapshot.checksum = checksum
+        snapshot.state = "fresh"
+        snapshot.message = f"{counts['changed']} article changes synchronized."
+        snapshot.generated_at = now
+        snapshot.last_success_at = now
         db.session.commit()
         return counts
+
+    @staticmethod
+    def trim_cache(*, maximum: int = READING_CACHE_LIMIT) -> int:
+        articles = list(
+            db.session.scalars(
+                db.select(Article).order_by(
+                    Article.published_at.desc(), Article.created_at.desc()
+                )
+            )
+        )
+        if len(articles) <= maximum:
+            return 0
+
+        protected = [
+            article
+            for article in articles
+            if article.status in PROTECTED_READING_STATUSES
+        ]
+        remaining_slots = max(0, maximum - len(protected))
+        kept_ids = {article.id for article in protected}
+        for article in articles:
+            if article.id in kept_ids:
+                continue
+            if remaining_slots <= 0:
+                break
+            kept_ids.add(article.id)
+            remaining_slots -= 1
+
+        trimmed = 0
+        for article in articles:
+            if article.id not in kept_ids:
+                db.session.delete(article)
+                trimmed += 1
+        return trimmed

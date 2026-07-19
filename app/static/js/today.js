@@ -4,12 +4,17 @@
 
   const movieFeature = root.querySelector("[data-live-movie]");
   const youtubeGrid = root.querySelector("[data-live-youtube]");
+  const pockettubeGrid = root.querySelector("[data-live-pockettube]");
+  const readingGrid = root.querySelector("[data-live-reading]");
   const movieCountdown = root.querySelector("[data-movie-countdown]");
   const youtubeCountdown = root.querySelector("[data-youtube-countdown]");
+  const pockettubeCountdown = root.querySelector("[data-pockettube-countdown]");
+  const readingCountdown = root.querySelector("[data-reading-countdown]");
   const announcer = root.querySelector("[data-live-announcer]");
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
   let movieNextAt = Date.parse(root.dataset.movieNextAt);
   let youtubeNextAt = Date.parse(root.dataset.youtubeNextAt);
+  let readingNextAt = Date.parse(root.dataset.readingNextAt);
   let retryAt = 0;
   let inFlight = false;
 
@@ -97,6 +102,61 @@
     animateUpdate(youtubeGrid);
   }
 
+  function renderPocketTube(items) {
+    if (!pockettubeGrid) return;
+    const cards = [...pockettubeGrid.querySelectorAll("[data-live-pockettube-card]")];
+    cards.forEach((card, index) => {
+      const video = items[index];
+      card.hidden = !video;
+      if (!video) return;
+      const url = detailUrl(root.dataset.youtubePrefix, video.id);
+      card.querySelectorAll("[data-live-pockettube-link]").forEach((link) => {
+        link.href = url;
+      });
+      card.querySelector("[data-live-pockettube-channel]").textContent =
+        video.channel_title || "Unknown channel";
+      card.querySelector("[data-live-pockettube-title]").textContent = video.title;
+      const duration = card.querySelector("[data-live-pockettube-duration]");
+      if (duration) {
+        duration.textContent = video.duration_label || "";
+        duration.hidden = !video.duration_label;
+      }
+      setMedia(
+        card.querySelector("[data-media-frame]"),
+        video.thumbnail_url,
+        `Thumbnail for ${video.title}`,
+        "▶"
+      );
+    });
+    animateUpdate(pockettubeGrid);
+  }
+
+  function renderReading(items) {
+    if (!readingGrid) return;
+    const cards = [...readingGrid.querySelectorAll("[data-live-reading-card]")];
+    cards.forEach((card, index) => {
+      const article = items[index];
+      card.hidden = !article;
+      if (!article) return;
+      const url = detailUrl(root.dataset.readingPrefix, article.id);
+      const openUrl = `${url}/open`;
+      card.querySelectorAll("[data-live-reading-link]").forEach((link) => {
+        link.href = url;
+        link.dataset.articleOpen = openUrl;
+      });
+      card.querySelector("[data-live-reading-source]").textContent =
+        article.source || "Unknown source";
+      card.querySelector("[data-live-reading-title]").textContent = article.title;
+      setMedia(
+        card.querySelector("[data-media-frame]"),
+        article.image_url,
+        `Thumbnail for ${article.title}`,
+        "R"
+      );
+    });
+    animateUpdate(readingGrid);
+  }
+
   function remainingLabel(nextAt, noun) {
     const minutes = Math.max(0, Math.ceil((nextAt - Date.now()) / 60000));
     if (minutes <= 0) return "Updating…";
@@ -110,6 +170,8 @@
   function updateCountdowns() {
     if (movieCountdown) movieCountdown.textContent = remainingLabel(movieNextAt, "pick");
     if (youtubeCountdown) youtubeCountdown.textContent = remainingLabel(youtubeNextAt, "mix");
+    if (pockettubeCountdown) pockettubeCountdown.textContent = remainingLabel(youtubeNextAt, "mix");
+    if (readingCountdown) readingCountdown.textContent = remainingLabel(readingNextAt, "reads");
   }
 
   async function refreshLive() {
@@ -126,22 +188,30 @@
       const rotation = live.rotation;
       const movieChanged = String(rotation.movie_bucket) !== root.dataset.movieBucket;
       const youtubeChanged = String(rotation.youtube_bucket) !== root.dataset.youtubeBucket;
+      const readingChanged = String(rotation.reading_bucket) !== root.dataset.readingBucket;
 
       if (movieChanged) renderMovie(live.recommended_movie);
       if (youtubeChanged) renderYouTube(live.latest_youtube || []);
+      if (youtubeChanged) renderPocketTube(live.pockettube_favorite || []);
+      if (readingChanged) renderReading(live.continue_reading || []);
       root.dataset.movieBucket = rotation.movie_bucket;
       root.dataset.youtubeBucket = rotation.youtube_bucket;
+      root.dataset.readingBucket = rotation.reading_bucket;
       root.dataset.movieNextAt = rotation.movie_next_at;
       root.dataset.youtubeNextAt = rotation.youtube_next_at;
+      root.dataset.readingNextAt = rotation.reading_next_at;
       movieNextAt = Date.parse(rotation.movie_next_at);
       youtubeNextAt = Date.parse(rotation.youtube_next_at);
+      readingNextAt = Date.parse(rotation.reading_next_at);
       retryAt = 0;
-      if (movieChanged || youtubeChanged) {
-        if (announcer) announcer.textContent = movieChanged && youtubeChanged
-          ? "Movie pick and YouTube mix updated."
-          : movieChanged
-            ? "Movie pick updated."
-            : "YouTube mix updated.";
+      if (movieChanged || youtubeChanged || readingChanged) {
+        if (announcer) {
+          const updates = [];
+          if (movieChanged) updates.push("movie pick");
+          if (youtubeChanged) updates.push("video mixes");
+          if (readingChanged) updates.push("saved reads");
+          announcer.textContent = `${updates.join(", ")} updated.`;
+        }
       }
     } catch (error) {
       retryAt = Date.now() + 60000;
@@ -156,7 +226,7 @@
     updateCountdowns();
     if (document.hidden) return;
     const now = Date.now();
-    if (now >= movieNextAt || now >= youtubeNextAt || (retryAt && now >= retryAt)) {
+    if (now >= movieNextAt || now >= youtubeNextAt || now >= readingNextAt || (retryAt && now >= retryAt)) {
       refreshLive();
     }
   }

@@ -419,6 +419,26 @@ class MovieService:
         return list(db.session.scalars(query))
 
     @staticmethod
+    def watching_now() -> Movie | None:
+        active_progress = db.session.scalar(
+            db.select(Movie)
+            .join(MovieProgress)
+            .where(MovieProgress.completed.is_(False), MovieProgress.current_seconds > 0)
+            .options(selectinload(Movie.progress))
+            .order_by(MovieProgress.updated_at.desc())
+            .limit(1)
+        )
+        if active_progress is not None:
+            return active_progress
+        return db.session.scalar(
+            db.select(Movie)
+            .where(Movie.status == "watching")
+            .options(selectinload(Movie.progress))
+            .order_by(Movie.updated_at.desc())
+            .limit(1)
+        )
+
+    @staticmethod
     def recommended() -> dict[str, Any] | None:
         movie = db.session.scalar(
             db.select(Movie)

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import hashlib
+from pathlib import Path
+
 from flask import (
     Blueprint,
     abort,
@@ -23,7 +26,11 @@ from app.playback.runtime import (
     build_playback_manager,
 )
 from app.playback.services import PlaybackService
-from app.playback.subtitles import SubdlSubtitleProvider, SubtitleProviderError
+from app.playback.subtitles import (
+    FallbackSubtitleProvider,
+    SubtitleProviderError,
+    build_subtitle_providers,
+)
 from app.services.streaming import transcode_stream
 
 bp = Blueprint("playback", __name__, url_prefix="/playback")
@@ -50,21 +57,55 @@ def _require_subtitles() -> None:
     _require_playback()
     if not (
         current_app.config["DRAGON_SUBTITLES_ENABLED"]
-        and current_app.config["DRAGON_SUBDL_API_KEY"]
+        and (
+            current_app.extensions.get("dragon_subtitle_provider") is not None
+            or current_app.config.get("DRAGON_WYZIE_API_KEY")
+            or current_app.config.get("DRAGON_SUBDL_API_KEY")
+        )
     ):
         abort(404)
 
 
-def _subtitle_provider():
-    provider = current_app.extensions.get("dragon_subtitle_provider")
-    if provider is None:
-        provider = SubdlSubtitleProvider(current_app.config["DRAGON_SUBDL_API_KEY"])
-        current_app.extensions["dragon_subtitle_provider"] = provider
+def _subtitle_providers():
+    providers = current_app.extensions.get("dragon_subtitle_providers")
+    if providers is not None:
+        return providers
+    injected = current_app.extensions.get("dragon_subtitle_provider")
+    if injected is not None:
+        providers = {"default": injected}
+    else:
+        providers = {
+            provider.name: provider
+            for provider in build_subtitle_providers(current_app.config)
+        }
+    current_app.extensions["dragon_subtitle_providers"] = providers
+    return providers
+
+
+def _subtitle_search_provider():
+    provider = current_app.extensions.get("dragon_subtitle_search_provider")
+    if provider is not None:
+        return provider
+    injected = current_app.extensions.get("dragon_subtitle_provider")
+    if injected is not None:
+        provider = injected
+    else:
+        providers = list(_subtitle_providers().values())
+        if not providers:
+            abort(404)
+        provider = providers[0] if len(providers) == 1 else FallbackSubtitleProvider(providers)
+    current_app.extensions["dragon_subtitle_search_provider"] = provider
     return provider
 
 
 def _subtitle_serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(current_app.config["SECRET_KEY"], salt="dragon-subtitle-track-v1")
+
+
+def _subtitle_disk_cache_path(cache_key: str) -> Path:
+    cache_dir = Path(current_app.instance_path) / "subtitle-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    return cache_dir / f"{hashlib.sha256(cache_key.encode()).hexdigest()}.vtt"
 
 
 def _runtime_manager():
@@ -129,10 +170,18 @@ def subtitle_options(movie_id: str):
     context = get_playback_context(movie_id)
     if context is None:
         abort(404)
+    season = _optional_positive_int(request.args.get("season"))
+    episode = _optional_positive_int(request.args.get("episode"))
+    episode_title = str(request.args.get("episode_title") or "").strip()[:160]
+    if episode_title.casefold() == str(context.get("title") or "").strip().casefold():
+        episode_title = ""
     try:
-        candidates = _subtitle_provider().search(
+        candidates = _subtitle_search_provider().search(
             context,
             languages=current_app.config["DRAGON_SUBTITLE_LANGUAGES"],
+            season=season,
+            episode=episode,
+            episode_title=episode_title,
         )
     except SubtitleProviderError as exc:
         response = jsonify(
@@ -154,6 +203,10 @@ def subtitle_options(movie_id: str):
                 "format": candidate.file_format,
                 "member": candidate.member_name,
                 "language": candidate.language,
+                "provider": candidate.provider,
+                "season": candidate.season,
+                "episode": candidate.episode,
+                "episode_title": candidate.episode_title,
             }
         )
         items.append(
@@ -185,16 +238,37 @@ def subtitle_track(movie_id: str, token: str):
     path = str(payload.get("path") or "")
     file_format = str(payload.get("format") or "")
     member_name = str(payload.get("member") or "")
-    cache_key = f"{file_format}:{path}:{member_name}"
+    provider_name = str(payload.get("provider") or "default")
+    season = _optional_positive_int(payload.get("season"))
+    episode = _optional_positive_int(payload.get("episode"))
+    episode_title = str(payload.get("episode_title") or "").strip()[:160]
+    provider = _subtitle_providers().get(provider_name)
+    if provider is None:
+        abort(404)
+    cache_key = (
+        f"{provider_name}:{file_format}:{path}:{member_name}:{season or ''}:"
+        f"{episode or ''}:{episode_title.casefold()}"
+    )
     cache = current_app.extensions.setdefault("dragon_subtitle_cache", {})
     webvtt = cache.get(cache_key)
     if webvtt is None:
-        try:
-            webvtt = _subtitle_provider().download(
-                path, file_format=file_format, member_name=member_name
-            )
-        except SubtitleProviderError as exc:
-            return current_app.response_class(str(exc), status=503, mimetype="text/plain")
+        disk_cache = None if current_app.config.get("TESTING") else _subtitle_disk_cache_path(cache_key)
+        if disk_cache is not None and disk_cache.is_file():
+            webvtt = disk_cache.read_bytes()
+        else:
+            try:
+                webvtt = provider.download(
+                    path,
+                    file_format=file_format,
+                    member_name=member_name,
+                    season=season,
+                    episode=episode,
+                    episode_title=episode_title,
+                )
+            except SubtitleProviderError as exc:
+                return current_app.response_class(str(exc), status=503, mimetype="text/plain")
+            if disk_cache is not None:
+                disk_cache.write_bytes(webvtt)
         if len(cache) >= 32:
             cache.pop(next(iter(cache)))
         cache[cache_key] = webvtt
@@ -288,11 +362,21 @@ def local_transcode(session_id: str):
         return jsonify(
             {"ok": False, "error": {"message": "Local stream is not ready yet."}}
         ), 409
+    start_raw = str(request.args.get("start") or "").strip()
+    start_seconds = None
+    if start_raw:
+        try:
+            start_seconds = max(0.0, float(start_raw))
+        except ValueError:
+            return jsonify(
+                {"ok": False, "error": {"message": "Invalid transcode start position."}}
+            ), 400
     origin = request.host_url.rstrip("/")
     return transcode_stream(
         stream_url,
         allow_private=True,
         input_headers={"Origin": origin},
+        start_seconds=start_seconds,
     )
 
 

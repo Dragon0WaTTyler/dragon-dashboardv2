@@ -1,8 +1,13 @@
+from datetime import timedelta
+
 from app.extensions import db
 from app.reading.models import Article, ReadingSource
+from app.shared.auto_sync import _pockettube_sync_due, _reading_sync_due
 from app.shared.models import Operation
+from app.shared.models import SnapshotRecord
 from app.shared.operations import OperationService
 from app.shared.refresh import OperationCoordinator
+from app.shared.time import utc_now
 from app.youtube.models import YouTubeVideo
 
 
@@ -57,6 +62,58 @@ def test_youtube_operation_uses_explicit_injected_playlist_client(app):
         assert operation.status == "completed"
         assert operation.counts["videos"] == 1
         assert db.session.scalar(db.select(YouTubeVideo)).source == "watch_later"
+
+
+def test_pockettube_auto_sync_waits_two_hours_between_runs(app):
+    with app.app_context():
+        db.session.add(
+            SnapshotRecord(
+                domain="youtube_pockettube",
+                schema_version="test",
+                relative_path="file://test.json",
+                checksum="fresh",
+                generated_at=utc_now(),
+                last_success_at=utc_now(),
+            )
+        )
+        db.session.commit()
+
+        assert _pockettube_sync_due() is False
+
+        snapshot = db.session.scalar(
+            db.select(SnapshotRecord).where(
+                SnapshotRecord.domain == "youtube_pockettube"
+            )
+        )
+        snapshot.last_success_at = utc_now() - timedelta(hours=2, minutes=1)
+        db.session.commit()
+
+        assert _pockettube_sync_due() is True
+
+
+def test_reading_auto_sync_waits_five_minutes_between_runs(app):
+    with app.app_context():
+        db.session.add(
+            SnapshotRecord(
+                domain="reading",
+                schema_version="test",
+                relative_path="database://articles",
+                checksum="fresh",
+                generated_at=utc_now(),
+                last_success_at=utc_now(),
+            )
+        )
+        db.session.commit()
+
+        assert _reading_sync_due() is False
+
+        snapshot = db.session.scalar(
+            db.select(SnapshotRecord).where(SnapshotRecord.domain == "reading")
+        )
+        snapshot.last_success_at = utc_now() - timedelta(minutes=6)
+        db.session.commit()
+
+        assert _reading_sync_due() is True
 
 
 def test_reading_operation_syncs_active_sources_with_injected_client(app):

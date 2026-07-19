@@ -6,7 +6,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from app.playback.runtime import MagnetPlaybackManager, PlaybackRuntimeError
+from app.playback.runtime import MagnetPlaybackManager, PlaybackRuntimeError, _stream_kind
 
 INFO_HASH = "0123456789abcdef0123456789abcdef01234567"
 MAGNET = f"magnet:?xt=urn:btih:{INFO_HASH}"
@@ -88,6 +88,21 @@ def test_manager_returns_direct_stream_metrics_and_preserves_cache(tmp_path):
     manager.stop(started["id"], user_id="user-1")
     assert cache_file.exists()
     assert client.requests[-1][0] == "close"
+
+
+@pytest.mark.parametrize(
+    ("file_name", "expected"),
+    [
+        ("movie.mp4", "direct"),
+        ("episode.webm", "direct"),
+        ("The.Sopranos.S01E01.1080p.BluRay.x265-RARBG.mp4", "transcode"),
+        ("Boardwalk.Empire.S01E02.HEVC.10Bit.mp4", "transcode"),
+        ("show.h.265.m4v", "transcode"),
+        ("movie.mkv", "transcode"),
+    ],
+)
+def test_stream_kind_transcodes_browser_hostile_direct_containers(file_name, expected):
+    assert _stream_kind(file_name) == expected
 
 
 def test_manager_enforces_session_ownership_and_loopback_origin(tmp_path):

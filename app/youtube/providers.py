@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -9,6 +10,7 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 PLAYLIST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{10,100}$")
+CHANNEL_ID_PATTERN = re.compile(r"^UC[A-Za-z0-9_-]{10,100}$")
 VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 DURATION_PATTERN = re.compile(
     r"^P(?:(?P<days>\d+)D)?T(?:(?P<hours>\d+)H)?"
@@ -55,7 +57,7 @@ class YouTubePlaylistClient:
         playlist_id = playlist_id.strip()
         if not PLAYLIST_ID_PATTERN.fullmatch(playlist_id):
             raise YouTubeProviderError("The configured YouTube playlist ID is invalid.")
-        maximum = max(1, min(maximum, 5000))
+        maximum = max(1, min(maximum, 10000))
 
         items: list[dict[str, Any]] = []
         page_token = ""
@@ -97,7 +99,7 @@ class YouTubePlaylistClient:
         self, video_ids: list[str] | set[str] | tuple[str, ...], *, maximum: int = 5000
     ) -> dict[str, int]:
         """Fetch durations in API-sized batches without exposing the API key."""
-        maximum = max(1, min(maximum, 5000))
+        maximum = max(1, min(maximum, 10000))
         clean_ids = list(
             dict.fromkeys(
                 video_id.strip()
@@ -145,3 +147,70 @@ class YouTubePlaylistClient:
                 if video_id in batch and seconds > 0:
                     durations[video_id] = seconds
         return durations
+
+    def fetch_latest_channel_uploads(
+        self,
+        channel_ids: list[str] | set[str] | tuple[str, ...],
+        *,
+        maximum: int = 5000,
+    ) -> dict[str, dict[str, Any]]:
+        maximum = max(1, min(maximum, 10000))
+        clean_ids = list(
+            dict.fromkeys(
+                channel_id.strip()
+                for channel_id in channel_ids
+                if CHANNEL_ID_PATTERN.fullmatch(str(channel_id).strip())
+            )
+        )[:maximum]
+        latest: dict[str, dict[str, Any]] = {}
+
+        for channel_id in clean_ids:
+            upload_playlist_id = f"UU{channel_id[2:]}"
+            try:
+                items = self.fetch_playlist(upload_playlist_id, maximum=1)
+            except YouTubeProviderError:
+                continue
+            if items:
+                latest[channel_id] = items[0]
+        return latest
+
+    def fetch_channel_uploads(
+        self,
+        channel_limits: dict[str, int],
+        *,
+        maximum: int = 5000,
+    ) -> dict[str, list[dict[str, Any]]]:
+        maximum = max(1, min(maximum, 5000))
+        fetched = 0
+        bounded_limits: dict[str, int] = {}
+        clean_limits = {
+            channel_id.strip(): max(1, min(int(limit or 1), 200))
+            for channel_id, limit in channel_limits.items()
+            if CHANNEL_ID_PATTERN.fullmatch(str(channel_id).strip())
+        }
+
+        for channel_id, limit in clean_limits.items():
+            if fetched >= maximum:
+                break
+            request_limit = min(limit, maximum - fetched)
+            bounded_limits[channel_id] = request_limit
+            fetched += request_limit
+
+        def fetch_one(channel_id: str, limit: int) -> tuple[str, list[dict[str, Any]]]:
+            upload_playlist_id = f"UU{channel_id[2:]}"
+            try:
+                return channel_id, self.fetch_playlist(upload_playlist_id, maximum=limit)
+            except YouTubeProviderError:
+                return channel_id, []
+
+        uploads: dict[str, list[dict[str, Any]]] = {}
+        with ThreadPoolExecutor(max_workers=12) as executor:
+            futures = [
+                executor.submit(fetch_one, channel_id, limit)
+                for channel_id, limit in bounded_limits.items()
+            ]
+            for future in as_completed(futures):
+                channel_id, items = future.result()
+                if items:
+                    uploads[channel_id] = items
+        return uploads

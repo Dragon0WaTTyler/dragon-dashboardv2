@@ -112,8 +112,26 @@ def test_subdl_key_enables_subtitles_without_entering_safe_summary(tmp_path: Pat
 
     assert settings.subtitles_enabled is True
     assert settings.subdl_api_key == "private-key"
+    assert settings.subtitle_provider == "auto"
     assert settings.subtitle_languages == "ar,en"
     assert "subdl_api_key" not in settings.safe_summary()
+
+
+def test_wyzie_key_enables_subtitles_without_entering_safe_summary(tmp_path: Path):
+    settings = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "DRAGON_WYZIE_API_KEY": "private-wyzie-key",
+            "DRAGON_SUBTITLE_PROVIDER": "wyzie",
+        },
+    )
+
+    assert settings.subtitles_enabled is True
+    assert settings.subtitle_provider == "wyzie"
+    assert settings.wyzie_api_key == "private-wyzie-key"
+    assert settings.wyzie_base_url == "https://sub.wyzie.io"
+    assert "wyzie_api_key" not in settings.safe_summary()
 
 
 def test_private_youtube_settings_enable_playlist_sync(tmp_path: Path):

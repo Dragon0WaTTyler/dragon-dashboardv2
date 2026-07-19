@@ -12,6 +12,9 @@ from app.youtube.services import YouTubeService
 MOVIE_ROTATION_SECONDS = 60 * 60
 YOUTUBE_ROTATION_SECONDS = 5 * 60
 YOUTUBE_ROTATION_SIZE = 4
+READING_ROTATION_SECONDS = 5 * 60
+READING_ROTATION_SIZE = 4
+POCKETTUBE_FAVORITE_GROUP = "my favoret"
 
 
 def _rotation_bucket(moment: datetime, interval: int) -> int:
@@ -38,6 +41,7 @@ class TodayService:
         )
         movie_bucket = _rotation_bucket(moment, MOVIE_ROTATION_SECONDS)
         youtube_bucket = _rotation_bucket(moment, YOUTUBE_ROTATION_SECONDS)
+        reading_bucket = _rotation_bucket(moment, READING_ROTATION_SECONDS)
         youtube_feed = YouTubeService.feed(
             source="watch_later",
             order="shuffle",
@@ -45,8 +49,22 @@ class TodayService:
             seed=f"today:{moment.date().isoformat()}",
         )
         youtube_items = youtube_feed["items"]
+        pockettube_favorite_group = YouTubeService.feed(
+            source="pockettube",
+            group=POCKETTUBE_FAVORITE_GROUP,
+            order="shuffle",
+            limit=5000,
+            seed=f"today:pockettube:{moment.date().isoformat()}",
+        )["items"]
         youtube_start = (youtube_bucket * YOUTUBE_ROTATION_SIZE) % max(
             len(youtube_items), 1
+        )
+        pockettube_start = (youtube_bucket * YOUTUBE_ROTATION_SIZE) % max(
+            len(pockettube_favorite_group), 1
+        )
+        reading_items = ReadingService.continue_reading(5000)
+        reading_start = (reading_bucket * READING_ROTATION_SIZE) % max(
+            len(reading_items), 1
         )
         return {
             "recommended_movie": MovieService.rotating_recommended(movie_bucket),
@@ -55,13 +73,26 @@ class TodayService:
                 start=youtube_start,
                 limit=YOUTUBE_ROTATION_SIZE,
             ),
+            "pockettube_favorite": _cyclic_window(
+                pockettube_favorite_group,
+                start=pockettube_start,
+                limit=YOUTUBE_ROTATION_SIZE,
+            ),
+            "continue_reading": _cyclic_window(
+                reading_items,
+                start=reading_start,
+                limit=READING_ROTATION_SIZE,
+            ),
             "rotation": {
                 "movie_bucket": movie_bucket,
                 "youtube_bucket": youtube_bucket,
+                "reading_bucket": reading_bucket,
                 "movie_interval_seconds": MOVIE_ROTATION_SECONDS,
                 "youtube_interval_seconds": YOUTUBE_ROTATION_SECONDS,
+                "reading_interval_seconds": READING_ROTATION_SECONDS,
                 "movie_next_at": _next_rotation(movie_bucket, MOVIE_ROTATION_SECONDS),
                 "youtube_next_at": _next_rotation(youtube_bucket, YOUTUBE_ROTATION_SECONDS),
+                "reading_next_at": _next_rotation(reading_bucket, READING_ROTATION_SECONDS),
             },
         }
 
@@ -69,10 +100,14 @@ class TodayService:
     def workspace(at: datetime | None = None) -> dict:
         warnings = [item for item in list_freshness() if item["state"] != "fresh"]
         live = TodayService.live_rotation(at)
+        continue_watching = [
+            movie_item(movie) for movie in MovieService.continue_watching(4)
+        ]
+        watching_now = MovieService.watching_now()
         return {
-            "continue_watching": [movie_item(movie) for movie in MovieService.continue_watching(4)],
+            "continue_watching": continue_watching,
+            "watching_now": movie_item(watching_now) if watching_now else None,
             **live,
-            "continue_reading": ReadingService.continue_reading(4),
             "article_of_day": ReadingService.article_of_day(),
             "current_book": BookService.current_book(),
             "chess_training": ChessService.dashboard()["puzzles"][:3],

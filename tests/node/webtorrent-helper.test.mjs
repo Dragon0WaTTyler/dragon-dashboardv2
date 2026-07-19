@@ -8,6 +8,7 @@ import { after, before, test } from "node:test";
 import WebTorrent from "webtorrent";
 
 import {
+  buildStreamUrl,
   chooseMedia,
   createLoopbackServer,
   resolveTorrentSession,
@@ -177,6 +178,15 @@ test("awaits async client.get before falling back to add", async () => {
 
   assert.equal(torrent, existingTorrent);
   assert.equal(addCalled, false);
+});
+
+test("normalizes Windows torrent paths before exposing stream URLs", () => {
+  const url = buildStreamUrl(
+    { port: 5055 },
+    { streamURL: "/dragon-stream/secret/hash/Season Pack\\Episode 01.mp4" },
+  );
+
+  assert.equal(url, "http://127.0.0.1:5055/dragon-stream/secret/hash/Season Pack/Episode 01.mp4");
 });
 
 test("falls back to MKV when no direct MP4-style file exists", () => {

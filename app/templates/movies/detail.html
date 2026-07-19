@@ -1,8 +1,8 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}" defer></script>{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=netflix-player-11">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=netflix-player-11" defer></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
@@ -26,7 +26,7 @@
   </div>
   {% if vidsrc_enabled or player_sources %}
   {% set has_selected_player_source = player_sources|selectattr('selected')|list|length > 0 %}
-  <section id="movie-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}">
+  <section id="movie-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-media-type="{{ movie.media_type }}" data-tmdb-id="{{ movie.external_ids.tmdb_id or '' }}" data-runtime-seconds="{{ (movie.runtime_minutes * 60) if movie.runtime_minutes else '' }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if movie.media_type == 'tv' and movie.external_ids.tmdb_id else '' }}" data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}">
     <div class="movie-player__heading">
       <div><span class="eyebrow">Playback deck</span><h2 id="movie-player-title">Watch {{ movie.title }}</h2></div>
       <span class="badge badge--accent" data-player-badge>{{ 'Local' if has_selected_player_source else ('VidSrc' if vidsrc_enabled else 'Local') }}</span>
@@ -36,9 +36,20 @@
         <span>Player source</span>
         <select data-player-source>
           {% if vidsrc_enabled %}<option value="vidsrc" data-kind="vidsrc"{% if not has_selected_player_source %} selected{% endif %}>Player 1 · VidSrc</option>{% endif %}
-          {% for source in player_sources %}<option value="{{ source.id }}" data-kind="local"{% if source.selected %} selected{% endif %}>Local · {{ source.label }}</option>{% endfor %}
+          {% for source in player_sources %}<option value="{{ source.id }}" data-kind="local" data-source-season-pack="{{ 'true' if source.season_pack else 'false' }}" data-source-season="{{ source.season or '' }}" data-source-episode="{{ source.episode or '' }}" data-source-release-mode="{{ source.release_mode }}"{% if source.selected %} selected{% endif %}>Local · {{ source.label }}</option>{% endfor %}
         </select>
       </label>
+      {% if movie.media_type == 'tv' and movie.external_ids.tmdb_id %}
+      <div class="movie-player__pack-browser" data-player-pack-browser hidden>
+        <label class="field movie-player__pack-field">
+          <span data-player-pack-heading>Episode</span>
+          <select data-player-pack-episode disabled>
+            <option value="">Choose an episode</option>
+          </select>
+        </label>
+        <p class="movie-player__pack-status" data-player-pack-status aria-live="polite" hidden></p>
+      </div>
+      {% endif %}
       {% if subtitles_enabled %}
       <p class="movie-player__subtitle-status" data-subtitle-status aria-live="polite">{% if vidsrc_enabled %}Switch to Local to load Dragon subtitles inside the player controls.{% else %}Arabic will be selected first; switch or turn subtitles off from the player controls.{% endif %}</p>
       {% else %}
@@ -53,7 +64,100 @@
       </button>
       {# VidSrc rejects every sandboxed iframe; loading remains explicit and feature-gated. #}
       <iframe class="movie-player__frame" data-player-frame title="VidSrc player for {{ movie.title }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer" hidden></iframe>
-      <video class="movie-player__video" data-player-video controls playsinline preload="metadata" hidden></video>
+      <div class="movie-player__media-shell" data-player-shell data-paused="true" data-controls-visible="true" hidden>
+        <video class="movie-player__video" data-player-video playsinline preload="metadata" hidden></video>
+        <div class="movie-player__netflix-controls" data-player-netflix-controls>
+          <div class="movie-player__netflix-top">
+            <button class="movie-player__back-button" type="button" data-player-back aria-label="Exit player and show source controls">←</button>
+            <span class="movie-player__netflix-title">{{ movie.title }}</span>
+            <span data-player-netflix-episode></span>
+          </div>
+          <button class="movie-player__netflix-center" type="button" data-player-quick-toggle aria-label="Play">
+            <span data-player-center-icon>▶</span>
+            <span class="movie-player__spinner" aria-hidden="true"></span>
+          </button>
+          <div class="movie-player__netflix-bottom">
+            <label class="movie-player__timeline">
+              <span class="visually-hidden">Playback position</span>
+              <input type="range" min="0" max="1000" value="0" step="1" data-player-timeline>
+            </label>
+            <div class="movie-player__netflix-bar">
+              <div class="movie-player__netflix-left">
+                <button class="movie-player__icon-button" type="button" data-player-quick-toggle aria-label="Play"><span data-player-play-icon>▶</span></button>
+                <button class="movie-player__seek-button" type="button" data-player-quick-back aria-label="Seek back 10 seconds">10</button>
+                <button class="movie-player__seek-button movie-player__seek-button--forward" type="button" data-player-quick-forward aria-label="Seek forward 10 seconds">10</button>
+                <button class="movie-player__icon-button" type="button" data-player-quick-mute aria-label="Mute or unmute"><span data-player-mute-icon>🔊</span></button>
+                <input class="movie-player__volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume" data-player-volume>
+                <span class="movie-player__time" data-player-time>0:00 / 0:00</span>
+              </div>
+              <div class="movie-player__netflix-right">
+                <button class="movie-player__caption-button" type="button" data-player-caption-toggle aria-label="Subtitle settings">CC</button>
+                <button class="movie-player__icon-button" type="button" data-player-source-return aria-label="Show source and episode controls">☁</button>
+                <button class="movie-player__icon-button" type="button" data-player-quick-fullscreen aria-label="Fullscreen">⛶</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="movie-player__captions" data-player-captions hidden>
+          <div class="movie-player__caption-chip" data-player-caption-chip hidden>
+            <span data-player-caption-text></span>
+          </div>
+        </div>
+        <aside class="movie-player__subtitle-panel" data-player-subtitle-panel hidden aria-hidden="true">
+          <div class="movie-player__subtitle-head">
+            <div>
+              <span class="eyebrow">Player settings</span>
+              <h3>Subtitles</h3>
+              <p>Choose the subtitle track and tune how it feels.</p>
+            </div>
+            <button class="movie-player__subtitle-close" type="button" data-player-subtitle-close aria-label="Close subtitle settings">×</button>
+          </div>
+          <div class="movie-player__subtitle-screen" data-player-subtitle-screen="list">
+            <div class="movie-player__subtitle-list" data-player-subtitle-list>
+              <button class="movie-player__subtitle-option is-active" type="button" data-player-subtitle-off>
+                <span>Off</span>
+                <small>No subtitles</small>
+              </button>
+            </div>
+            <button class="movie-player__subtitle-link" type="button" data-player-subtitle-open-appearance>Customize appearance</button>
+          </div>
+          <div class="movie-player__subtitle-screen" data-player-subtitle-screen="appearance" hidden>
+            <button class="movie-player__subtitle-back" type="button" data-player-subtitle-back>Back to subtitles</button>
+            <label class="movie-player__subtitle-control">
+              <span><strong>Font size</strong><b data-player-subtitle-size-label>30px</b></span>
+              <input type="range" min="20" max="48" step="1" value="30" data-player-subtitle-size>
+            </label>
+            <label class="movie-player__subtitle-control">
+              <span><strong>Background blur</strong><b data-player-subtitle-blur-label>0%</b></span>
+              <input type="range" min="0" max="24" step="1" value="0" data-player-subtitle-blur>
+            </label>
+            <label class="movie-player__subtitle-control">
+              <span><strong>Latency</strong><b data-player-subtitle-offset-label>0.0s</b></span>
+              <input type="range" min="-5" max="5" step="0.1" value="0" data-player-subtitle-offset>
+            </label>
+            <label class="movie-player__subtitle-select">
+              <span>Font</span>
+              <select data-player-subtitle-font>
+                <option value="plex">IBM Plex Sans</option>
+                <option value="inter">Inter</option>
+                <option value="serif">Merriweather</option>
+                <option value="mono">IBM Plex Mono</option>
+              </select>
+            </label>
+            <div class="movie-player__subtitle-swatches">
+              <span>Color</span>
+              <div class="movie-player__subtitle-colors" data-player-subtitle-colors>
+                <button type="button" data-color="#ffffff" style="--swatch:#ffffff" aria-label="White"></button>
+                <button type="button" data-color="#ffd54a" style="--swatch:#ffd54a" aria-label="Yellow"></button>
+                <button type="button" data-color="#ff6b8a" style="--swatch:#ff6b8a" aria-label="Pink"></button>
+                <button type="button" data-color="#95f3de" style="--swatch:#95f3de" aria-label="Mint"></button>
+                <button type="button" data-color="#8bb8ff" style="--swatch:#8bb8ff" aria-label="Blue"></button>
+              </div>
+            </div>
+            <button class="movie-player__subtitle-reset" type="button" data-player-subtitle-reset>Reset</button>
+          </div>
+        </aside>
+      </div>
     </div>
     <div class="movie-player__footer">
       <p id="movie-player-status" class="muted" data-player-status aria-live="polite">Ready. No external connection has been made.</p>

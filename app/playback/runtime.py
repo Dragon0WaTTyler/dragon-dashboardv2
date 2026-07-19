@@ -24,6 +24,9 @@ MAX_TORRENT_METADATA_BYTES = 2 * 1024 * 1024
 INFO_HASH_PATTERN = re.compile(r"^[a-fA-F0-9]{40}$|^[A-Z2-7a-z2-7]{32}$")
 DIRECT_PLAYBACK_SUFFIXES = {".mp4", ".m4v", ".webm"}
 TRANSCODE_PLAYBACK_SUFFIXES = {".mkv", ".mov", ".avi", ".ts", ".m2ts", ".mpg", ".mpeg"}
+TRANSCODE_CODEC_PATTERN = re.compile(
+    r"(?i)(?:^|[._\-\s])(?:x265|h265|h\.265|hevc|hi10p|10\s*-?\s*bit)(?:$|[._\-\s])"
+)
 
 
 class PlaybackRuntimeError(RuntimeError):
@@ -161,7 +164,10 @@ def _tree_size(path: Path) -> int:
 
 
 def _stream_kind(file_name: str) -> str:
-    suffix = Path(str(file_name or "")).suffix.lower()
+    name = str(file_name or "")
+    suffix = Path(name).suffix.lower()
+    if suffix in DIRECT_PLAYBACK_SUFFIXES and TRANSCODE_CODEC_PATTERN.search(name):
+        return "transcode"
     if suffix in DIRECT_PLAYBACK_SUFFIXES:
         return "direct"
     if suffix in TRANSCODE_PLAYBACK_SUFFIXES:

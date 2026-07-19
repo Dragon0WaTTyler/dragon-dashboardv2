@@ -83,6 +83,54 @@ segment01.ts
         self.assertIn("-sn", command)
         self.assertIn("-dn", command)
 
+    def test_transcode_can_start_from_a_specific_offset(self):
+        app = Flask(__name__)
+        app.config.update(MYTV_FFMPEG="ffmpeg", MYTV_MAX_TRANSCODES=2)
+
+        class _Stdout:
+            def __init__(self):
+                self.chunks = [b"video", b""]
+
+            def read(self, _size):
+                return self.chunks.pop(0)
+
+        class _Process:
+            def __init__(self):
+                self.stdout = _Stdout()
+                self.stopped = False
+
+            def poll(self):
+                return 0 if self.stopped else None
+
+            def terminate(self):
+                self.stopped = True
+
+            def wait(self, timeout=None):
+                self.stopped = True
+                return 0
+
+            def kill(self):
+                self.stopped = True
+
+        commands = []
+        process = _Process()
+
+        with (
+            app.test_request_context("/"),
+            patch("app.services.streaming.validate_stream_url", lambda url, allow_private=False: url),
+            patch("app.services.streaming.shutil.which", lambda _name: "ffmpeg"),
+            patch(
+                "app.services.streaming.subprocess.Popen",
+                lambda command, **_kwargs: commands.append(command) or process,
+            ),
+        ):
+            response = transcode_stream("https://stream.example/video.mkv", start_seconds=73.25)
+            self.assertEqual(b"".join(response.response), b"video")
+
+        command = commands[0]
+        self.assertIn("-ss", command)
+        self.assertIn("73.250", command)
+
 
 if __name__ == "__main__":
     unittest.main()

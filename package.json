@@ -5,6 +5,7 @@
     "test:playback": "node --test --test-force-exit tests/node/webtorrent-helper.test.mjs"
   },
   "dependencies": {
+    "media-chrome": "^4.19.2",
     "webtorrent": "3.0.6"
   }
 }

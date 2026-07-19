@@ -19,10 +19,13 @@
   data-endpoint="{{ url_for('api_v1.home_live') }}"
   data-movies-prefix="{{ url_for('movies.index') }}"
   data-youtube-prefix="{{ url_for('youtube.index') }}"
+  data-reading-prefix="{{ url_for('reading.index') }}"
   data-movie-bucket="{{ workspace.rotation.movie_bucket }}"
   data-youtube-bucket="{{ workspace.rotation.youtube_bucket }}"
+  data-reading-bucket="{{ workspace.rotation.reading_bucket }}"
   data-movie-next-at="{{ workspace.rotation.movie_next_at }}"
   data-youtube-next-at="{{ workspace.rotation.youtube_next_at }}"
+  data-reading-next-at="{{ workspace.rotation.reading_next_at }}"
 >
   <section class="today-main" aria-label="Today’s media queue">
     {% if dragon_feature('movies', 'today') %}
@@ -98,18 +101,18 @@
     <section class="today-section report-section" aria-labelledby="reading-today-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Continue reading</span><h2 id="reading-today-title">Saved reads</h2></div>
-        <a href="{{ url_for('reading.index') }}">View all</a>
+        <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-reading-countdown>New reads every 5 min</span></span><a href="{{ url_for('reading.index') }}">View all</a></div>
       </div>
       {% if workspace.continue_reading %}
-      <div class="today-media-grid">
+      <div class="today-media-grid" data-live-reading>
         {% for article in workspace.continue_reading %}
-        <article class="today-media-card">
-          <a class="today-media-card__image" data-media-frame data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">
-            {% if article.image_url %}<img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" aria-hidden="true">R</span>{% else %}<span class="media-fallback" aria-hidden="true">R</span>{% endif %}
+        <article class="today-media-card" data-live-reading-card>
+          <a class="today-media-card__image" data-media-frame data-live-reading-link data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">
+            {% if article.image_url %}<img data-media-image data-live-reading-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" data-live-reading-fallback aria-hidden="true">R</span>{% else %}<span class="media-fallback" data-live-reading-fallback aria-hidden="true">R</span>{% endif %}
           </a>
           <div class="today-media-card__body">
-            <span class="eyebrow" dir="auto">{{ article.source }}</span>
-            <h3 dir="auto"><a data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h3>
+            <span class="eyebrow" data-live-reading-source dir="auto">{{ article.source }}</span>
+            <h3 dir="auto"><a data-live-reading-link data-live-reading-title data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h3>
           </div>
         </article>
         {% endfor %}
@@ -123,6 +126,32 @@
       </article>
       {% else %}
       {{ empty_state('No saved reads', 'Your next unread or in-progress article will appear here.') }}
+      {% endif %}
+    </section>
+    {% endif %}
+
+    {% if dragon_feature('youtube', 'today') %}
+    <section class="today-section report-section" aria-labelledby="pockettube-favorite-title">
+      <div class="section-heading section-heading--action">
+        <div><span class="eyebrow">PocketTube favorite</span><h2 id="pockettube-favorite-title">My favoret mix</h2></div>
+        <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-pockettube-countdown>New mix every 5 min</span></span><a href="{{ url_for('youtube.index', source='pockettube', group='my favoret', order='shuffle') }}">View all</a></div>
+      </div>
+      {% if workspace.pockettube_favorite %}
+      <div class="today-media-grid" data-live-pockettube>
+        {% for video in workspace.pockettube_favorite %}
+        <article class="today-media-card" data-live-pockettube-card>
+          <a class="today-media-card__image" data-media-frame data-live-pockettube-link href="{{ url_for('youtube.detail', video_id=video.id) }}">
+            {% if video.thumbnail_url %}<img data-media-image data-live-pockettube-image src="{{ video.thumbnail_url }}" alt="Thumbnail for {{ video.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" data-live-pockettube-fallback aria-hidden="true">▶</span>{% else %}<span class="media-fallback" data-live-pockettube-fallback aria-hidden="true">▶</span>{% endif %}<span class="media-duration" data-live-pockettube-duration{% if not video.duration_label %} hidden{% endif %}>{{ video.duration_label }}</span>
+          </a>
+          <div class="today-media-card__body">
+            <span class="eyebrow" data-live-pockettube-channel dir="auto">{{ video.channel_title or 'Unknown channel' }}</span>
+            <h3 dir="auto"><a data-live-pockettube-link data-live-pockettube-title href="{{ url_for('youtube.detail', video_id=video.id) }}">{{ video.title }}</a></h3>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      {{ empty_state('No PocketTube favorite videos', 'Sync PocketTube or check the my favoret group.') }}
       {% endif %}
     </section>
     {% endif %}
@@ -142,11 +171,25 @@
       {% else %}<p class="muted">No current book.</p>{% endif %}
     </section>{% endif %}
 
-    {% if dragon_feature('today', 'freshness') %}<section class="report-section" aria-labelledby="guardrails-title">
-      <span class="eyebrow">Data health</span>
-      <h2 id="guardrails-title">Freshness warnings</h2>
-      {% if workspace.freshness_warnings %}<ul class="check-list">{% for item in workspace.freshness_warnings[:6] %}<li><span aria-hidden="true">!</span>{{ item.domain|replace('_', ' ')|title }}: {{ item.state }}</li>{% endfor %}</ul>{% else %}<p class="muted">All tracked snapshots are fresh.</p>{% endif %}
-    </section>{% endif %}
+    <section class="report-section" aria-labelledby="watching-now-title">
+      <span class="eyebrow">Now watching</span>
+      <h2 id="watching-now-title">Movie or series</h2>
+      {% if workspace.watching_now %}
+      <article class="today-book today-watch-now">
+        <a class="today-book__cover" data-media-frame href="{{ url_for('movies.detail', movie_id=workspace.watching_now.id) }}">
+          {% if workspace.watching_now.poster_url %}<img data-media-image src="{{ workspace.watching_now.poster_url }}" alt="Poster for {{ workspace.watching_now.title }}" loading="lazy" width="240" height="360"><span class="media-fallback" aria-hidden="true">{{ workspace.watching_now.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ workspace.watching_now.title[:1]|upper }}</span>{% endif %}
+        </a>
+        <div class="today-book__body">
+          <h3 dir="auto"><a href="{{ url_for('movies.detail', movie_id=workspace.watching_now.id) }}">{{ workspace.watching_now.title }}</a></h3>
+          <p>{{ workspace.watching_now.year or 'Year unknown' }} · {{ workspace.watching_now.media_type|replace('_', ' ')|title }}</p>
+          {% if workspace.watching_now.progress %}
+          <progress class="progress-track" value="{{ workspace.watching_now.progress.percent }}" max="100" aria-label="{{ workspace.watching_now.progress.percent }} percent watched">{{ workspace.watching_now.progress.percent }}%</progress>
+          <small>{{ workspace.watching_now.progress.percent }}% watched</small>
+          {% endif %}
+        </div>
+      </article>
+      {% else %}<p class="muted">No active movie or series.</p>{% endif %}
+    </section>
 
     {% if dragon_feature('chess', 'today') %}<section class="report-section" aria-labelledby="chess-today-title">
       <span class="eyebrow">Today’s chess</span><h2 id="chess-today-title">Training queue</h2>

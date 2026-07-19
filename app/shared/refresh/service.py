@@ -47,6 +47,30 @@ class OperationCoordinator:
             except Exception as exc:
                 return OperationService.fail(operation, exc)
             return OperationService.complete(operation, counts=counts)
+        if kind in {"refresh", "sync"} and domain == "youtube_pockettube":
+            if not current_app.config["DRAGON_YOUTUBE_SYNC_ENABLED"]:
+                return OperationService.complete(
+                    operation,
+                    counts={"changed": 0},
+                    warnings=["YouTube synchronization is not configured."],
+                )
+            export_path = YouTubeService.latest_pockettube_export()
+            if export_path is None:
+                return OperationService.complete(
+                    operation,
+                    counts={"changed": 0},
+                    warnings=["No PocketTube export was found in Downloads."],
+                )
+            try:
+                client = current_app.extensions.get("dragon_youtube_playlist_client")
+                if client is None:
+                    client = YouTubePlaylistClient(current_app.config["DRAGON_YOUTUBE_API_KEY"])
+                counts = YouTubeService.sync_pockettube(client, export_path)
+            except YouTubeProviderError as exc:
+                return OperationService.fail(operation, exc)
+            except Exception as exc:
+                return OperationService.fail(operation, exc)
+            return OperationService.complete(operation, counts=counts)
         if kind in {"refresh", "sync"} and domain == "reading":
             client = current_app.extensions.get("dragon_feed_client")
             if client is None:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from sqlalchemy import func, or_
 
 from app.extensions import db
@@ -29,9 +31,10 @@ class YouTubeRepository:
         limit: int | None = 50,
         offset: int = 0,
     ) -> tuple[list[YouTubeVideo], int]:
-        conditions = [YouTubeVideo.source == source]
-        if source == "watch_later":
-            conditions.append(YouTubeVideo.removed_from_source.is_(False))
+        conditions = [
+            YouTubeVideo.source == source,
+            YouTubeVideo.removed_from_source.is_(False),
+        ]
         if group:
             conditions.append(YouTubeVideo.group_name == group)
         if q.strip():
@@ -58,10 +61,26 @@ class YouTubeRepository:
         return items, total
 
     @staticmethod
+    def resolve_group(value: str) -> str:
+        requested = value.strip()
+        if not requested:
+            return ""
+        groups = YouTubeRepository.groups()
+        by_exact = {item["name"]: item["name"] for item in groups}
+        if requested in by_exact:
+            return by_exact[requested]
+        requested_key = _group_key(requested)
+        for item in groups:
+            if _group_key(item["name"]) == requested_key:
+                return item["name"]
+        return ""
+
+    @staticmethod
     def ordered_ids(*, source: str, group: str = "") -> list[str]:
-        conditions = [YouTubeVideo.source == source]
-        if source == "watch_later":
-            conditions.append(YouTubeVideo.removed_from_source.is_(False))
+        conditions = [
+            YouTubeVideo.source == source,
+            YouTubeVideo.removed_from_source.is_(False),
+        ]
         if group:
             conditions.append(YouTubeVideo.group_name == group)
         return list(
@@ -76,8 +95,17 @@ class YouTubeRepository:
     def groups() -> list[dict]:
         rows = db.session.execute(
             db.select(YouTubeVideo.group_name, func.count())
-            .where(YouTubeVideo.source == "pockettube", YouTubeVideo.group_name != "")
+            .where(
+                YouTubeVideo.source == "pockettube",
+                YouTubeVideo.group_name != "",
+                YouTubeVideo.removed_from_source.is_(False),
+            )
             .group_by(YouTubeVideo.group_name)
             .order_by(YouTubeVideo.group_name)
         )
         return [{"name": name, "count": count} for name, count in rows]
+
+
+def _group_key(value: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "", value.casefold())
+    return normalized.replace("favorite", "favoret")

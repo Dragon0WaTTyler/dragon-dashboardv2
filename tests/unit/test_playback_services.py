@@ -3,6 +3,7 @@ import pytest
 from app.extensions import db
 from app.history.models import HistoryEvent
 from app.movies.models import Movie
+from app.playback.models import PlaybackSource
 from app.playback.services import PlaybackService
 
 
@@ -61,3 +62,34 @@ def test_vidsrc_source_requires_a_valid_imdb_id():
             movie={"title": "In the Mood for Love", "external_ids": {}},
             base_url="https://vsembed.ru/embed/",
         )
+
+
+def test_player_sources_expose_season_pack_metadata(app):
+    with app.app_context():
+        movie = add_movie()
+        db.session.add(
+            PlaybackSource(
+                movie_id=movie.id,
+                kind="magnet",
+                label="S01 season pack Jackett magnet",
+                locator="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+                metadata_json={"season_pack": True, "season": 1, "release_mode": "season_pack"},
+                selected=True,
+            )
+        )
+        db.session.commit()
+
+        sources = PlaybackService.player_sources(movie.id)
+
+        assert sources == [
+            {
+                "id": sources[0]["id"],
+                "label": "S01 season pack Jackett",
+                "kind": "magnet",
+                "selected": True,
+                "season_pack": True,
+                "season": 1,
+                "episode": None,
+                "release_mode": "season_pack",
+            }
+        ]

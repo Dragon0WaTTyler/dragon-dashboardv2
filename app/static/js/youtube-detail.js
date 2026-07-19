@@ -13,6 +13,7 @@
   let player = null;
   let progressTimer = null;
   let requestedStart = null;
+  let focusScrollY = 0;
 
   function formatTime(value) {
     const total = Math.max(0, Math.floor(Number(value) || 0));
@@ -137,17 +138,30 @@
     });
   });
 
-  focusButton?.addEventListener("click", async () => {
-    if (document.fullscreenElement) {
-      await document.exitFullscreen();
-    } else if (playerShell.requestFullscreen) {
-      await playerShell.requestFullscreen();
+  function setFocusMode(enabled) {
+    detail.classList.toggle("is-focus-mode", enabled);
+    document.documentElement.classList.toggle("youtube-focus-mode", enabled);
+    document.body.classList.toggle("youtube-focus-mode", enabled);
+    if (focusButton) {
+      focusButton.textContent = enabled ? "Exit focus mode" : "Enter focus mode";
+      focusButton.setAttribute("aria-pressed", String(enabled));
     }
+    if (enabled) {
+      focusScrollY = window.scrollY;
+      if (!playerShell.classList.contains("is-loaded")) loadPlayer();
+      window.scrollTo({ top: 0, behavior: "instant" });
+    } else {
+      window.scrollTo({ top: focusScrollY, behavior: "instant" });
+    }
+  }
+
+  focusButton?.addEventListener("click", () => {
+    setFocusMode(!detail.classList.contains("is-focus-mode"));
   });
 
-  document.addEventListener("fullscreenchange", () => {
-    if (focusButton) {
-      focusButton.textContent = document.fullscreenElement ? "Exit focus mode" : "Enter focus mode";
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && detail.classList.contains("is-focus-mode")) {
+      setFocusMode(false);
     }
   });
 

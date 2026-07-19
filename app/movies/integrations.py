@@ -691,6 +691,9 @@ class NotionMovieProvider:
             "Year": media.get("year"),
             "Overview": media.get("overview"),
             "Poster URL": media.get("poster_url"),
+            "Rating": media.get("rating"),
+            "Director": _names_text(media.get("directors")),
+            "Director Entry": _names_text(media.get("directors")),
             "category": "movie" if media_type == "movie" else "TV Show",
             "source": "Dragon",
             "Season": season,
@@ -712,10 +715,81 @@ class NotionMovieProvider:
             definition = schema.get(name)
             if not definition:
                 continue
-            encoded = _encode_notion_property(definition.get("type"), value)
+            encoded = (
+                self._relation_property(definition, value)
+                if definition.get("type") == "relation"
+                else _encode_notion_property(definition.get("type"), value)
+            )
             if encoded is not None:
                 properties[name] = encoded
         return properties
+
+    def _relation_property(self, definition: dict, value: Any) -> dict | None:
+        names = _names(value)
+        if not names:
+            return {"relation": []}
+        relation = definition.get("relation") or {}
+        target_id = str(
+            relation.get("data_source_id")
+            or relation.get("database_id")
+            or relation.get("synced_property_id")
+            or ""
+        ).replace("-", "")
+        if not target_id:
+            return None
+        page_ids = [
+            page_id
+            for name in names
+            if (page_id := self._find_or_create_relation_page(target_id, name))
+        ]
+        if not page_ids:
+            return None
+        return {"relation": [{"id": page_id} for page_id in page_ids]}
+
+    def _find_or_create_relation_page(self, data_source_id: str, title: str) -> str:
+        target_schema = self._request("GET", f"/data_sources/{data_source_id}").get(
+            "properties"
+        ) or {}
+        title_property = next(
+            (
+                name
+                for name, definition in target_schema.items()
+                if definition.get("type") == "title"
+            ),
+            "Name",
+        )
+        payload = self._request(
+            "POST",
+            f"/data_sources/{data_source_id}/query",
+            json={
+                "page_size": 10,
+                "filter": {
+                    "property": title_property,
+                    "title": {"equals": title},
+                },
+            },
+        )
+        for page in payload.get("results") or []:
+            if page.get("in_trash"):
+                continue
+            page_title = _decode_notion_property(
+                (page.get("properties") or {}).get(title_property)
+            )
+            if _normalize_title(page_title) == _normalize_title(title):
+                return str(page.get("id") or "")
+        created = self._request(
+            "POST",
+            "/pages",
+            json={
+                "parent": {"type": "data_source_id", "data_source_id": data_source_id},
+                "properties": {
+                    title_property: {
+                        "title": [{"type": "text", "text": {"content": title}}]
+                    }
+                },
+            },
+        )
+        return str(created.get("id") or "")
 
     def _page_item(self, page: dict) -> dict:
         properties = page.get("properties") or {}
@@ -860,11 +934,13 @@ def _encode_notion_property(prop_type: str | None, value: Any) -> dict | None:
             ]
         }
     if prop_type == "number":
-        return {"number": None if value in {None, ""} else int(value)}
+        return {"number": None if value in {None, ""} else float(value)}
     if prop_type == "checkbox":
         return {"checkbox": bool(value)}
     if prop_type in {"select", "status"}:
         return {prop_type: None if not value else {"name": str(value)}}
+    if prop_type == "multi_select":
+        return {"multi_select": [{"name": name} for name in _names(value)]}
     if prop_type == "date":
         return {"date": None if not value else {"start": str(value)}}
     if prop_type == "url":
@@ -900,6 +976,23 @@ def _named_values(value: Any) -> list[dict[str, str]]:
         for item in re.split(r"[,;|]", str(value or ""))
         if item.strip()
     ]
+
+
+def _names(value: Any) -> list[str]:
+    if isinstance(value, list):
+        values = [
+            item.get("name") if isinstance(item, dict) else item
+            for item in value
+        ]
+    else:
+        values = re.split(r"[,;|]", str(value or ""))
+    return _dedupe_strings(
+        [str(item or "").strip() for item in values if str(item or "").strip()]
+    )
+
+
+def _names_text(value: Any) -> str:
+    return ", ".join(_names(value))
 
 
 def _normalize_title(value: Any) -> str:
