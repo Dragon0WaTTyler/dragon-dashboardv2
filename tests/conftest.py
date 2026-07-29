@@ -37,6 +37,7 @@ def app(tmp_path: Path):
     application = create_app(
         {
             "TESTING": True,
+            "INSTANCE_PATH": str(tmp_path / "instance"),
             "SECRET_KEY": "test-secret-key-for-dragon",
             "SQLALCHEMY_DATABASE_URI": f"sqlite:///{database_path.as_posix()}",
             "WTF_CSRF_ENABLED": True,

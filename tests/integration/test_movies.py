@@ -302,9 +302,9 @@ def test_resolve_tv_episode_source_updates_episode_page_with_fallback(
                 "season": 1,
                 "episode": 1,
                 "tv_total_seasons": 1,
-                "tv_total_episodes": 1,
+                "tv_total_episodes": 2,
                 "tv_seasons": [
-                    {"season_number": 1, "name": "Season 1", "episode_count": 1, "poster_url": ""}
+                    {"season_number": 1, "name": "Season 1", "episode_count": 2, "poster_url": ""}
                 ],
                 "tv_episodes": {
                     "1": [
@@ -315,7 +315,15 @@ def test_resolve_tv_episode_source_updates_episode_page_with_fallback(
                             "overview": "",
                             "still_url": "",
                             "runtime_minutes": 60,
-                        }
+                        },
+                        {
+                            "season_number": 1,
+                            "episode_number": 2,
+                            "name": "46 Long",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        },
                     ]
                 },
             },
@@ -363,10 +371,56 @@ def test_resolve_tv_episode_source_updates_episode_page_with_fallback(
         )
         assert any(
             source.season == 1
-            and source.episode == 1
+            and source.episode is None
             and source.source_role == "season_pack_fallback"
             for source in sources
         )
+
+    next_episode = authenticated_client.get(f"/movies/{movie_id}/seasons/1/episodes/2")
+    next_html = next_episode.get_data(as_text=True)
+    assert "A season-pack fallback is already saved for this page." in next_html
+    assert 'data-source-season-pack="true"' in next_html
+    assert 'data-player-pack-browser' in next_html
+
+
+def test_tv_season_exposes_jackett_season_pack_chooser(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_total_seasons": 1,
+                "tv_total_episodes": 1,
+                "tv_seasons": [
+                    {"season_number": 1, "name": "Season 1", "episode_count": 1, "poster_url": ""}
+                ],
+                "tv_episodes": {
+                    "1": [
+                        {
+                            "season_number": 1,
+                            "episode_number": 1,
+                            "name": "Pilot",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        }
+                    ]
+                },
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    response = authenticated_client.get(f"/movies/{movie_id}/seasons/1")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'data-inline-release-browser' in html
+    assert 'data-fixed-season="1"' in html
+    assert 'data-season-pack-load' in html
 
 
 def test_tv_episode_hides_local_player_when_playback_flags_are_disabled(

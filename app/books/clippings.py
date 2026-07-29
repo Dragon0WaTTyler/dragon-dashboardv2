@@ -644,13 +644,30 @@ def _match_existing_relation(
 ) -> KindleClippingMatch | None:
     book_id = str(payload.get("book_id") or payload.get("matched_book_id") or "")
     dragon_book_id = str(payload.get("dragon_book_id") or "")
-    if not book_id and not dragon_book_id:
-        return None
     for book in books:
         if book_id and str(getattr(book, "id", "") or "") == book_id:
             return _book_match(book, confidence=_relation_confidence(payload))
         if dragon_book_id and str(getattr(book, "dragon_book_id", "") or "") == dragon_book_id:
             return _book_match(book, confidence=_relation_confidence(payload))
+
+    relation_ids = _book_relation_ids(payload)
+    relation_matches = [
+        book
+        for book in books
+        if relation_ids & _book_notion_page_ids(book)
+    ]
+    relation_matches = _unique_books(relation_matches)
+    if len(relation_matches) == 1:
+        return _book_match(relation_matches[0], confidence="notion_book_relation")
+    if len(relation_matches) > 1:
+        return KindleClippingMatch(
+            state="ambiguous",
+            confidence="notion_book_relation",
+            note="Ambiguous book relation",
+        )
+
+    if not book_id and not dragon_book_id and not relation_ids:
+        return None
     return KindleClippingMatch(
         state="needs_review",
         confidence="missing_book_relation",
@@ -664,6 +681,38 @@ def _relation_confidence(payload: Mapping) -> str:
     if payload.get("book_id") or payload.get("matched_book_id"):
         return "existing_relation"
     return "dragon_book_id"
+
+
+def _book_relation_ids(payload: Mapping) -> set[str]:
+    values = payload.get("book_relation_ids") or payload.get("book_relation_id") or ()
+    if isinstance(values, str):
+        values = values.split(",")
+    if not isinstance(values, Iterable):
+        values = (values,)
+    return {
+        _canonical_notion_id(value)
+        for value in values
+        if _canonical_notion_id(value)
+    }
+
+
+def _book_notion_page_ids(book: object) -> set[str]:
+    external_ids = getattr(book, "external_ids", {}) or {}
+    if not isinstance(external_ids, Mapping):
+        return set()
+    values = (
+        external_ids.get("notion_page_id"),
+        external_ids.get("notion_book_page_id"),
+    )
+    return {
+        _canonical_notion_id(value)
+        for value in values
+        if _canonical_notion_id(value)
+    }
+
+
+def _canonical_notion_id(value: object) -> str:
+    return str(value or "").strip().casefold().replace("-", "")
 
 
 def _book_match(book: object, *, confidence: str) -> KindleClippingMatch:

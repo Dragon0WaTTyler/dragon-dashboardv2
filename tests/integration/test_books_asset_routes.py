@@ -364,10 +364,10 @@ def test_text_asset_streams_by_id_without_rendering_local_path(
 
     assert str(pdf_path.resolve()) not in html
     assert str(kfx_path.resolve()) not in html
-    assert f"/books/{ids['book']}/assets/{ids['pdf']}/stream" in html
-    assert f"/books/{ids['book']}/assets/{ids['kfx']}/stream" in html
-    assert "Open PDF" in html
-    assert "Kindle file" in html
+    assert f"/books/{ids['book']}/assets/{ids['pdf']}/stream" not in html
+    assert f"/books/{ids['book']}/assets/{ids['kfx']}/stream" not in html
+    assert "Open PDF" not in html
+    assert "Kindle file" not in html
 
     pdf_response = authenticated_client.get(
         f"/books/{ids['book']}/assets/{ids['pdf']}/stream",
@@ -403,8 +403,8 @@ def test_epub_reader_extracts_safe_text_and_saves_progress(
     detail = authenticated_client.get(f"/books/{ids['book']}")
     detail_html = detail.get_data(as_text=True)
     assert str(epub_path.resolve()) not in detail_html
-    assert "Read EPUB" in detail_html
-    assert f"/books/{ids['book']}/assets/{ids['epub']}/reader" in detail_html
+    assert "Read EPUB" not in detail_html
+    assert f"/books/{ids['book']}/assets/{ids['epub']}/reader" not in detail_html
 
     reader = authenticated_client.get(
         f"/books/{ids['book']}/assets/{ids['epub']}/reader"
@@ -450,7 +450,7 @@ def test_kindle_export_manifest_prioritizes_transfer_assets_without_paths(
 
     detail = authenticated_client.get(f"/books/{ids['book']}")
     detail_html = detail.get_data(as_text=True)
-    assert "Kindle export" in detail_html
+    assert "Kindle export" not in detail_html
     assert str(kfx_path.resolve()) not in detail_html
 
     page = authenticated_client.get(f"/books/{ids['book']}/kindle-export")

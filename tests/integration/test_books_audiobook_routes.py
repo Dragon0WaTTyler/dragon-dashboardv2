@@ -149,8 +149,8 @@ def test_local_audiobook_asset_streams_by_id_and_saves_progress(
     page = authenticated_client.get(f"/books/{book_id}")
     html = page.get_data(as_text=True)
     assert str(audio_file) not in html
-    assert f"/books/{book_id}/audiobooks/assets/{asset_id}/stream" in html
-    assert "book-audio.js" in html
+    assert f"/books/{book_id}/audiobooks/assets/{asset_id}/stream" not in html
+    assert "book-audio.js" not in html
 
     stream = authenticated_client.get(
         f"/books/{book_id}/audiobooks/assets/{asset_id}/stream",
@@ -184,4 +184,4 @@ def test_local_audiobook_asset_streams_by_id_and_saves_progress(
         assert saved["completed"] is False
 
     refreshed = authenticated_client.get(f"/books/{book_id}").get_data(as_text=True)
-    assert "Resume 10m" in refreshed
+    assert "Resume 10m" not in refreshed

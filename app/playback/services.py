@@ -44,9 +44,9 @@ def _tv_source_matches_episode(source: PlaybackSource, *, season: int, episode: 
     source_season, source_episode, _source_role, _metadata, season_pack = _tv_source_scope(source)
     if source_season != season:
         return False
-    if source_episode == episode:
+    if season_pack:
         return True
-    return bool(season_pack and source_episode is None)
+    return source_episode == episode
 
 
 def _tv_episode_sources(movie_id: str, *, season: int, episode: int) -> list[PlaybackSource]:

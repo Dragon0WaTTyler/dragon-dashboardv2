@@ -282,7 +282,7 @@ def test_books_index_filters_have_no_mobile_overflow(page, live_app, app):
     assert overflow == 0
 
 
-def test_audiobook_player_layout_has_no_mobile_overflow(page, live_app, app, tmp_path):
+def test_book_detail_keeps_audio_tools_out_of_the_quotes_view(page, live_app, app, tmp_path):
     audio_file = tmp_path / "player.mp3"
     audio_file.write_bytes(b"ID3\x04\x00\x00\x00\x00\x00\x21audio-payload")
     with app.app_context():
@@ -316,8 +316,8 @@ def test_audiobook_player_layout_has_no_mobile_overflow(page, live_app, app, tmp
     page.set_viewport_size({"width": 1360, "height": 900})
     page.goto(f"{live_app}/books/{book_id}")
 
-    assert page.locator("[data-book-audio-player]").is_visible()
-    assert page.locator("audio").is_visible()
+    assert not page.locator("[data-book-audio-player]").is_visible()
+    assert not page.locator("audio").is_visible()
 
     page.set_viewport_size({"width": 390, "height": 844})
     overflow = page.evaluate(
@@ -372,8 +372,8 @@ def test_text_asset_runtime_actions_have_no_mobile_overflow(
     page.set_viewport_size({"width": 1360, "height": 900})
     page.goto(f"{live_app}/books/{book_id}")
 
-    assert page.get_by_role("link", name="Open PDF").is_visible()
-    assert page.get_by_role("link", name="Kindle file").is_visible()
+    assert not page.get_by_role("link", name="Open PDF").is_visible()
+    assert not page.get_by_role("link", name="Kindle file").is_visible()
     html = page.content()
     assert str(pdf_file) not in html
     assert str(kfx_file) not in html
@@ -421,9 +421,8 @@ def test_epub_reader_layout_has_no_mobile_overflow(page, live_app, app, tmp_path
     page.set_viewport_size({"width": 1360, "height": 900})
     page.goto(f"{live_app}/books/{book_id}")
 
-    assert page.get_by_role("link", name="Read EPUB").is_visible()
-    page.get_by_role("link", name="Read EPUB").click()
-    page.wait_for_url(f"{live_app}/books/{book_id}/assets/{asset_id}/reader")
+    assert not page.get_by_role("link", name="Read EPUB").is_visible()
+    page.goto(f"{live_app}/books/{book_id}/assets/{asset_id}/reader")
 
     assert page.get_by_role("heading", name="Reader Layout").is_visible()
     assert page.get_by_role("heading", name="Read the local EPUB without leaving Dragon").is_visible()
@@ -479,9 +478,8 @@ def test_kindle_export_layout_has_no_mobile_overflow(page, live_app, app, tmp_pa
     page.set_viewport_size({"width": 1360, "height": 900})
     page.goto(f"{live_app}/books/{book_id}")
 
-    assert page.get_by_role("link", name="Kindle export").is_visible()
-    page.get_by_role("link", name="Kindle export").click()
-    page.wait_for_url(f"{live_app}/books/{book_id}/kindle-export")
+    assert not page.get_by_role("link", name="Kindle export").is_visible()
+    page.goto(f"{live_app}/books/{book_id}/kindle-export")
 
     assert page.get_by_role("heading", name="Kindle Layout").is_visible()
     assert page.get_by_role("heading", name="Prepare the local file you actually want to send").is_visible()

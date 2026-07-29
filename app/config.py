@@ -104,6 +104,8 @@ class Settings:
     notion_data_source_id: str
     book_notion_database_id: str
     book_notion_data_source_id: str
+    book_quotes_database_id: str
+    book_quotes_data_source_id: str
     notion_tv_show_database_id: str
     notion_tv_show_data_source_id: str
     notion_tv_episode_database_id: str
@@ -253,6 +255,22 @@ class Settings:
             or os.getenv("BOOK_NOTION_DATA_SOURCE_ID", "")
             or os.getenv("NOTION_BOOKS_DATA_SOURCE_ID", "")
         ).strip()
+        book_quotes_database_id = str(
+            override_map.get("BOOK_QUOTES_DATABASE_ID")
+            or override_map.get("DRAGON_BOOK_QUOTES_DATABASE_ID")
+            or override_map.get("NOTION_BOOK_QUOTES_DATABASE_ID")
+            or os.getenv("DRAGON_BOOK_QUOTES_DATABASE_ID", "")
+            or os.getenv("BOOK_QUOTES_DATABASE_ID", "")
+            or os.getenv("NOTION_BOOK_QUOTES_DATABASE_ID", "")
+        ).strip()
+        book_quotes_data_source_id = str(
+            override_map.get("BOOK_QUOTES_DATA_SOURCE_ID")
+            or override_map.get("DRAGON_BOOK_QUOTES_DATA_SOURCE_ID")
+            or override_map.get("NOTION_BOOK_QUOTES_DATA_SOURCE_ID")
+            or os.getenv("DRAGON_BOOK_QUOTES_DATA_SOURCE_ID", "")
+            or os.getenv("BOOK_QUOTES_DATA_SOURCE_ID", "")
+            or os.getenv("NOTION_BOOK_QUOTES_DATA_SOURCE_ID", "")
+        ).strip()
         notion_tv_show_database_id = str(
             override_map.get("NOTION_TV_SHOW_DATABASE_ID")
             or override_map.get("DRAGON_NOTION_TV_SHOW_DATABASE_ID")
@@ -363,6 +381,8 @@ class Settings:
             notion_data_source_id=notion_data_source_id,
             book_notion_database_id=book_notion_database_id,
             book_notion_data_source_id=book_notion_data_source_id,
+            book_quotes_database_id=book_quotes_database_id,
+            book_quotes_data_source_id=book_quotes_data_source_id,
             notion_tv_show_database_id=notion_tv_show_database_id,
             notion_tv_show_data_source_id=notion_tv_show_data_source_id,
             notion_tv_episode_database_id=notion_tv_episode_database_id,
@@ -420,6 +440,8 @@ class Settings:
             "DRAGON_NOTION_DATA_SOURCE_ID": self.notion_data_source_id,
             "DRAGON_BOOK_NOTION_DATABASE_ID": self.book_notion_database_id,
             "DRAGON_BOOK_NOTION_DATA_SOURCE_ID": self.book_notion_data_source_id,
+            "DRAGON_BOOK_QUOTES_DATABASE_ID": self.book_quotes_database_id,
+            "DRAGON_BOOK_QUOTES_DATA_SOURCE_ID": self.book_quotes_data_source_id,
             "DRAGON_NOTION_TV_SHOW_DATABASE_ID": self.notion_tv_show_database_id,
             "DRAGON_NOTION_TV_SHOW_DATA_SOURCE_ID": self.notion_tv_show_data_source_id,
             "DRAGON_NOTION_TV_EPISODE_DATABASE_ID": self.notion_tv_episode_database_id,
@@ -450,6 +472,8 @@ class Settings:
             "notion_data_source_id",
             "book_notion_database_id",
             "book_notion_data_source_id",
+            "book_quotes_database_id",
+            "book_quotes_data_source_id",
             "notion_tv_show_database_id",
             "notion_tv_show_data_source_id",
             "notion_tv_episode_database_id",

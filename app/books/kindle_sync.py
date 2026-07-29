@@ -440,6 +440,7 @@ class KindleBookQuotesClient(KindleSyncValidationClient):
     FIELD_ALIASES = {
         "quote": {"quote", "highlight", "text", "clipping"},
         "book_title": {"booktitle", "bookname"},
+        "book_relation_ids": {"book", "books", "bookrelation", "bookrelations"},
         "author": {"author", "bookauthor"},
         "location": {"location", "kindlelocation"},
         "page": {"page"},
@@ -575,6 +576,9 @@ class KindleBookQuotesClient(KindleSyncValidationClient):
         payload = {
             "quote": quote_text,
             "book_title": _decoded_field(properties, field_map, "book_title"),
+            "book_relation_ids": _decoded_field(
+                properties, field_map, "book_relation_ids"
+            ),
             "author": _decoded_field(properties, field_map, "author"),
             "location": _decoded_field(properties, field_map, "location"),
             "page": _decoded_field(properties, field_map, "page"),
@@ -615,6 +619,14 @@ class KindleBookQuotesClient(KindleSyncValidationClient):
                 if normalized in aliases:
                     result[local_name] = (property_name, definition)
                     break
+        if "book_relation_ids" not in result:
+            relation_fields = [
+                (property_name, definition)
+                for property_name, definition in self.schema().items()
+                if str(definition.get("type") or "") == "relation"
+            ]
+            if len(relation_fields) == 1:
+                result["book_relation_ids"] = relation_fields[0]
         self._field_map = result
         return result
 

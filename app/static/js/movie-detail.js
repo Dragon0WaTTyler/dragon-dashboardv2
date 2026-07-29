@@ -2,6 +2,8 @@
   const player = document.querySelector("[data-movie-player]");
   if (!player) return;
 
+  const playerTitle = player.querySelector("#movie-player-title");
+  const selectedEpisodeSummary = document.querySelector("[data-player-selected-episode]");
   const source = player.querySelector("[data-player-source]");
   const launch = player.querySelector("[data-player-launch]");
   const launchTitle = player.querySelector("[data-player-launch-title]");
@@ -391,6 +393,23 @@
   const configuredSelectedSeason = () => Number(player.dataset.selectedSeason || 0) || null;
   const configuredSelectedEpisode = () => Number(player.dataset.selectedEpisode || 0) || null;
   const configuredSelectedEpisodeTitle = () => String(player.dataset.selectedEpisodeTitle || "").trim();
+  const syncPlayerTitle = () => {
+    if (!playerTitle || player.dataset.mediaType !== "tv") return;
+    const meta = selectedSourceMeta();
+    const season = activeSelection.season || meta?.season || configuredSelectedSeason();
+    const episode = activeSelection.episode
+      || (meta?.seasonPack ? Number(packEpisode?.value || 0) || null : meta?.episode)
+      || configuredSelectedEpisode();
+    const episodeTitle = activeSelection.episodeTitle
+      || (meta?.seasonPack ? selectedEpisodeTitle() : "")
+      || configuredSelectedEpisodeTitle();
+    if (!season || !episode || !episodeTitle) return;
+    const episodeCode = `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
+    playerTitle.textContent = `Watch ${episodeCode} · ${episodeTitle}`;
+    if (selectedEpisodeSummary) {
+      selectedEpisodeSummary.textContent = `Player episode selected: S${season}E${String(episode).padStart(2, "0")}`;
+    }
+  };
   const requestedEpisodeFromUrl = (season) => {
     const querySeason = Number(initialParams.get("season") || 0) || null;
     const queryEpisode = Number(initialParams.get("episode") || 0) || null;
@@ -939,8 +958,10 @@
       packEpisode.disabled = packEpisode.options.length <= 1;
       packBrowser.dataset.loadedSeason = String(season);
       const queryEpisode = requestedEpisodeFromUrl(season);
-      if (queryEpisode) packEpisode.value = String(queryEpisode);
-      else if (meta.episode) packEpisode.value = String(meta.episode);
+      const routeEpisode = configuredSelectedEpisode();
+      const preferredEpisode = queryEpisode || routeEpisode || meta.episode || null;
+      if (preferredEpisode) packEpisode.value = String(preferredEpisode);
+      syncPlayerTitle();
       syncEpisodeUrl({ replace: true });
       void loadSavedProgress();
       syncPackLaunchState();
@@ -1523,6 +1544,7 @@
     activeSelection.episode = Number(packEpisode.value || 0) || null;
     activeSelection.runtimeSeconds = selectedEpisodeRuntimeSeconds();
     activeSelection.episodeTitle = selectedEpisodeTitle();
+    syncPlayerTitle();
     syncEpisodeUrl();
     syncSourceUi();
     syncTimeline();

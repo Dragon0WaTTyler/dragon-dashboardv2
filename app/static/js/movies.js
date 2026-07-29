@@ -338,6 +338,7 @@
   const status = browser.querySelector("[data-release-status]");
   const releaseList = browser.querySelector("[data-release-list]");
   const summary = browser.querySelector("[data-release-summary]");
+  const fixedSeason = Number(browser.dataset.fixedSeason || 0) || null;
 
   const api = async (url, options = {}) => {
     const response = await fetch(url, {
@@ -397,11 +398,10 @@
       });
       body.append(tagRow);
     }
-    const buttonLabel = releaseMode === "season_pack" && !episode
-      ? "Add pack to Notion"
-      : releaseMode === "season_pack"
-        ? `Add pack & play E${String(episode).padStart(2, "0")}`
-        : "Add to Notion & play";
+    const importEpisode = releaseMode === "season_pack" ? null : episode;
+    const buttonLabel = releaseMode === "season_pack"
+      ? "Add full-season pack"
+      : "Add to Notion & play";
     const button = element("button", "button button--primary", buttonLabel);
     button.type = "button";
     button.addEventListener("click", async () => {
@@ -422,11 +422,12 @@
             seeders: release.seeders,
             size: release.size,
             season,
-            episode,
+            episode: importEpisode,
             release_mode: releaseMode,
           }),
         });
-        window.location.assign(`${payload.detail_url}${episode ? "#movie-player" : "#release-browser"}`);
+        const redirectUrl = String(browser.dataset.importRedirectUrl || "").trim();
+        window.location.assign(redirectUrl || `${payload.detail_url}${importEpisode ? "#movie-player" : "#release-browser"}`);
       } catch (error) {
         status.textContent = error.message;
         button.disabled = false;
@@ -548,6 +549,21 @@
   };
 
   if (mediaType === "tv" && seasonSelect) {
+    if (fixedSeason) {
+      seasonSelect.value = String(fixedSeason);
+      seasonSelect.disabled = true;
+      status.textContent = `Loading episodes for season ${fixedSeason} from TMDB…`;
+      void loadEpisodes();
+      episodeSelect.addEventListener("change", () => {
+        if (!episodeSelect.value) {
+          releaseList.replaceChildren();
+          return;
+        }
+        loadReleases();
+      });
+      seasonPackButton?.addEventListener("click", () => loadReleases("season_pack"));
+      return;
+    }
     status.textContent = "Loading seasons from TMDB…";
     const endpoint = fillTemplate(browser.dataset.seasonsTemplate, [tmdbId]);
     if (!endpoint) {

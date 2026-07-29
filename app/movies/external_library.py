@@ -236,6 +236,8 @@ def import_release(
         raise ValueError("Choose a season before importing a series release.")
     if media_type == "tv" and not episode and release_mode != "season_pack":
         raise ValueError("Choose an episode before importing this series release.")
+    season_pack = media_type == "tv" and release_mode == "season_pack"
+    source_episode = None if season_pack else episode
     details = tmdb_catalog_provider().details(media_type, tmdb_id)
     if media_type == "tv":
         details = _hydrate_tv_details(details)
@@ -244,7 +246,7 @@ def import_release(
         magnet_uri=magnet_uri,
         release_title=release_title,
         season=season,
-        episode=episode,
+        episode=source_episode,
         release_mode=release_mode,
     )
     item = {
@@ -254,7 +256,7 @@ def import_release(
         "source": notion_item.get("source") or "Dragon",
         "status": notion_item.get("status") or "watching",
         "season": season,
-        "episode": episode,
+        "episode": source_episode,
         "release_title": release_title,
         "playback_sources": [
             {
@@ -263,7 +265,7 @@ def import_release(
                 "locator": magnet_uri,
                 "selected": True,
                 "season": season if media_type == "tv" else None,
-                "episode": episode if media_type == "tv" else None,
+                "episode": source_episode if media_type == "tv" else None,
                 "source_role": (
                     "season_pack_fallback"
                     if media_type == "tv" and release_mode == "season_pack"
@@ -272,13 +274,13 @@ def import_release(
                 "metadata": {
                     "origin": "jackett",
                     "release_mode": release_mode,
-                    "season_pack": release_mode == "season_pack",
+                    "season_pack": season_pack,
                     "tracker": tracker,
                     "seeders": seeders,
                     "size": size,
                     "release_title": release_title,
                     "season": season,
-                    "episode": episode,
+                    "episode": source_episode,
                 },
             }
         ],

@@ -129,15 +129,19 @@ def book_item(book: Book, *, external_highlight_count: int = 0) -> dict:
     display_current_page = int(
         book.current_page or _metadata_int(metadata_state, "notion_current_page") or 0
     )
+    canonical_status = normalize_book_status(book.status)
     percent = (
-        round(display_current_page / effective_page_count * 100)
-        if effective_page_count and display_current_page
-        else _metadata_int(metadata_state, "notion_progress_percent") or 0
+        100
+        if canonical_status == "finished"
+        else (
+            round(display_current_page / effective_page_count * 100)
+            if effective_page_count and display_current_page
+            else _metadata_int(metadata_state, "notion_progress_percent") or 0
+        )
     )
     direction_source = " ".join([book.title, *book.authors])
     formats = _asset_formats(book)
     preferred = preferred_text_format(formats)
-    canonical_status = normalize_book_status(book.status)
     return {
         "id": book.id,
         "dragon_book_id": book.dragon_book_id,

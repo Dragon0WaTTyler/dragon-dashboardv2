@@ -760,9 +760,9 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
                 label="S01 season pack Jackett magnet",
                 locator="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
                 season=1,
-                episode=2,
+                episode=None,
                 source_role="season_pack_fallback",
-                metadata_json={"season_pack": True, "season": 1, "episode": 2, "release_mode": "season_pack"},
+                metadata_json={"season_pack": True, "season": 1, "release_mode": "season_pack"},
                 selected=True,
             )
         )
@@ -831,6 +831,23 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
             }
         ),
     )
+    page.route(
+        "**/movies/api/releases**",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [
+                    {
+                        "title": "The Sopranos Season 1 Complete 1080p",
+                        "magnet_uri": "magnet:?xt=urn:btih:fedcba9876543210fedcba9876543210fedcba98",
+                        "tracker": "Jackett",
+                        "seeders": 42,
+                        "size": 5_000_000_000,
+                    }
+                ],
+            }
+        ),
+    )
 
     def handle_local(route):
         captured.update(route.request.post_data_json)
@@ -883,6 +900,19 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
 
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/2#episode-player")
+    release_browser = page.locator("[data-inline-release-browser]")
+    release_browser.wait_for()
+    assert release_browser.get_by_role("button", name="Find full-season packs").is_visible()
+    assert release_browser.locator("[data-season-select]").input_value() == "1"
+    assert release_browser.locator("[data-season-select]").is_disabled()
+    page.wait_for_function(
+        "() => document.querySelector("
+        "'[data-inline-release-browser] [data-episode-select]'"
+        ")?.options.length > 1"
+    )
+    release_browser.get_by_role("button", name="Find full-season packs").click()
+    assert release_browser.get_by_role("heading", name="The Sopranos Season 1 Complete 1080p").is_visible()
+    assert release_browser.get_by_role("button", name="Add full-season pack").is_visible()
     pack_browser = page.locator("[data-player-pack-browser]")
     pack_browser.wait_for()
     page.wait_for_function(
@@ -1132,6 +1162,14 @@ def test_switching_pack_episode_stops_current_local_session_before_restart(page,
     }
 
     page.locator("[data-player-pack-episode]").select_option("3")
+    page.wait_for_function(
+        "() => document.querySelector('#movie-player-title')?.textContent"
+        ".includes('Watch S01E03 · Denial, Anger, Acceptance')"
+    )
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-selected-episode]')?.textContent"
+        ".includes('Player episode selected: S1E03')"
+    )
     page.wait_for_function("() => !document.querySelector('[data-player-launch]')?.hidden")
     assert page.locator("[data-player-video]").is_hidden()
     assert stop_calls

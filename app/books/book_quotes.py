@@ -11,6 +11,7 @@ from flask import current_app
 from app.books.clippings import KindleClippingMatch, match_clipping_payload
 from app.books.kindle_sync import (
     KINDLE_NOTION_TIMEOUT_SECONDS,
+    KindleBookQuotesClient,
     KindleSyncCredentialStore,
     KindleSyncValidationError,
 )
@@ -162,7 +163,7 @@ class BookQuotesSnapshotService:
         current = store.load()
         checked_at = utc_iso()
         try:
-            client = _credential_store().book_quotes_client(
+            client = _book_quotes_client(
                 session=session,
                 timeout_seconds=timeout_seconds,
             )
@@ -584,7 +585,7 @@ def _highlight_payload(projection: BookQuotesProjection) -> dict[str, object]:
         "id": _snapshot_item_key(projection.item),
         "text": str(payload.get("quote") or ""),
         "page": str(payload.get("page") or ""),
-        "location": str(payload.get("location") or ""),
+        "location": _display_location(payload.get("location")),
         "created_at": str(payload.get("created_at") or ""),
         "imported_at": str(payload.get("imported_at") or ""),
         "source": str(payload.get("source") or "Kindle"),
@@ -592,6 +593,16 @@ def _highlight_payload(projection: BookQuotesProjection) -> dict[str, object]:
         "direction": text_direction(str(payload.get("quote") or "")),
         "notion_url": projection.item.notion_url,
     }
+
+
+def _display_location(value: object) -> str:
+    location = " ".join(str(value or "").split())
+    normalized = location.casefold()
+    if normalized.startswith("pos0=") or "docfragment[" in normalized:
+        return ""
+    if normalized.startswith("epubcfi("):
+        return ""
+    return location
 
 
 def _highlight_row(book: object, projection: BookQuotesProjection) -> dict[str, object]:
@@ -691,4 +702,30 @@ def _credential_store() -> KindleSyncCredentialStore:
     return KindleSyncCredentialStore(
         token_path=instance_root / "secrets" / "kindle_book_quotes_token",
         metadata_path=instance_root / "knowledge" / "kindle_sync_credentials.json",
+    )
+
+
+def _book_quotes_client(
+    *,
+    session=None,
+    timeout_seconds: float = KINDLE_NOTION_TIMEOUT_SECONDS,
+) -> KindleBookQuotesClient:
+    token = str(current_app.config.get("DRAGON_NOTION_TOKEN") or "").strip()
+    data_source_id = str(
+        current_app.config.get("DRAGON_BOOK_QUOTES_DATA_SOURCE_ID") or ""
+    ).strip()
+    database_id = str(
+        current_app.config.get("DRAGON_BOOK_QUOTES_DATABASE_ID") or ""
+    ).strip()
+    if token and (data_source_id or database_id):
+        return KindleBookQuotesClient(
+            token=token,
+            target_kind="data_source" if data_source_id else "database",
+            target_id=data_source_id or database_id,
+            session=session,
+            timeout_seconds=timeout_seconds,
+        )
+    return _credential_store().book_quotes_client(
+        session=session,
+        timeout_seconds=timeout_seconds,
     )

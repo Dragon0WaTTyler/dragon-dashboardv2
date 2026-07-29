@@ -197,9 +197,11 @@ def _tv_source_lookup(movie: Movie) -> dict[tuple[int, int], dict[str, PlaybackS
             or source_role == "season_pack_fallback"
             or str(metadata.get("release_mode") or "") == "season_pack"
         )
-        target_episodes = [episode] if episode is not None else []
-        if not target_episodes and season_pack:
-            target_episodes = season_episodes.get(season, [])
+        target_episodes = (
+            season_episodes.get(season, [])
+            if season_pack
+            else ([episode] if episode is not None else [])
+        )
         for target_episode in target_episodes:
             key = (season, int(target_episode))
             bucket = lookup.setdefault(key, {"exact": None, "fallback": None})

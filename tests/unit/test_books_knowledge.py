@@ -15,7 +15,9 @@ from app.books.clippings import (
     remove_clippings_from_outbox,
     reset_clipping_failures,
 )
-from app.books.kindle_sync import KindleSyncCredentialStore
+from app.books.kindle_sync import KindleBookQuotesClient, KindleSyncCredentialStore
+from app.books.book_quotes import BookQuotesProjection, BookQuotesSnapshotItem, _highlight_payload
+from app.books.clippings import KindleClippingMatch
 from app.books.matching import (
     normalize_isbn,
     normalize_title,
@@ -139,6 +141,24 @@ def test_book_projection_falls_back_to_primary_edition_fields(app):
         assert detail["publisher"] == "Edition Publisher"
         assert detail["published_year"] == 2024
         assert detail["isbn_13"] == "9780140449136"
+
+
+def test_finished_book_always_projects_as_complete_progress(app):
+    with app.app_context():
+        book = Book(
+            title="Finished without page metadata",
+            normalized_title="finished without page metadata",
+            status="finished",
+            current_page=0,
+            page_count=0,
+        )
+        db.session.add(book)
+        db.session.commit()
+
+        item = book_item(book)
+
+        assert item["status"] == "finished"
+        assert item["progress_percent"] == 100
 
 
 def test_book_repository_resolves_stable_dragon_book_id(app):
@@ -1093,6 +1113,78 @@ def test_kindle_clipping_matching_uses_known_title_aliases():
 
     assert match.state == "matched"
     assert match.confidence == "known_kindle_title_alias"
+
+
+def test_kindle_clipping_matching_uses_notion_book_relation():
+    book = SimpleNamespace(
+        id="book-1",
+        dragon_book_id="dragon-book-1",
+        title="New technique book",
+        original_title="",
+        authors=[],
+        additional_authors=[],
+        editions=[],
+        metadata_state={},
+        external_ids={"notion_page_id": "8eaf2d10-4dbb-4a31-bef4-2fe718bf4b73"},
+    )
+
+    match = match_clipping_payload(
+        {"book_relation_ids": "8eaf2d104dbb4a31bef42fe718bf4b73"}, [book]
+    )
+
+    assert match.state == "matched"
+    assert match.confidence == "notion_book_relation"
+    assert match.book_id == "book-1"
+
+
+def test_book_quotes_client_reads_the_new_book_relation_field():
+    client = KindleBookQuotesClient(
+        token="test-token",
+        target_kind="data_source",
+        target_id="book-quotes",
+    )
+    client._schema = {
+        "Name": {"type": "title"},
+        "الكتاب": {"type": "relation"},
+        "Quote": {"type": "rich_text"},
+    }
+
+    payload = client.quote_payload_from_page(
+        {
+            "id": "quote-page",
+            "properties": {
+                "Name": {"type": "title", "title": []},
+                "الكتاب": {
+                    "type": "relation",
+                    "relation": [{"id": "8eaf2d10-4dbb-4a31-bef4-2fe718bf4b73"}],
+                },
+                "Quote": {
+                    "type": "rich_text",
+                    "rich_text": [{"plain_text": "New technique quote"}],
+                },
+            },
+        }
+    )
+
+    assert payload["quote"] == "New technique quote"
+    assert payload["book_relation_ids"] == "8eaf2d104dbb4a31bef42fe718bf4b73"
+
+
+def test_highlight_view_hides_technical_reader_locations():
+    projection = BookQuotesProjection(
+        item=BookQuotesSnapshotItem(
+            notion_page_id="quote-page",
+            payload={
+                "quote": "A readable highlight.",
+                "location": "pos0=/body/DocFragment[32]/body/p[12]/text().38",
+            },
+        ),
+        match=KindleClippingMatch(state="matched", confidence="dragon_book_id"),
+    )
+
+    highlight = _highlight_payload(projection)
+
+    assert highlight["location"] == ""
 
 
 def test_kindle_clipping_matching_flags_review_and_ambiguity():

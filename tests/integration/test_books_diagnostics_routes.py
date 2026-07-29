@@ -353,7 +353,7 @@ def test_book_quotes_refresh_surfaces_matched_highlights_on_book_detail(
                             "Name": {"type": "title"},
                             "Book Title": {"type": "rich_text"},
                             "Author": {"type": "rich_text"},
-                            "Dragon Book ID": {"type": "rich_text"},
+                            "Book": {"type": "relation"},
                             "Location": {"type": "rich_text"},
                             "Page": {"type": "number"},
                             "Created At": {"type": "date"},
@@ -386,9 +386,11 @@ def test_book_quotes_refresh_surfaces_matched_highlights_on_book_detail(
                                         "type": "rich_text",
                                         "rich_text": notion_text("Known Author"),
                                     },
-                                    "Dragon Book ID": {
-                                        "type": "rich_text",
-                                        "rich_text": notion_text(dragon_book_id),
+                                    "Book": {
+                                        "type": "relation",
+                                        "relation": [
+                                            {"id": "book-notion-page-1"}
+                                        ],
                                     },
                                     "Location": {
                                         "type": "rich_text",
@@ -425,11 +427,11 @@ def test_book_quotes_refresh_surfaces_matched_highlights_on_book_detail(
             normalized_title="book quotes match",
             authors=["Known Author"],
             metadata_status="verified",
+            external_ids={"notion_page_id": "book-notion-page-1"},
         )
         db.session.add(book)
         db.session.commit()
         book_id = book.id
-        dragon_book_id = book.dragon_book_id
 
     token_path = Path(app.instance_path) / "secrets" / "kindle_book_quotes_token"
     token_path.parent.mkdir(parents=True, exist_ok=True)
@@ -476,7 +478,7 @@ def test_book_quotes_refresh_surfaces_matched_highlights_on_book_detail(
     assert "Pain and suffering are always inevitable." in detail_html
     assert "Location 620-621" in detail_html
     assert "Page 41" in detail_html
-    assert "Refreshed 2026-07-21T13:00:00Z" in detail_html
+    assert "Refreshed 2026-07-21T13:00:00Z" not in detail_html
 
 
 def test_book_quotes_refresh_reports_unmatched_rows_in_diagnostics(

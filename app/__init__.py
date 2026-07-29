@@ -15,7 +15,7 @@ from app.auth import bp as auth_bp
 from app.auth.cli import admin_cli
 from app.auth.forms import LogoutForm
 from app.auth.models import User
-from app.books import bp as books_bp
+from app.books import bp as books_bp, settings_bp as knowledge_settings_bp
 from app.chess import bp as chess_bp
 from app.config import Settings
 from app.core import bp as core_bp
@@ -38,7 +38,12 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     if not (config_override or {}).get("TESTING"):
         load_dotenv(Path.cwd() / ".env", override=False)
     configure_logging()
-    app = Flask(__name__, instance_relative_config=True)
+    instance_path = (config_override or {}).get("INSTANCE_PATH")
+    app = Flask(
+        __name__,
+        instance_relative_config=True,
+        instance_path=str(instance_path) if instance_path else None,
+    )
     Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
     settings = Settings.load(app.instance_path, config_override)
@@ -82,6 +87,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     app.register_blueprint(youtube_bp)
     app.register_blueprint(reading_bp)
     app.register_blueprint(books_bp)
+    app.register_blueprint(knowledge_settings_bp)
     app.register_blueprint(chess_bp)
     app.register_blueprint(german_bp)
     app.register_blueprint(history_bp)
