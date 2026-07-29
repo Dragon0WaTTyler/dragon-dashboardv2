@@ -27,11 +27,28 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
         "&lt;br&gt;&lt;br&gt;"
         "وتبقى نسخة المقال محفوظة محلياً حتى تفتح الصفحة بسرعة في المرات المقبلة."
     )
+    blocks = [
+        {"kind": "text", "text": "هذا نص المقال الكامل الذي تم تحميله بعد اختيار القارئ للمقال."},
+        {
+            "kind": "image",
+            "src": "https://example.test/images/article-inline.jpg",
+            "alt": "صورة داخل المقال",
+        },
+        {
+            "kind": "youtube",
+            "src": "https://www.youtube-nocookie.com/embed/demo-video",
+            "title": "مقطع يوتيوب داخل المقال",
+        },
+        {
+            "kind": "text",
+            "text": "وتبقى نسخة المقال محفوظة محلياً حتى تفتح الصفحة بسرعة في المرات المقبلة.",
+        },
+    ]
 
     class Extractor:
         @staticmethod
         def extract(url):
-            return {"content_text": content, "canonical_url": url}
+            return {"content_text": content, "content_blocks": blocks, "canonical_url": url}
 
     with app.app_context():
         source = ReadingSource(
@@ -51,6 +68,20 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
         article_id = article.id
     app.extensions["dragon_article_extractor"] = Extractor()
 
+    page.route("https://example.test/images/**", lambda route: route.fulfill(
+        status=200,
+        content_type="image/svg+xml",
+        body=(
+            "<svg xmlns='http://www.w3.org/2000/svg' width='1200' height='675'>"
+            "<rect width='1200' height='675' fill='#7d1725'/></svg>"
+        ),
+    ))
+    page.route("https://www.youtube-nocookie.com/**", lambda route: route.fulfill(
+        status=200,
+        content_type="text/html",
+        body="<html><body>Embed</body></html>",
+    ))
+
     page.set_viewport_size({"width": 1440, "height": 900})
     sign_in(page, live_app)
     page.goto(f"{live_app}/reading?view=list")
@@ -59,6 +90,10 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
     page.wait_for_url(f"{live_app}/reading/{article_id}")
 
     assert page.get_by_text("هذا نص المقال الكامل").is_visible()
+    assert page.locator(".article-media--image img").is_visible()
+    assert page.locator(".article-media--video iframe").get_attribute("src") == (
+        "https://www.youtube-nocookie.com/embed/demo-video"
+    )
     assert "<br>" not in page.locator(".article-body").inner_text()
     assert page.get_by_text("Load full article explicitly").count() == 0
     assert page.get_by_text("Full-text cache").count() == 0

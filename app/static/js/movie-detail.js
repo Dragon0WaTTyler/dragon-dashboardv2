@@ -41,10 +41,18 @@
   const captionLayer = player.querySelector("[data-player-captions]");
   const captionChip = player.querySelector("[data-player-caption-chip]");
   const captionText = player.querySelector("[data-player-caption-text]");
+  const subtitlePreset = player.querySelector("[data-player-subtitle-preset]");
   const subtitleSize = player.querySelector("[data-player-subtitle-size]");
   const subtitleSizeLabel = player.querySelector("[data-player-subtitle-size-label]");
+  const subtitlePosition = player.querySelector("[data-player-subtitle-position]");
+  const subtitlePositionLabel = player.querySelector("[data-player-subtitle-position-label]");
+  const subtitleBackground = player.querySelector("[data-player-subtitle-background]");
+  const subtitleOpacity = player.querySelector("[data-player-subtitle-opacity]");
+  const subtitleOpacityLabel = player.querySelector("[data-player-subtitle-opacity-label]");
   const subtitleBlur = player.querySelector("[data-player-subtitle-blur]");
   const subtitleBlurLabel = player.querySelector("[data-player-subtitle-blur-label]");
+  const subtitleShadow = player.querySelector("[data-player-subtitle-shadow]");
+  const subtitleShadowLabel = player.querySelector("[data-player-subtitle-shadow-label]");
   const subtitleOffset = player.querySelector("[data-player-subtitle-offset]");
   const subtitleOffsetLabel = player.querySelector("[data-player-subtitle-offset-label]");
   const subtitleFont = player.querySelector("[data-player-subtitle-font]");
@@ -55,7 +63,66 @@
   const packEpisode = player.querySelector("[data-player-pack-episode]");
   const packStatus = player.querySelector("[data-player-pack-status]");
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
-  const subtitlePrefsKey = "dragon:subtitle-style:v1";
+  const initialParams = new URLSearchParams(window.location.search);
+  const subtitlePrefsLegacyKey = "dragon:subtitle-style:v1";
+  const subtitlePrefsKey = "dragon:subtitle-style:v2";
+  const subtitlePresetValues = {
+    netflix: {
+      size: 32,
+      position: 13,
+      background: "shadow",
+      backgroundOpacity: 25,
+      blur: 0,
+      shadow: 90,
+      offset: 0,
+      color: "#ffffff",
+      font: "noto-arabic",
+    },
+    youtube: {
+      size: 30,
+      position: 11,
+      background: "box",
+      backgroundOpacity: 60,
+      blur: 0,
+      shadow: 65,
+      offset: 0,
+      color: "#ffffff",
+      font: "noto-arabic",
+    },
+    "arabic-clear": {
+      size: 38,
+      position: 13,
+      background: "shadow",
+      backgroundOpacity: 18,
+      blur: 0,
+      shadow: 100,
+      offset: 0,
+      color: "#ffffff",
+      font: "cairo",
+    },
+    "high-contrast": {
+      size: 34,
+      position: 12,
+      background: "box",
+      backgroundOpacity: 82,
+      blur: 0,
+      shadow: 100,
+      offset: 0,
+      color: "#ffffff",
+      font: "cairo",
+    },
+    minimal: {
+      size: 30,
+      position: 12,
+      background: "off",
+      backgroundOpacity: 0,
+      blur: 0,
+      shadow: 55,
+      offset: 0,
+      color: "#ffffff",
+      font: "tajawal",
+    },
+  };
   let sourceUrl = "";
   let localSession = null;
   let pollTimer = 0;
@@ -72,13 +139,15 @@
   let subtitlePanelOpen = false;
   let selectedSubtitleIndex = -1;
   let subtitleEntries = [];
-  let subtitlePreferences = {
-    size: 30,
-    blur: 0,
-    offset: 0,
-    color: "#ffffff",
-    font: "plex",
-  };
+  let subtitlePreferencesLanguage = "default";
+  let subtitlePreferences = null;
+  let captionFitSize = null;
+  let captionFitSignature = "";
+  let savedProgress = null;
+  let progressLoaded = false;
+  let progressSaveTimer = 0;
+  let lastProgressSentAt = 0;
+  let progressRequestToken = 0;
   const effectiveCurrentTime = () => {
     const playbackOffset = Number(localSession?.playbackOffset || 0);
     return playbackOffset + Number(video.currentTime || 0);
@@ -134,32 +203,85 @@
     if (!subtitleStatus) return;
     subtitleStatus.textContent = message;
   };
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value)));
   const subtitleFontFamily = (value) => ({
-    plex: "\"IBM Plex Sans\", sans-serif",
-    inter: "Inter, \"IBM Plex Sans\", sans-serif",
-    serif: "\"Merriweather\", Georgia, serif",
-    mono: "\"IBM Plex Mono\", monospace",
-  }[value] || "\"IBM Plex Sans\", sans-serif");
-  const loadSubtitlePreferences = () => {
+    "noto-arabic": "var(--font-arabic-clear)",
+    cairo: "\"Cairo\", \"Noto Sans Arabic\", \"Segoe UI\", Tahoma, sans-serif",
+    tajawal: "\"Tajawal\", \"Noto Sans Arabic\", \"Segoe UI\", Tahoma, sans-serif",
+    plex: "\"IBM Plex Sans\", var(--font-arabic-clear)",
+    inter: "Inter, \"IBM Plex Sans\", var(--font-arabic-clear)",
+    mono: "\"IBM Plex Mono\", \"Cascadia Mono\", monospace",
+  }[value] || "var(--font-arabic-clear)");
+  const defaultSubtitlePreferences = (language = "default") => ({
+    preset: language === "ar" ? "arabic-clear" : "netflix",
+    ...(language === "ar" ? subtitlePresetValues["arabic-clear"] : subtitlePresetValues.netflix),
+    font: language === "ar" ? "cairo" : "plex",
+  });
+  const sanitizeSubtitlePreferences = (raw, language = "default") => {
+    const defaults = defaultSubtitlePreferences(language);
+    const merged = { ...defaults, ...(raw && typeof raw === "object" ? raw : {}) };
+    const preset = merged.preset === "custom" || subtitlePresetValues[merged.preset]
+      ? merged.preset
+      : defaults.preset;
+    const font = ["noto-arabic", "cairo", "tajawal", "plex", "inter", "mono"].includes(merged.font)
+      ? merged.font
+      : defaults.font;
+    const background = ["off", "shadow", "box", "blur"].includes(merged.background)
+      ? merged.background
+      : defaults.background;
+    const color = /^#[0-9a-f]{6}$/i.test(String(merged.color || "")) ? merged.color : defaults.color;
+    return {
+      preset,
+      size: clamp(merged.size, 20, 96),
+      position: clamp(merged.position, 8, 62),
+      background,
+      backgroundOpacity: clamp(merged.backgroundOpacity, 0, 90),
+      blur: clamp(merged.blur, 0, 24),
+      shadow: clamp(merged.shadow, 0, 100),
+      offset: clamp(merged.offset, -5, 5),
+      color,
+      font,
+    };
+  };
+  const subtitlePrefsStorageKey = (language = "default") => `${subtitlePrefsKey}:${language || "default"}`;
+  const loadSubtitlePreferences = (language = "default") => {
+    subtitlePreferencesLanguage = language || "default";
     try {
-      const raw = window.localStorage.getItem(subtitlePrefsKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (typeof parsed !== "object" || !parsed) return;
-      subtitlePreferences = {
-        ...subtitlePreferences,
-        ...parsed,
-      };
+      const raw = window.localStorage.getItem(subtitlePrefsStorageKey(subtitlePreferencesLanguage))
+        || (subtitlePreferencesLanguage === "default" ? window.localStorage.getItem(subtitlePrefsLegacyKey) : "");
+      subtitlePreferences = sanitizeSubtitlePreferences(raw ? JSON.parse(raw) : null, subtitlePreferencesLanguage);
     } catch (_error) {
-      // Ignore broken local storage and continue with defaults.
+      subtitlePreferences = sanitizeSubtitlePreferences(null, subtitlePreferencesLanguage);
     }
   };
   const saveSubtitlePreferences = () => {
+    if (!subtitlePreferences) return;
     try {
-      window.localStorage.setItem(subtitlePrefsKey, JSON.stringify(subtitlePreferences));
+      window.localStorage.setItem(
+        subtitlePrefsStorageKey(subtitlePreferencesLanguage),
+        JSON.stringify({ ...subtitlePreferences, version: 2 }),
+      );
     } catch (_error) {
       // Local storage is a nice-to-have only.
     }
+  };
+  const applySubtitlePreset = (preset) => {
+    if (!subtitlePreferences || !subtitlePresetValues[preset]) return;
+    subtitlePreferences = sanitizeSubtitlePreferences({
+      ...subtitlePreferences,
+      ...subtitlePresetValues[preset],
+      preset,
+    }, subtitlePreferencesLanguage);
+    resetCaptionFit();
+    updateSubtitlePreferenceLabels();
+    renderActiveCaption();
+    saveSubtitlePreferences();
+  };
+  const updateSubtitleSizeLabel = () => {
+    if (!subtitleSizeLabel || !subtitlePreferences) return;
+    const requested = Number(subtitlePreferences.size || 0);
+    subtitleSizeLabel.textContent = `${requested}px`;
+    subtitleSizeLabel.removeAttribute("title");
   };
   const setSubtitleScreen = (screen) => {
     subtitleScreens.forEach((element) => {
@@ -179,12 +301,21 @@
     }
   };
   const updateSubtitlePreferenceLabels = () => {
+    if (!subtitlePreferences) loadSubtitlePreferences(subtitlePreferencesLanguage);
+    if (subtitlePreset) subtitlePreset.value = subtitlePreferences.preset;
     if (subtitleSize && Number(subtitleSize.value) !== Number(subtitlePreferences.size)) subtitleSize.value = String(subtitlePreferences.size);
+    if (subtitlePosition && Number(subtitlePosition.value) !== Number(subtitlePreferences.position)) subtitlePosition.value = String(subtitlePreferences.position);
+    if (subtitleBackground) subtitleBackground.value = subtitlePreferences.background;
+    if (subtitleOpacity && Number(subtitleOpacity.value) !== Number(subtitlePreferences.backgroundOpacity)) subtitleOpacity.value = String(subtitlePreferences.backgroundOpacity);
     if (subtitleBlur && Number(subtitleBlur.value) !== Number(subtitlePreferences.blur)) subtitleBlur.value = String(subtitlePreferences.blur);
+    if (subtitleShadow && Number(subtitleShadow.value) !== Number(subtitlePreferences.shadow)) subtitleShadow.value = String(subtitlePreferences.shadow);
     if (subtitleOffset && Number(subtitleOffset.value) !== Number(subtitlePreferences.offset)) subtitleOffset.value = String(subtitlePreferences.offset);
     if (subtitleFont) subtitleFont.value = subtitlePreferences.font;
-    if (subtitleSizeLabel) subtitleSizeLabel.textContent = `${subtitlePreferences.size}px`;
+    updateSubtitleSizeLabel();
+    if (subtitlePositionLabel) subtitlePositionLabel.textContent = `${subtitlePreferences.position}%`;
+    if (subtitleOpacityLabel) subtitleOpacityLabel.textContent = `${subtitlePreferences.backgroundOpacity}%`;
     if (subtitleBlurLabel) subtitleBlurLabel.textContent = `${Math.round((subtitlePreferences.blur / 24) * 100)}%`;
+    if (subtitleShadowLabel) subtitleShadowLabel.textContent = `${subtitlePreferences.shadow}%`;
     if (subtitleOffsetLabel) {
       const offset = Number(subtitlePreferences.offset || 0);
       subtitleOffsetLabel.textContent = `${offset > 0 ? "+" : ""}${offset.toFixed(1)}s`;
@@ -193,9 +324,15 @@
       button.classList.toggle("is-active", button.dataset.color === subtitlePreferences.color);
     });
     player.style.setProperty("--caption-size", `${subtitlePreferences.size}px`);
+    player.style.setProperty("--caption-position", `${subtitlePreferences.position}%`);
+    player.style.setProperty("--caption-bg-opacity", `${subtitlePreferences.backgroundOpacity}%`);
     player.style.setProperty("--caption-blur", `${subtitlePreferences.blur}px`);
+    player.style.setProperty("--caption-shadow-alpha", `${subtitlePreferences.shadow}%`);
+    player.style.setProperty("--caption-shadow-blur", `${Math.round(4 + subtitlePreferences.shadow / 5)}px`);
     player.style.setProperty("--caption-color", subtitlePreferences.color);
     player.style.setProperty("--caption-font-family", subtitleFontFamily(subtitlePreferences.font));
+    player.style.setProperty("--caption-weight", subtitlePreferences.font === "mono" ? "600" : "700");
+    player.dataset.captionBackground = subtitlePreferences.background;
   };
   const formatTime = (seconds) => {
     const value = Math.max(0, Number(seconds || 0));
@@ -251,6 +388,47 @@
     if (!option?.value || !text) return "";
     return text.replace(/^E\d+\s*[·:-]\s*/i, "").trim();
   };
+  const configuredSelectedSeason = () => Number(player.dataset.selectedSeason || 0) || null;
+  const configuredSelectedEpisode = () => Number(player.dataset.selectedEpisode || 0) || null;
+  const configuredSelectedEpisodeTitle = () => String(player.dataset.selectedEpisodeTitle || "").trim();
+  const requestedEpisodeFromUrl = (season) => {
+    const querySeason = Number(initialParams.get("season") || 0) || null;
+    const queryEpisode = Number(initialParams.get("episode") || 0) || null;
+    return querySeason === Number(season || 0) && queryEpisode ? queryEpisode : null;
+  };
+  const selectedEpisodeScope = () => {
+    if (player.dataset.mediaType !== "tv" || selectedKind() !== "local") {
+      return { season: null, episode: null };
+    }
+    const meta = selectedSourceMeta();
+    if (!meta) return { season: null, episode: null };
+    const season = activeSelection.season || configuredSelectedSeason() || meta.season || null;
+    const episode = activeSelection.episode
+      || (meta.seasonPack
+        ? (
+          Number(packEpisode?.value || 0)
+          || configuredSelectedEpisode()
+          || requestedEpisodeFromUrl(season)
+          || meta.episode
+          || null
+        )
+        : (configuredSelectedEpisode() || meta.episode || null));
+    return { season, episode };
+  };
+  const syncEpisodeUrl = ({ replace = false } = {}) => {
+    if (player.dataset.mediaType !== "tv" || !window.history) return;
+    const { season, episode } = selectedEpisodeScope();
+    const url = new URL(window.location.href);
+    if (season && episode) {
+      url.searchParams.set("season", String(season));
+      url.searchParams.set("episode", String(episode));
+    } else {
+      url.searchParams.delete("season");
+      url.searchParams.delete("episode");
+    }
+    if (url.toString() === window.location.href) return;
+    window.history[replace ? "replaceState" : "pushState"]({}, "", url);
+  };
   const configuredRuntimeSeconds = () => {
     const runtime = Number(player.dataset.runtimeSeconds || 0);
     return Number.isFinite(runtime) && runtime > 0 ? runtime : null;
@@ -290,6 +468,7 @@
     if (!mediaShell) return;
     mediaShell.dataset.fullscreen = document.fullscreenElement === mediaShell ? "true" : "false";
     showControlsBriefly();
+    window.requestAnimationFrame(() => renderActiveCaption());
   };
   const syncQuickControls = () => {
     if (mediaShell) {
@@ -312,8 +491,10 @@
     const meta = selectedSourceMeta();
     const season = activeSelection.season || meta?.season || null;
     const episode = activeSelection.episode
-      || (meta?.seasonPack ? (Number(packEpisode?.value || 0) || null) : (meta?.episode || null));
-    const episodeTitle = activeSelection.episodeTitle || selectedEpisodeTitle();
+      || (meta?.seasonPack
+        ? (Number(packEpisode?.value || 0) || configuredSelectedEpisode() || null)
+        : (configuredSelectedEpisode() || meta?.episode || null));
+    const episodeTitle = activeSelection.episodeTitle || selectedEpisodeTitle() || configuredSelectedEpisodeTitle();
     const url = new URL(endpoint, window.location.origin);
     if (player.dataset.mediaType === "tv") {
       if (season) url.searchParams.set("season", String(season));
@@ -337,6 +518,104 @@
     if (!bytes) return "0 MB";
     const megabytes = bytes / 1024 / 1024;
     return `${megabytes.toFixed(megabytes >= 100 ? 0 : 1)} MB`;
+  };
+  const progressTarget = () => {
+    const endpoint = String(player.dataset.progressEndpoint || "").trim();
+    if (!endpoint) return { url: "", season: null, episode: null };
+    const { season, episode } = selectedEpisodeScope();
+    const url = new URL(endpoint, window.location.origin);
+    if (player.dataset.mediaType === "tv") {
+      if (!season || !episode) return { url: "", season: null, episode: null };
+      url.searchParams.set("season", String(season));
+      url.searchParams.set("episode", String(episode));
+    }
+    return { url: url.toString(), season, episode };
+  };
+  const progressTargetsMatch = (left, right) => {
+    const leftUrl = String(left?.url || "").trim();
+    const rightUrl = String(right?.url || "").trim();
+    return Boolean(leftUrl) && leftUrl === rightUrl;
+  };
+  const loadSavedProgress = async () => {
+    const target = progressTarget();
+    const requestToken = ++progressRequestToken;
+    savedProgress = null;
+    if (!target.url) {
+      progressLoaded = true;
+      syncSourceUi();
+      return;
+    }
+    try {
+      const response = await fetch(target.url, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error?.message || "Progress unavailable");
+      if (requestToken !== progressRequestToken) return;
+      const progress = payload?.item?.progress || null;
+      const seconds = Number(progress?.current_seconds || 0);
+      const duration = Number(progress?.duration_seconds || 0);
+      const percent = Number(progress?.percent || 0);
+      if (!progress?.completed && seconds >= 30 && percent < 92) {
+        savedProgress = { seconds, duration, season: target.season, episode: target.episode };
+      }
+    } catch (_error) {
+      savedProgress = null;
+    } finally {
+      if (requestToken !== progressRequestToken) return;
+      progressLoaded = true;
+      syncSourceUi();
+    }
+  };
+  const saveMovieProgress = async ({ force = false, keepalive = false } = {}) => {
+    const target = progressTarget();
+    const duration = Math.round(displayDurationSeconds());
+    const current = Math.round(effectiveCurrentTime());
+    if (!target.url || activeKind !== "local" || !duration || current < 5) return;
+    const now = Date.now();
+    if (!force && now - lastProgressSentAt < 10000) return;
+    lastProgressSentAt = now;
+    const completed = duration > 0 && current / duration >= 0.92;
+    try {
+      const response = await fetch(target.url, {
+        method: "PUT",
+        credentials: "same-origin",
+        keepalive: Boolean(keepalive),
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrf,
+        },
+        body: JSON.stringify({
+          season: target.season,
+          episode: target.episode,
+          current_seconds: current,
+          duration_seconds: duration,
+          completed,
+          client_updated_at: new Date().toISOString(),
+        }),
+      });
+      if (!response.ok) throw new Error("Progress save failed.");
+      const activeTarget = progressTarget();
+      if (progressTargetsMatch(target, activeTarget)) {
+        savedProgress = completed
+          ? null
+          : { seconds: current, duration, season: target.season, episode: target.episode };
+        progressLoaded = true;
+        syncSourceUi();
+      }
+    } catch (_error) {
+      // Progress save should never interrupt playback.
+      lastProgressSentAt = 0;
+    }
+  };
+  const scheduleProgressSave = () => {
+    window.clearTimeout(progressSaveTimer);
+    progressSaveTimer = window.setTimeout(() => {
+      progressSaveTimer = 0;
+      void saveMovieProgress();
+    }, 800);
   };
 
   const reportWatchStarted = async () => {
@@ -362,6 +641,201 @@
     window.clearTimeout(videoPaintCheckTimer);
     videoPaintCheckTimer = 0;
   };
+  const resetCaptionDirection = () => {
+    player.dataset.captionLanguage = "";
+    captionChip?.removeAttribute("dir");
+    captionText?.removeAttribute("dir");
+  };
+  const balanceCaptionLines = (
+    text,
+    {
+      maxLines = 2,
+      targetLength = 28,
+      maxWidth = Number.POSITIVE_INFINITY,
+      measureLine = null,
+    } = {},
+  ) => {
+    const compact = String(text || "").replace(/\s+/g, " ").trim();
+    if (!compact) return [];
+    if (maxLines <= 1 || compact.length <= targetLength || !compact.includes(" ")) return [compact];
+    const words = compact.split(" ").filter(Boolean);
+    if (words.length < 4) return [compact];
+    const memo = new Map();
+    const scoreLine = (line) => {
+      const length = line.replace(/[\u200E\u200F\u2066-\u2069]/gu, "").length;
+      const measuredWidth = typeof measureLine === "function" ? measureLine(line) : 0;
+      const overflow = Number.isFinite(maxWidth) ? Math.max(0, measuredWidth - maxWidth) : 0;
+      return (Math.abs(length - targetLength) * 0.7)
+        + (Math.max(0, length - targetLength) ** 2 * 1.5)
+        + (length < 10 ? (10 - length) * 2.5 : 0)
+        + (overflow * overflow * 4);
+    };
+    const solve = (startIndex, linesRemaining) => {
+      const key = `${startIndex}:${linesRemaining}`;
+      if (memo.has(key)) return memo.get(key);
+      if (startIndex >= words.length) {
+        const empty = { score: 0, lines: [] };
+        memo.set(key, empty);
+        return empty;
+      }
+      const wordsLeft = words.length - startIndex;
+      if (linesRemaining <= 1 || wordsLeft <= 1) {
+        const line = words.slice(startIndex).join(" ").trim();
+        const terminal = { score: scoreLine(line), lines: [line] };
+        memo.set(key, terminal);
+        return terminal;
+      }
+      let best = null;
+      const maxBreak = words.length - (linesRemaining - 1);
+      for (let breakIndex = startIndex + 1; breakIndex <= maxBreak; breakIndex += 1) {
+        const current = words.slice(startIndex, breakIndex).join(" ").trim();
+        if (!current) continue;
+        const rest = solve(breakIndex, linesRemaining - 1);
+        const totalScore = scoreLine(current) + rest.score;
+        if (!best || totalScore < best.score) {
+          best = {
+            score: totalScore,
+            lines: [current, ...rest.lines],
+          };
+        }
+      }
+      const fallback = best || { score: scoreLine(compact), lines: [compact] };
+      memo.set(key, fallback);
+      return fallback;
+    };
+    const desiredLines = clamp(Math.ceil(compact.length / targetLength), 2, maxLines);
+    let best = null;
+    for (let lineCount = desiredLines; lineCount <= Math.min(maxLines, words.length); lineCount += 1) {
+      const candidate = solve(0, lineCount);
+      const fits = candidate.lines.every((line) => (
+        typeof measureLine !== "function" || measureLine(line) <= maxWidth
+      ));
+      if (fits) return candidate.lines.filter(Boolean);
+      if (!best || candidate.score < best.score) best = candidate;
+    }
+    return (best?.lines || [compact]).filter(Boolean);
+  };
+  const captionLayoutMetrics = () => {
+    const shellWidth = Math.max(
+      320,
+      Number(mediaShell?.getBoundingClientRect().width || player.getBoundingClientRect().width || 1280),
+    );
+    const horizontalInset = clamp(shellWidth * 0.03, 18, 34) * 2;
+    const boxedCaption = !["off", "shadow"].includes(subtitlePreferences?.background || "shadow");
+    return {
+      shellWidth,
+      availableWidth: Math.max(240, shellWidth - horizontalInset - (boxedCaption ? 40 : 0)),
+    };
+  };
+  const captionLineMeasurer = (fontSize) => {
+    const measurementCanvas = document.createElement("canvas");
+    const context = measurementCanvas.getContext("2d");
+    if (!context || !captionText) return null;
+    const computedTextStyle = window.getComputedStyle(captionText);
+    context.font = `${computedTextStyle.fontWeight} ${fontSize}px ${computedTextStyle.fontFamily}`;
+    return (line) => context.measureText(
+      String(line || "").replace(/[\u200E\u200F\u2066-\u2069]/gu, "").trim(),
+    ).width + 4;
+  };
+  const captionLines = (value, language) => {
+    const lines = String(value || "")
+      .trim()
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+    if (language !== "ar") return lines;
+    const normalizedLines = lines.map((line) => {
+      const normalized = line
+        .replace(/^[\s\u200E\u200F\u2066-\u2069]*[-–]\s*/u, "")
+        .replace(/\s*[-–][\s\u200E\u200F\u2066-\u2069]*$/u, "")
+        .trim();
+      return normalized === line ? line : `\u2067-\u00A0${normalized}\u2069`;
+    });
+    const dialogueLines = normalizedLines.filter((line) => (
+      line.replace(/[\u200E\u200F\u2066-\u2069]/gu, "").trim().startsWith("-")
+    ));
+    if (dialogueLines.length === 2 && normalizedLines.length === 2) return normalizedLines;
+    const collapsed = normalizedLines.join(" ").replace(/\s+/g, " ").trim();
+    const requestedSize = Number(subtitlePreferences?.size || 36);
+    const { availableWidth } = captionLayoutMetrics();
+    const targetLength = clamp(
+      Math.floor(availableWidth / Math.max(1, requestedSize * 0.54)),
+      18,
+      30,
+    );
+    return balanceCaptionLines(collapsed, {
+      maxLines: 2,
+      targetLength,
+      maxWidth: availableWidth,
+      measureLine: captionLineMeasurer(requestedSize),
+    });
+  };
+  const clearCaptionText = () => {
+    captionText.replaceChildren();
+    captionText.textContent = "";
+    captionText.removeAttribute("lang");
+  };
+  const resetCaptionFit = () => {
+    captionFitSize = null;
+    captionFitSignature = "";
+    captionText?.style.removeProperty("--caption-effective-size");
+  };
+  const computeCaptionFit = (entry, language = "default", { force = false } = {}) => {
+    if (!captionChip || !captionText || language !== "ar") {
+      resetCaptionFit();
+      return;
+    }
+    if (!entry?.cues?.length) return;
+    const preferredSize = Math.min(Number(subtitlePreferences?.size || 34), 118);
+    const { availableWidth } = captionLayoutMetrics();
+    const widthBucket = Math.round(availableWidth / 24);
+    const signature = [
+      selectedSubtitleIndex,
+      subtitlePreferencesLanguage,
+      subtitlePreferences?.font || "",
+      subtitlePreferences?.size || "",
+      entry.cues.length,
+      widthBucket,
+    ].join(":");
+    if (!force && signature === captionFitSignature && captionFitSize) {
+      captionText.style.setProperty("--caption-effective-size", `${captionFitSize}px`);
+      updateSubtitleSizeLabel();
+      return;
+    }
+    captionFitSignature = signature;
+    captionFitSize = preferredSize;
+    captionText.style.setProperty("--caption-effective-size", `${captionFitSize}px`);
+    updateSubtitleSizeLabel();
+  };
+  const fitCaptionText = (entry, language = "default") => {
+    if (!captionText) return;
+    computeCaptionFit(entry, language);
+    if (captionFitSize) {
+      captionText.style.setProperty("--caption-effective-size", `${captionFitSize}px`);
+    } else {
+      captionText.style.removeProperty("--caption-effective-size");
+    }
+  };
+  const renderCaptionLines = (lines = [], language = "default") => {
+    const normalized = lines
+      .map((line) => String(line || "").trim())
+      .filter(Boolean);
+    if (!normalized.length) {
+      clearCaptionText();
+      return;
+    }
+    const fragment = document.createDocumentFragment();
+    normalized.forEach((line) => {
+      const lineElement = document.createElement("span");
+      lineElement.className = "movie-player__caption-line";
+      lineElement.dir = language === "ar" ? "rtl" : "auto";
+      lineElement.textContent = line;
+      fragment.append(lineElement);
+    });
+    captionText.replaceChildren(fragment);
+    if (language) captionText.lang = language;
+    else captionText.removeAttribute("lang");
+  };
   const setPackStatus = (message = "") => {
     if (!packStatus) return;
     packStatus.textContent = message;
@@ -383,7 +857,7 @@
     const meta = selectedSourceMeta();
     if (!meta?.seasonPack) return false;
     const season = Number(meta.season || 0) || null;
-    const episode = Number(packEpisode?.value || 0) || null;
+    const episode = Number(packEpisode?.value || 0) || meta.episode || null;
     launchTitle.textContent = "Play selected episode from pack";
     if (!season) {
       launch.disabled = true;
@@ -398,7 +872,12 @@
       return true;
     }
     launch.disabled = false;
-    setStatus(`Ready to play S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")} from the selected season pack.`);
+    if (savedProgress?.seconds) {
+      launchTitle.textContent = `Resume selected episode from ${formatTime(savedProgress.seconds)}`;
+      setStatus(`Ready to resume S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")} from ${formatTime(savedProgress.seconds)}.`);
+    } else {
+      setStatus(`Ready to play S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")} from the selected season pack.`);
+    }
     setPackStatus("");
     return true;
   };
@@ -459,9 +938,11 @@
       }
       packEpisode.disabled = packEpisode.options.length <= 1;
       packBrowser.dataset.loadedSeason = String(season);
-      if (meta.episode) {
-        packEpisode.value = String(meta.episode);
-      }
+      const queryEpisode = requestedEpisodeFromUrl(season);
+      if (queryEpisode) packEpisode.value = String(queryEpisode);
+      else if (meta.episode) packEpisode.value = String(meta.episode);
+      syncEpisodeUrl({ replace: true });
+      void loadSavedProgress();
       syncPackLaunchState();
     } catch (error) {
       packEpisode.disabled = true;
@@ -472,11 +953,13 @@
 
   const renderActiveCaption = () => {
     if (!captionLayer || !captionChip || !captionText) return;
+    if (!subtitlePreferences) loadSubtitlePreferences(subtitlePreferencesLanguage);
     const entry = subtitleEntries[selectedSubtitleIndex] || null;
     if (!entry?.ready || !entry.cues?.length) {
       captionLayer.hidden = true;
       captionChip.hidden = true;
-      captionText.textContent = "";
+      clearCaptionText();
+      resetCaptionDirection();
       return;
     }
     const moment = effectiveCurrentTime() + Number(subtitlePreferences.offset || 0);
@@ -484,12 +967,24 @@
     if (!active.length) {
       captionLayer.hidden = true;
       captionChip.hidden = true;
-      captionText.textContent = "";
+      clearCaptionText();
+      resetCaptionDirection();
       return;
     }
-    captionText.textContent = active.map((cue) => String(cue.text || "").trim()).filter(Boolean).join("\n");
+    const language = String(entry.item?.language || "").toLowerCase();
+    const isArabic = language === "ar";
+    player.dataset.captionLanguage = isArabic ? "ar" : "default";
+    captionChip.dir = isArabic ? "rtl" : "auto";
+    captionText.dir = isArabic ? "rtl" : "auto";
+    renderCaptionLines(
+      active.flatMap((cue) => captionLines(cue.text, language)),
+      language,
+    );
     captionLayer.hidden = false;
     captionChip.hidden = false;
+    fitCaptionText(entry, language);
+    window.requestAnimationFrame(() => fitCaptionText(entry, language));
+    document.fonts?.ready.then(() => computeCaptionFit(entry, language, { force: true })).catch(() => {});
   };
 
   const refreshSubtitleList = () => {
@@ -578,6 +1073,7 @@
   };
 
   const setActiveSubtitleIndex = (index) => {
+    resetCaptionFit();
     selectedSubtitleIndex = index;
     refreshSubtitleList();
     if (selectedSubtitleIndex < 0) {
@@ -589,6 +1085,11 @@
     }
     const entry = subtitleEntries[selectedSubtitleIndex];
     if (!entry) return;
+    const language = String(entry.item?.language || "default").toLowerCase();
+    if (language !== subtitlePreferencesLanguage) {
+      loadSubtitlePreferences(language);
+      updateSubtitlePreferenceLabels();
+    }
     if (!entry.ready) {
       setSubtitleStatus(`Loading ${entry.label}…`);
       void loadSubtitleEntry(entry);
@@ -687,8 +1188,11 @@
   };
 
   const stopLocal = async ({ silent = false } = {}) => {
+    await saveMovieProgress({ force: true });
     clearPoll();
     clearVideoPaintCheck();
+    window.clearTimeout(progressSaveTimer);
+    progressSaveTimer = 0;
     clearSubtitleTracks();
     activeSelection = { season: null, episode: null, episodeTitle: "", runtimeSeconds: null };
     setSubtitlePanelOpen(false);
@@ -716,6 +1220,7 @@
   const resetViewport = () => {
     clearVideoPaintCheck();
     setWatchMode(false);
+    activeKind = "";
     sourceUrl = "";
     frame.src = "about:blank";
     frame.hidden = true;
@@ -744,7 +1249,12 @@
     } else {
       hidePackBrowser();
       launch.disabled = false;
-      setStatus("Ready. The magnet will start only after you press play.");
+      if (savedProgress?.seconds) {
+        launchTitle.textContent = `Resume from ${formatTime(savedProgress.seconds)}`;
+        setStatus(`Ready to resume local playback from ${formatTime(savedProgress.seconds)}. The magnet starts only after you press play.`);
+      } else {
+        setStatus("Ready. The magnet will start only after you press play.");
+      }
     }
     if (subtitleStatus) {
       if (kind === "vidsrc") {
@@ -860,27 +1370,29 @@
   };
 
   const pollLocal = async () => {
-    if (!localSession) return;
+    const session = localSession;
+    if (!session) return;
     try {
-      const response = await fetch(localSession.statusUrl, {
+      const response = await fetch(session.statusUrl, {
         credentials: "same-origin",
         headers: { Accept: "application/json" },
       });
       const payload = await response.json();
+      if (localSession !== session) return;
       if (!response.ok) throw new Error(payload?.error?.message || "Local player unavailable");
       renderLocalStatus(payload.session || {});
       if (payload.session?.state === "failed") {
         throw new Error(payload.session.message || "Local player failed");
       }
       if (payload.session?.state === "ready") {
-        localSession.streamUrl = payload.session.stream_url || localSession.streamUrl;
-        localSession.transcodeUrl = payload.session.transcode_url || localSession.transcodeUrl;
-        localSession.streamKind = payload.session.stream_kind || localSession.streamKind || "direct";
+        session.streamUrl = payload.session.stream_url || session.streamUrl;
+        session.transcodeUrl = payload.session.transcode_url || session.transcodeUrl;
+        session.streamKind = payload.session.stream_kind || session.streamKind || "direct";
         if (!video.hasAttribute("src")) {
           const playbackUrl = localPlaybackUrl();
           if (!playbackUrl) {
             throw new Error(
-              localSession.streamKind === "transcode"
+              session.streamKind === "transcode"
                 ? "Local transcode URL is unavailable"
                 : "Direct local stream URL is unavailable"
             );
@@ -892,7 +1404,7 @@
           video.preload = "auto";
           setPlayerState(
             "buffering",
-            localSession.streamKind === "transcode"
+            session.streamKind === "transcode"
               ? "Local transcoding started. Preparing an MP4 stream for the browser…"
               : "Direct stream connected. Buffering the first playable range…"
           );
@@ -903,6 +1415,7 @@
       }
       pollTimer = window.setTimeout(pollLocal, payload.session?.complete ? 5000 : 1000);
     } catch (error) {
+      if (localSession !== session) return;
       showError(String(error?.message || "Local player unavailable"));
     }
   };
@@ -923,8 +1436,8 @@
     activeSelection = {
       season: Number(selection.season || 0) || null,
       episode: Number(selection.episode || 0) || null,
-      episodeTitle: selection.episodeTitle || selectedEpisodeTitle(),
-      runtimeSeconds: selectedEpisodeRuntimeSeconds(),
+      episodeTitle: selection.episodeTitle || selectedEpisodeTitle() || configuredSelectedEpisodeTitle(),
+      runtimeSeconds: selectedEpisodeRuntimeSeconds() || configuredRuntimeSeconds(),
     };
     localSession = {
       statusUrl: payload.status_url,
@@ -932,7 +1445,8 @@
       transcodeUrl: payload.transcode_url,
       streamKind: payload.session?.stream_kind || "direct",
       stopUrl: payload.stop_url,
-      playbackOffset: 0,
+      playbackOffset: Number(selection.resumeSeconds || 0) || 0,
+      pendingDirectSeek: Number(selection.resumeSeconds || 0) || 0,
       transcodeNonce: 0,
     };
     launch.hidden = true;
@@ -982,16 +1496,37 @@
     await stopLocal({ silent: true });
     subtitleOptions = null;
     subtitleOptionsKey = "";
+    savedProgress = null;
+    progressLoaded = false;
+    lastProgressSentAt = 0;
+    activeSelection.season = configuredSelectedSeason() || selectedSourceMeta()?.season || null;
+    activeSelection.episode = configuredSelectedEpisode() || selectedSourceMeta()?.episode || null;
+    activeSelection.runtimeSeconds = configuredRuntimeSeconds();
+    activeSelection.episodeTitle = configuredSelectedEpisodeTitle();
     resetViewport();
+    syncEpisodeUrl();
     syncSourceUi();
+    void loadSavedProgress();
   });
-  packEpisode?.addEventListener("change", () => {
+  packEpisode?.addEventListener("change", async () => {
+    const localWasActive = activeKind === "local" && (Boolean(localSession) || !video.hidden || video.hasAttribute("src"));
+    if (localWasActive) {
+      await stopLocal({ silent: true });
+      resetViewport();
+    }
     subtitleOptions = null;
     subtitleOptionsKey = "";
+    savedProgress = null;
+    progressLoaded = false;
+    lastProgressSentAt = 0;
+    activeSelection.season = selectedSourceMeta()?.season || null;
+    activeSelection.episode = Number(packEpisode.value || 0) || null;
     activeSelection.runtimeSeconds = selectedEpisodeRuntimeSeconds();
     activeSelection.episodeTitle = selectedEpisodeTitle();
-    syncPackLaunchState();
+    syncEpisodeUrl();
+    syncSourceUi();
     syncTimeline();
+    void loadSavedProgress();
   });
 
   launch.addEventListener("click", async () => {
@@ -1000,12 +1535,15 @@
     try {
       if (activeKind === "local") {
         const meta = selectedSourceMeta();
-        const selection = meta?.seasonPack
+        const scope = selectedEpisodeScope();
+        const selection = scope.season || scope.episode
           ? {
-            season: Number(meta.season || 0) || null,
-            episode: Number(packEpisode?.value || 0) || null,
+            season: scope.season,
+            episode: scope.episode,
+            episodeTitle: activeSelection.episodeTitle || configuredSelectedEpisodeTitle() || selectedEpisodeTitle(),
           }
           : {};
+        if (savedProgress?.seconds) selection.resumeSeconds = savedProgress.seconds;
         if (meta?.seasonPack && !selection.episode) {
           syncPackLaunchState();
           return;
@@ -1088,34 +1626,72 @@
     setActiveSubtitleIndex(Number.isFinite(index) ? index : -1);
     showControlsBriefly();
   });
+  subtitlePreset?.addEventListener("change", () => {
+    applySubtitlePreset(subtitlePreset.value || "netflix");
+    showControlsBriefly();
+  });
   subtitleSize?.addEventListener("input", () => {
     subtitlePreferences.size = Number(subtitleSize.value || 30);
+    subtitlePreferences.preset = "custom";
+    resetCaptionFit();
+    updateSubtitlePreferenceLabels();
+    renderActiveCaption();
+    saveSubtitlePreferences();
+  });
+  subtitlePosition?.addEventListener("input", () => {
+    subtitlePreferences.position = Number(subtitlePosition.value || 12);
+    subtitlePreferences.preset = "custom";
+    updateSubtitlePreferenceLabels();
+    renderActiveCaption();
+    saveSubtitlePreferences();
+  });
+  subtitleBackground?.addEventListener("change", () => {
+    subtitlePreferences.background = subtitleBackground.value || "shadow";
+    subtitlePreferences.preset = "custom";
+    updateSubtitlePreferenceLabels();
+    saveSubtitlePreferences();
+  });
+  subtitleOpacity?.addEventListener("input", () => {
+    subtitlePreferences.backgroundOpacity = Number(subtitleOpacity.value || 35);
+    subtitlePreferences.preset = "custom";
     updateSubtitlePreferenceLabels();
     saveSubtitlePreferences();
   });
   subtitleBlur?.addEventListener("input", () => {
     subtitlePreferences.blur = Number(subtitleBlur.value || 0);
+    subtitlePreferences.preset = "custom";
+    updateSubtitlePreferenceLabels();
+    saveSubtitlePreferences();
+  });
+  subtitleShadow?.addEventListener("input", () => {
+    subtitlePreferences.shadow = Number(subtitleShadow.value || 80);
+    subtitlePreferences.preset = "custom";
     updateSubtitlePreferenceLabels();
     saveSubtitlePreferences();
   });
   subtitleOffset?.addEventListener("input", () => {
     subtitlePreferences.offset = Number(subtitleOffset.value || 0);
+    subtitlePreferences.preset = "custom";
     updateSubtitlePreferenceLabels();
     renderActiveCaption();
     saveSubtitlePreferences();
   });
   subtitleFont?.addEventListener("change", () => {
-    subtitlePreferences.font = subtitleFont.value || "plex";
+    subtitlePreferences.font = subtitleFont.value || "noto-arabic";
+    subtitlePreferences.preset = "custom";
+    resetCaptionFit();
     updateSubtitlePreferenceLabels();
+    renderActiveCaption();
     saveSubtitlePreferences();
   });
   subtitleColors.forEach((button) => button.addEventListener("click", () => {
     subtitlePreferences.color = button.dataset.color || "#ffffff";
+    subtitlePreferences.preset = "custom";
     updateSubtitlePreferenceLabels();
     saveSubtitlePreferences();
   }));
   subtitleReset?.addEventListener("click", () => {
-    subtitlePreferences = { size: 30, blur: 0, offset: 0, color: "#ffffff", font: "plex" };
+    subtitlePreferences = sanitizeSubtitlePreferences(null, subtitlePreferencesLanguage);
     updateSubtitlePreferenceLabels();
     renderActiveCaption();
     saveSubtitlePreferences();
@@ -1141,6 +1717,18 @@
     syncQuickControls();
   });
   video.addEventListener("loadedmetadata", () => {
+    if (
+      activeKind === "local"
+      && localSession?.streamKind !== "transcode"
+      && Number(localSession?.pendingDirectSeek || 0) > 0
+    ) {
+      const target = Number(localSession.pendingDirectSeek || 0);
+      const duration = displayDurationSeconds() || target;
+      video.currentTime = Math.max(0, Math.min(duration, target));
+      localSession.playbackOffset = 0;
+      localSession.pendingDirectSeek = 0;
+      setPlayerState("buffering", `Resuming from ${formatTime(target)}…`);
+    }
     if (activeKind === "local") scheduleVideoPaintCheck();
     syncTimeline();
     renderActiveCaption();
@@ -1151,6 +1739,7 @@
   video.addEventListener("timeupdate", () => {
     syncTimeline();
     renderActiveCaption();
+    scheduleProgressSave();
   });
   video.addEventListener("seeked", renderActiveCaption);
   video.addEventListener("durationchange", () => {
@@ -1182,6 +1771,7 @@
   video.addEventListener("pause", () => {
     syncQuickControls();
     renderActiveCaption();
+    void saveMovieProgress({ force: true });
   });
   video.addEventListener("volumechange", syncQuickControls);
   video.addEventListener("error", () => {
@@ -1227,6 +1817,17 @@
   });
   loadSubtitlePreferences();
   updateSubtitlePreferenceLabels();
-  window.addEventListener("pagehide", () => { stopLocal({ silent: true }); });
+  syncEpisodeUrl({ replace: true });
+  const persistProgressBeforeHide = () => {
+    void saveMovieProgress({ force: true, keepalive: true });
+  };
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") persistProgressBeforeHide();
+  });
+  window.addEventListener("pagehide", () => {
+    persistProgressBeforeHide();
+    stopLocal({ silent: true });
+  });
+  void loadSavedProgress();
   syncSourceUi();
 })();

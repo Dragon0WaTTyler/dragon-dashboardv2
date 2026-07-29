@@ -429,6 +429,25 @@ def test_season_pack_player_exposes_episode_controls_and_payload_overrides(
             normalized_title="pack show",
             media_type="tv",
             external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_total_seasons": 1,
+                "tv_total_episodes": 1,
+                "tv_seasons": [
+                    {"season_number": 1, "name": "Season 1", "episode_count": 1, "poster_url": ""}
+                ],
+                "tv_episodes": {
+                    "1": [
+                        {
+                            "season_number": 1,
+                            "episode_number": 5,
+                            "name": "College",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 55,
+                        }
+                    ]
+                },
+            },
         )
         db.session.add(movie)
         db.session.flush()
@@ -437,7 +456,10 @@ def test_season_pack_player_exposes_episode_controls_and_payload_overrides(
             kind="magnet",
             label="S01 season pack Jackett magnet",
             locator="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
-            metadata_json={"season_pack": True, "season": 1, "release_mode": "season_pack"},
+            season=1,
+            episode=5,
+            source_role="season_pack_fallback",
+            metadata_json={"season_pack": True, "season": 1, "episode": 5, "release_mode": "season_pack"},
             selected=True,
         )
         db.session.add(source)
@@ -451,14 +473,18 @@ def test_season_pack_player_exposes_episode_controls_and_payload_overrides(
 
     detail = authenticated_client.get(f"/movies/{movie_id}")
     html = detail.get_data(as_text=True)
-    assert 'data-source-season-pack="true"' in html
-    assert 'data-source-season="1"' in html
-    assert "data-player-pack-browser" in html
+    assert "Season browser" in html
+    assert 'data-source-season-pack="true"' not in html
+
+    episode_page = authenticated_client.get(f"/movies/{movie_id}/seasons/1/episodes/5")
+    episode_html = episode_page.get_data(as_text=True)
+    assert 'data-source-season-pack="true"' in episode_html
+    assert 'data-source-season="1"' in episode_html
 
     response = authenticated_client.post(
         f"/playback/movie/{movie_id}/local",
         json={"source_id": source_id, "season": 1, "episode": 5},
-        headers={"X-CSRFToken": csrf_from(detail)},
+        headers={"X-CSRFToken": csrf_from(episode_page)},
     )
 
     assert response.status_code == 202
@@ -479,6 +505,7 @@ def test_local_transcode_route_uses_private_loopback_stream_safely(
                 "file_name": "episode.mkv",
                 "stream_url": "http://127.0.0.1:54321/dragon-stream/secret/hash/episode.mkv",
                 "stream_kind": "transcode",
+                "head_ready": True,
                 "buffer_percent": 25,
                 "file_progress": 0.05,
                 "downloaded_bytes": 100,

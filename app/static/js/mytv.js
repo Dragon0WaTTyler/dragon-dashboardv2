@@ -12,9 +12,22 @@
     pages: 1,
     total: 0,
     activeChannel: null,
+    requestedChannel: null,
+    retryChannel: null,
     syncTimer: null,
     healthTimer: null,
     playbackTimer: null,
+    requestTokens: {
+      bootstrap: 0,
+      activeGroups: 0,
+      manageGroups: 0,
+      channels: 0,
+    },
+    requestControllers: {
+      activeGroups: null,
+      manageGroups: null,
+      channels: null,
+    },
   };
 
   async function api(url, options = {}) {
@@ -34,6 +47,35 @@
     return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
   }
   function number(value) { return new Intl.NumberFormat().format(value || 0); }
+  function isAbortError(error) { return error?.name === "AbortError"; }
+  function beginAbortableRequest(key) {
+    state.requestTokens[key] += 1;
+    state.requestControllers[key]?.abort();
+    const controller = new AbortController();
+    state.requestControllers[key] = controller;
+    return { token: state.requestTokens[key], signal: controller.signal };
+  }
+  function isCurrentRequest(key, token) { return state.requestTokens[key] === token; }
+  function channelOverrideValue(item) {
+    return item.enabled_override === null ? "default" : item.enabled_override ? "on" : "off";
+  }
+  function setNowLogo(name = "TV", logoUrl = "") {
+    const fallback = escapeHtml((name || "TV").slice(0, 2).toUpperCase());
+    elements.nowLogo.innerHTML = logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="" referrerpolicy="no-referrer" data-tv-fallback="${fallback}">` : fallback;
+  }
+  function setNowPlaying(channel, message, { live = false } = {}) {
+    if (channel) {
+      elements.nowPlayingTitle.textContent = channel.name;
+      elements.nowPlayingMeta.textContent = message;
+      setNowLogo(channel.name, channel.logo_url || "");
+    }
+    else {
+      elements.nowPlayingTitle.textContent = "Nothing selected";
+      elements.nowPlayingMeta.textContent = message;
+      setNowLogo();
+    }
+    elements.liveBadge.hidden = !live;
+  }
   function toast(message, error = false) {
     const item = document.createElement("div");
     item.className = `tv-toast${error ? " is-error" : ""}`;
@@ -43,13 +85,16 @@
   }
 
   async function loadBootstrap({ quiet = false } = {}) {
+    state.requestTokens.bootstrap += 1;
+    const token = state.requestTokens.bootstrap;
     try {
       const data = await api("/my-tv/api/bootstrap");
+      if (token !== state.requestTokens.bootstrap) return;
       state.bootstrap = data;
       elements.statEnabled.textContent = number(data.stats.enabled_channels);
       elements.statTotal.textContent = number(data.stats.total_channels);
       elements.statGroups.textContent = number(data.stats.groups);
-      elements.statSources.textContent = number(data.stats.imported_playlists);
+      elements.statSources.textContent = number(data.stats.repo_files);
       elements.sourceRepoFiles.textContent = number(data.stats.repo_files);
       elements.sourceSyncedFiles.textContent = number(data.stats.imported_playlists);
       elements.sourcePendingFiles.textContent = number(data.stats.pending_files);
@@ -64,12 +109,14 @@
       if (data.sync.state === "running") pollSync();
       if (data.health.state === "running") pollHealth();
       else if (data.health.needs_check && data.stats.enabled_channels && elements.tvConfig.dataset.autoHealth === "true") startHealthCheck({ quiet: true });
-    } catch (error) { if (!quiet) toast(error.message, true); }
+    } catch (error) { if (!quiet && !isAbortError(error)) toast(error.message, true); }
   }
 
   async function loadActiveGroups() {
+    const { token, signal } = beginAbortableRequest("activeGroups");
     const params = new URLSearchParams({ active_only: "1" });
-    const data = await api(`/my-tv/api/groups?${params}`);
+    const data = await api(`/my-tv/api/groups?${params}`, { signal });
+    if (!isCurrentRequest("activeGroups", token)) return;
     state.activeGroups = data.groups;
     const current = elements.groupFilter.value;
     elements.groupFilter.innerHTML = '<option value="">All active bouquets</option>' + data.groups.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${number(item.channel_count)}</option>`).join("");
@@ -77,9 +124,11 @@
   }
 
   async function loadManageGroups() {
+    const { token, signal } = beginAbortableRequest("manageGroups");
     const params = new URLSearchParams({ visibility: elements.bouquetVisibility.value });
     if (elements.groupSearch.value.trim()) params.set("q", elements.groupSearch.value.trim());
-    const data = await api(`/my-tv/api/groups?${params}`);
+    const data = await api(`/my-tv/api/groups?${params}`, { signal });
+    if (!isCurrentRequest("manageGroups", token)) return;
     state.manageGroups = data.groups;
     renderBouquets();
   }
@@ -106,11 +155,13 @@
 
   async function loadChannels() {
     elements.channelGrid.setAttribute("aria-busy", "true");
+    const { token, signal } = beginAbortableRequest("channels");
     const params = new URLSearchParams({ page: state.page, per_page: 36, state: elements.stateFilter.value });
     if (elements.groupFilter.value) params.set("theme_id", elements.groupFilter.value);
     if (elements.channelSearch.value.trim()) params.set("q", elements.channelSearch.value.trim());
     try {
-      const data = await api(`/my-tv/api/channels?${params}`);
+      const data = await api(`/my-tv/api/channels?${params}`, { signal });
+      if (!isCurrentRequest("channels", token)) return;
       state.channels = data.channels;
       state.page = data.pagination.page;
       state.pages = data.pagination.pages;
@@ -120,21 +171,34 @@
       elements.previousPage.disabled = state.page <= 1;
       elements.nextPage.disabled = state.page >= state.pages;
       elements.pageStatus.textContent = `Page ${number(state.page)} of ${number(state.pages)} · ${number(state.total)} channels`;
-    } finally { elements.channelGrid.removeAttribute("aria-busy"); }
+    } finally {
+      if (isCurrentRequest("channels", token)) elements.channelGrid.removeAttribute("aria-busy");
+    }
   }
 
   function logo(item, className = "tv-channel-logo") {
-    const fallback = escapeHtml((item.name || "TV").slice(0, 2).toUpperCase());
-    return item.logo_url ? `<span class="${className}"><img src="${escapeHtml(item.logo_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-tv-fallback="${fallback}"></span>` : `<span class="${className}">${fallback}</span>`;
+    const sourceName = String(item.name || "TV").trim();
+    const initials = sourceName
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0] || "")
+      .join("")
+      .toUpperCase() || "TV";
+    const fallback = escapeHtml(initials);
+    const fallbackLabel = escapeHtml(sourceName || "TV");
+    return item.logo_url
+      ? `<span class="${className}"><img src="${escapeHtml(item.logo_url)}" alt="" loading="lazy" referrerpolicy="no-referrer" data-tv-fallback="${fallback}" data-tv-fallback-label="${fallbackLabel}"></span>`
+      : `<span class="${className}" aria-label="${fallbackLabel}" title="${fallbackLabel}">${fallback}</span>`;
   }
 
   function renderChannels() {
     elements.channelEmpty.hidden = state.channels.length > 0;
     elements.channelGrid.hidden = state.channels.length === 0;
-    elements.channelGrid.innerHTML = state.channels.map((item) => `<article class="tv-channel-card${item.enabled ? "" : " is-disabled"}${state.activeChannel?.id === item.id ? " is-playing" : ""}">
+    elements.channelGrid.innerHTML = state.channels.map((item) => `<article class="tv-channel-card${item.enabled ? "" : " is-disabled"}${state.activeChannel?.id === item.id ? " is-playing" : ""}${state.requestedChannel?.id === item.id ? " is-requested" : ""}">
       ${logo(item)}<div class="tv-channel-copy"><h3 title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</h3><p title="${escapeHtml(item.group_name)}">${escapeHtml(item.group_name)}</p><small>${item.enabled_override === null ? "Bouquet default" : item.enabled_override ? "Always on" : "Always off"} · ${item.health_status === "online" ? "Online" : "Unchecked"}</small></div>
       <div class="tv-channel-actions"><button class="tv-favorite-button" type="button" aria-label="${item.favorite ? "Remove" : "Add"} ${escapeHtml(item.name)} ${item.favorite ? "from" : "to"} favorites" aria-pressed="${item.favorite}" data-favorite-channel="${item.id}">★</button><button class="tv-play-button" type="button" aria-label="Play ${escapeHtml(item.name)}" data-play-channel="${item.id}" ${item.enabled ? "" : "disabled"}></button></div>
-      <button class="tv-switch tv-channel-switch" type="button" role="switch" aria-checked="${item.enabled}" aria-label="${item.enabled ? "Disable" : "Enable"} ${escapeHtml(item.name)}" data-toggle-channel="${item.id}"></button>
+      <label class="tv-channel-mode"><span class="sr-only">Channel availability for ${escapeHtml(item.name)}</span><select aria-label="Channel availability for ${escapeHtml(item.name)}" data-channel-override="${item.id}"><option value="default"${channelOverrideValue(item) === "default" ? " selected" : ""}>Use bouquet default</option><option value="on"${channelOverrideValue(item) === "on" ? " selected" : ""}>Always on</option><option value="off"${channelOverrideValue(item) === "off" ? " selected" : ""}>Always off</option></select></label>
     </article>`).join("");
   }
 
@@ -220,6 +284,7 @@
     elements.videoPlayer.pause();
     elements.videoPlayer.removeAttribute("src");
     elements.videoPlayer.load();
+    elements.videoPlayer.hidden = true;
   }
 
   function showPlaybackStatus(message, error = false) {
@@ -233,15 +298,26 @@
   function playbackReady() {
     window.clearTimeout(state.playbackTimer);
     state.playbackTimer = null;
+    state.activeChannel = state.requestedChannel || state.activeChannel;
+    state.retryChannel = state.activeChannel || state.retryChannel;
+    state.requestedChannel = null;
     elements.playerLoading.hidden = true;
     elements.playerLoading.classList.remove("is-error");
     elements.retryPlayback.hidden = true;
+    elements.playerEmpty.hidden = true;
+    elements.videoPlayer.hidden = false;
+    if (state.activeChannel) setNowPlaying(state.activeChannel, state.activeChannel.group_name, { live: true });
+    renderChannels();
     elements.videoPlayer.play().catch(() => {});
   }
 
   function playbackFailed(message) {
     window.clearTimeout(state.playbackTimer);
     state.playbackTimer = null;
+    const retryChannel = state.requestedChannel || state.retryChannel || state.activeChannel;
+    state.requestedChannel = null;
+    state.activeChannel = null;
+    state.retryChannel = retryChannel;
     elements.videoPlayer.onloadeddata = null;
     elements.videoPlayer.oncanplay = null;
     elements.videoPlayer.onplaying = null;
@@ -249,6 +325,10 @@
     elements.videoPlayer.pause();
     elements.videoPlayer.removeAttribute("src");
     elements.videoPlayer.load();
+    elements.videoPlayer.hidden = true;
+    elements.playerEmpty.hidden = false;
+    setNowPlaying(retryChannel, message);
+    renderChannels();
     showPlaybackStatus(message, true);
   }
 
@@ -256,16 +336,16 @@
     const item = state.channels.find((channel) => channel.id === id);
     if (!item) return;
     stopPlayback();
-    state.activeChannel = item;
+    state.requestedChannel = item;
+    state.activeChannel = null;
+    state.retryChannel = item;
+    setNowPlaying(item, `${item.group_name} · Connecting…`);
+    renderChannels();
     showPlaybackStatus("Opening live stream…");
     try {
       const playback = await api(`/my-tv/api/channels/${id}/playback`);
       elements.playerEmpty.hidden = true;
-      elements.videoPlayer.hidden = false;
-      elements.nowPlayingTitle.textContent = playback.name;
-      elements.nowPlayingMeta.textContent = item.group_name;
-      elements.liveBadge.hidden = false;
-      elements.nowLogo.innerHTML = playback.logo_url ? `<img src="${escapeHtml(playback.logo_url)}" alt="" referrerpolicy="no-referrer" data-tv-fallback="TV">` : escapeHtml(playback.name.slice(0, 2).toUpperCase());
+      setNowPlaying({ ...item, name: playback.name, logo_url: playback.logo_url || item.logo_url }, `${item.group_name} · Opening stream…`);
       elements.videoPlayer.onloadeddata = playbackReady;
       elements.videoPlayer.oncanplay = playbackReady;
       elements.videoPlayer.onplaying = playbackReady;
@@ -286,12 +366,22 @@
     return (...args) => { window.clearTimeout(timer); timer = window.setTimeout(() => callback(...args), wait); };
   }
 
+  function activateTab(tab, { focus = false } = {}) {
+    document.querySelectorAll('[role="tab"]').forEach((item) => {
+      const selected = item === tab;
+      item.setAttribute("aria-selected", String(selected));
+      item.tabIndex = selected ? 0 : -1;
+      const panel = document.getElementById(item.getAttribute("aria-controls"));
+      if (panel) panel.hidden = !selected;
+    });
+    if (focus) tab.focus();
+    if (tab.dataset.view === "manage") loadManageGroups().catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
+  }
+
   document.addEventListener("click", async (event) => {
-    const tab = event.target.closest("[data-view]");
+    const tab = event.target.closest('[role="tab"]');
     if (tab) {
-      document.querySelectorAll("[data-view]").forEach((item) => item.setAttribute("aria-selected", String(item === tab)));
-      document.querySelectorAll("[data-panel]").forEach((panel) => { panel.hidden = panel.dataset.panel !== tab.dataset.view; });
-      if (tab.dataset.view === "manage") await loadManageGroups();
+      activateTab(tab);
       return;
     }
     const play = event.target.closest("[data-play-channel]");
@@ -300,12 +390,6 @@
     if (favorite) {
       const item = state.channels.find((channel) => channel.id === Number(favorite.dataset.favoriteChannel));
       try { await api(`/my-tv/api/channels/${item.id}/favorite`, { method: "PATCH", body: JSON.stringify({ favorite: !item.favorite }) }); toast(item.favorite ? "Removed from favorites" : "Saved to favorites"); await loadChannels(); } catch (error) { toast(error.message, true); }
-      return;
-    }
-    const channelToggle = event.target.closest("[data-toggle-channel]");
-    if (channelToggle) {
-      const item = state.channels.find((channel) => channel.id === Number(channelToggle.dataset.toggleChannel));
-      try { await api(`/my-tv/api/channels/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled: !item.enabled }) }); await loadBootstrap({ quiet: true }); } catch (error) { toast(error.message, true); }
       return;
     }
     const groupToggle = event.target.closest("[data-toggle-group]");
@@ -324,19 +408,60 @@
   });
 
   document.addEventListener("change", async (event) => {
-    if (event.target === elements.groupFilter || event.target === elements.stateFilter) { state.page = 1; await loadChannels(); }
-    if (event.target === elements.bouquetVisibility) await loadManageGroups();
+    if (event.target === elements.groupFilter || event.target === elements.stateFilter) {
+      state.page = 1;
+      try { await loadChannels(); } catch (error) { if (!isAbortError(error)) toast(error.message, true); }
+    }
+    if (event.target === elements.bouquetVisibility) {
+      try { await loadManageGroups(); } catch (error) { if (!isAbortError(error)) toast(error.message, true); }
+    }
+    if (event.target.matches("[data-channel-override]")) {
+      const item = state.channels.find((channel) => channel.id === Number(event.target.dataset.channelOverride));
+      const enabled = ({ default: null, on: true, off: false })[event.target.value];
+      try {
+        await api(`/my-tv/api/channels/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+        toast(enabled === null ? "Channel reset to bouquet default" : enabled ? "Channel forced on" : "Channel forced off");
+        await loadBootstrap({ quiet: true });
+      } catch (error) {
+        toast(error.message, true);
+      }
+    }
   });
 
-  elements.channelSearch.addEventListener("input", debounce(() => { state.page = 1; loadChannels().catch((error) => toast(error.message, true)); }));
-  elements.groupSearch.addEventListener("input", debounce(() => loadManageGroups().catch((error) => toast(error.message, true))));
   elements.refreshCatalog.addEventListener("click", () => startSync("fetch"));
   elements.healthCheck.addEventListener("click", () => startHealthCheck());
-  elements.retryPlayback.addEventListener("click", () => { if (state.activeChannel) playChannel(state.activeChannel.id); });
-  elements.previousPage.addEventListener("click", () => { if (state.page > 1) { state.page -= 1; loadChannels().catch((error) => toast(error.message, true)); } });
-  elements.nextPage.addEventListener("click", () => { if (state.page < state.pages) { state.page += 1; loadChannels().catch((error) => toast(error.message, true)); } });
+  elements.retryPlayback.addEventListener("click", () => {
+    const retryTarget = state.retryChannel || state.activeChannel;
+    if (retryTarget) playChannel(retryTarget.id);
+  });
+  elements.previousPage.addEventListener("click", () => { if (state.page > 1) { state.page -= 1; loadChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); }); } });
+  elements.nextPage.addEventListener("click", () => { if (state.page < state.pages) { state.page += 1; loadChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); }); } });
+  elements.channelSearch.addEventListener("input", debounce(() => { state.page = 1; loadChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); }); }));
+  elements.groupSearch.addEventListener("input", debounce(() => loadManageGroups().catch((error) => { if (!isAbortError(error)) toast(error.message, true); })));
+  elements.playerEmpty.hidden = false;
+  setNowPlaying(null, "Choose an enabled channel below.");
+  document.querySelector(".tv-tabs").addEventListener("keydown", (event) => {
+    const tabs = [...document.querySelectorAll('[role="tab"]')];
+    const currentIndex = tabs.findIndex((item) => item === event.target);
+    if (currentIndex === -1) return;
+    let nextIndex = null;
+    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % tabs.length;
+    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = tabs.length - 1;
+    if (nextIndex === null) return;
+    event.preventDefault();
+    activateTab(tabs[nextIndex], { focus: true });
+  });
+
   document.addEventListener("error", (event) => {
-    if (event.target instanceof HTMLImageElement && event.target.dataset.tvFallback) event.target.parentElement.textContent = event.target.dataset.tvFallback;
+    if (event.target instanceof HTMLImageElement && event.target.dataset.tvFallback) {
+      event.target.parentElement.textContent = event.target.dataset.tvFallback;
+      if (event.target.dataset.tvFallbackLabel) {
+        event.target.parentElement.setAttribute("aria-label", event.target.dataset.tvFallbackLabel);
+        event.target.parentElement.setAttribute("title", event.target.dataset.tvFallbackLabel);
+      }
+    }
   }, true);
   loadBootstrap();
 })();

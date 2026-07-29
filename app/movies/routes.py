@@ -17,6 +17,7 @@ from app.movies.external_library import (
     add_to_library,
     discover_item,
     import_release,
+    notion_movie_provider,
     release_lookup,
     search_catalog,
     sync_notion_library,
@@ -24,8 +25,10 @@ from app.movies.external_library import (
     writeback_watch,
 )
 from app.movies.integrations import MediaIntegrationError
+from app.movies.scoring import notion_score_options, score_option_for_input
 from app.movies.repositories import MovieRepository
 from app.movies.services import MovieService, movie_detail, movie_item, parse_movie_filters
+from app.movies.services import tv_season_workspace, tv_show_workspace
 from app.playback.services import PlaybackService
 
 bp = Blueprint("movies", __name__, url_prefix="/movies")
@@ -36,6 +39,19 @@ def _positive_int(value: str | None, default: int, maximum: int) -> int:
         return max(1, min(int(value or default), maximum))
     except (TypeError, ValueError):
         return default
+
+
+def _movie_score_options() -> list:
+    labels = []
+    provider = notion_movie_provider()
+    if provider and provider.configured:
+        loader = getattr(provider, "movie_score_option_labels", None)
+        if callable(loader):
+            try:
+                labels = loader()
+            except MediaIntegrationError:
+                labels = []
+    return notion_score_options(labels or None)
 
 
 @bp.get("")
@@ -225,6 +241,13 @@ def detail(movie_id: str):
     movie = MovieRepository.get(movie_id)
     if movie is None:
         abort(404)
+    if movie.media_type == "tv":
+        return render_template(
+            "movies/tv_show.html",
+            active_module="movies",
+            movie=movie_detail(movie),
+            workspace=tv_show_workspace(movie),
+        )
     local_player_enabled = (
         current_app.config["DRAGON_PLAYBACK_ENABLED"]
         and current_app.config["DRAGON_MAGNETS_ENABLED"]
@@ -241,6 +264,7 @@ def detail(movie_id: str):
         "movies/detail.html",
         active_module="movies",
         movie=movie_detail(movie),
+        score_options=_movie_score_options(),
         vidsrc_enabled=(
             current_app.config["DRAGON_PLAYBACK_ENABLED"]
             and current_app.config["DRAGON_VIDSRC_ENABLED"]
@@ -249,6 +273,109 @@ def detail(movie_id: str):
         subtitles_enabled=subtitles_enabled,
         player_sources=PlaybackService.player_sources(movie_id) if local_player_enabled else [],
     )
+
+
+@bp.get("/<movie_id>/seasons/<int:season_number>")
+@login_required
+def tv_season(movie_id: str, season_number: int):
+    movie = MovieRepository.get(movie_id)
+    if movie is None or movie.media_type != "tv":
+        abort(404)
+    if season_number < 1:
+        abort(404)
+    workspace = tv_season_workspace(movie, season_number=season_number)
+    if not workspace["season"]["episode_count"]:
+        abort(404)
+    local_player_enabled = (
+        current_app.config["DRAGON_PLAYBACK_ENABLED"]
+        and current_app.config["DRAGON_MAGNETS_ENABLED"]
+    )
+    subtitles_enabled = (
+        local_player_enabled
+        and current_app.config["DRAGON_SUBTITLES_ENABLED"]
+        and bool(
+            current_app.config["DRAGON_WYZIE_API_KEY"]
+            or current_app.config["DRAGON_SUBDL_API_KEY"]
+        )
+    )
+    player_sources = workspace["player_sources"] if local_player_enabled else []
+    return render_template(
+        "movies/tv_season.html",
+        active_module="movies",
+        movie=movie_detail(movie),
+        workspace=workspace,
+        selected_episode=None,
+        player_sources=player_sources,
+        vidsrc_enabled=(
+            current_app.config["DRAGON_PLAYBACK_ENABLED"]
+            and current_app.config["DRAGON_VIDSRC_ENABLED"]
+        ),
+        local_player_enabled=local_player_enabled,
+        subtitles_enabled=subtitles_enabled,
+    )
+
+
+@bp.get("/<movie_id>/seasons/<int:season_number>/episodes/<int:episode_number>")
+@login_required
+def tv_episode(movie_id: str, season_number: int, episode_number: int):
+    movie = MovieRepository.get(movie_id)
+    if movie is None or movie.media_type != "tv":
+        abort(404)
+    if season_number < 1 or episode_number < 1:
+        abort(404)
+    workspace = tv_season_workspace(
+        movie,
+        season_number=season_number,
+        selected_episode=episode_number,
+    )
+    if not workspace["selected_episode"]:
+        abort(404)
+    local_player_enabled = (
+        current_app.config["DRAGON_PLAYBACK_ENABLED"]
+        and current_app.config["DRAGON_MAGNETS_ENABLED"]
+    )
+    subtitles_enabled = (
+        local_player_enabled
+        and current_app.config["DRAGON_SUBTITLES_ENABLED"]
+        and bool(
+            current_app.config["DRAGON_WYZIE_API_KEY"]
+            or current_app.config["DRAGON_SUBDL_API_KEY"]
+        )
+    )
+    player_sources = workspace["player_sources"] if local_player_enabled else []
+    return render_template(
+        "movies/tv_season.html",
+        active_module="movies",
+        movie=movie_detail(movie),
+        workspace=workspace,
+        selected_episode=workspace["selected_episode"],
+        player_sources=player_sources,
+        vidsrc_enabled=(
+            current_app.config["DRAGON_PLAYBACK_ENABLED"]
+            and current_app.config["DRAGON_VIDSRC_ENABLED"]
+        ),
+        local_player_enabled=local_player_enabled,
+        subtitles_enabled=subtitles_enabled,
+    )
+
+
+@bp.get("/api/library/<movie_id>/seasons/<int:season_number>")
+@login_required
+def api_tv_season_workspace(movie_id: str, season_number: int):
+    movie = MovieRepository.get(movie_id)
+    if movie is None or movie.media_type != "tv":
+        abort(404)
+    if season_number < 1:
+        return _api_error("Choose a valid season.")
+    selected_episode = _optional_positive_int(request.args.get("episode"))
+    workspace = tv_season_workspace(
+        movie,
+        season_number=season_number,
+        selected_episode=selected_episode,
+    )
+    if not workspace["season"]["episode_count"]:
+        return _api_error("Choose a valid season.", 404)
+    return jsonify({"ok": True, "item": workspace})
 
 
 @bp.get("/discover/<media_type>/<int:tmdb_id>")
@@ -301,14 +428,123 @@ def update_score(movie_id: str):
     if movie is None:
         abort(404)
     raw_score = str(request.form.get("score") or "").strip()
+    score_option = score_option_for_input(
+        raw_score,
+        labels=[option.label for option in _movie_score_options()],
+    )
     try:
-        score = float(raw_score) if raw_score else None
-        MovieService.set_score(movie, score)
+        score = score_option.value if score_option else (float(raw_score) if raw_score else None)
+        MovieService.set_score(movie, score, label=score_option.label if score_option else None)
     except ValueError as exc:
         flash(str(exc), "error")
     else:
-        flash("Personal score updated.", "success")
+        notion_page_id = str((movie.external_ids or {}).get("notion_page_id") or "")
+        if notion_page_id and current_app.config["DRAGON_NOTION_WRITEBACK_ENABLED"]:
+            try:
+                notion_movie_provider().set_score(
+                    notion_page_id,
+                    score_option.label if score_option else None,
+                )
+            except MediaIntegrationError as exc:
+                flash(f"Personal score saved locally, but Notion could not update: {exc}", "error")
+            else:
+                flash("Personal score and Notion were updated.", "success")
+        else:
+            flash("Personal score updated.", "success")
     return redirect(url_for("movies.detail", movie_id=movie_id))
+
+
+@bp.post("/<movie_id>/seasons/<int:season_number>/episodes/<int:episode_number>/resolve-source")
+@login_required
+def resolve_tv_episode_source(movie_id: str, season_number: int, episode_number: int):
+    movie = MovieRepository.get(movie_id)
+    if movie is None or movie.media_type != "tv":
+        abort(404)
+    if season_number < 1 or episode_number < 1:
+        abort(404)
+    existing_sources = PlaybackService.tv_episode_sources(
+        movie_id,
+        season=season_number,
+        episode=episode_number,
+    )
+    if existing_sources["exact"] or existing_sources["fallback"]:
+        flash("A saved local source is already ready for this episode.", "success")
+        return redirect(
+            url_for(
+                "movies.tv_episode",
+                movie_id=movie_id,
+                season_number=season_number,
+                episode_number=episode_number,
+            )
+            + "#episode-player"
+        )
+    try:
+        exact_lookup = release_lookup(
+            media_type="tv",
+            tmdb_id=int((movie.external_ids or {}).get("tmdb_id") or 0),
+            season=season_number,
+            episode=episode_number,
+            mode="exact_episode",
+        )
+        release = next(iter(exact_lookup.get("items") or []), None)
+        release_mode = "episode"
+        if release is None:
+            pack_lookup = release_lookup(
+                media_type="tv",
+                tmdb_id=int((movie.external_ids or {}).get("tmdb_id") or 0),
+                season=season_number,
+                episode=episode_number,
+                mode="season_pack",
+            )
+            release = next(iter(pack_lookup.get("items") or []), None)
+            release_mode = "season_pack"
+        if release is None:
+            flash("No exact episode or strong season-pack fallback was found.", "error")
+            return redirect(
+                url_for(
+                    "movies.tv_episode",
+                    movie_id=movie_id,
+                    season_number=season_number,
+                    episode_number=episode_number,
+                )
+            )
+        import_release(
+            media_type="tv",
+            tmdb_id=int((movie.external_ids or {}).get("tmdb_id") or 0),
+            magnet_uri=str(release.get("magnet_uri") or ""),
+            release_title=str(release.get("title") or ""),
+            tracker=str(release.get("tracker") or "Unknown tracker"),
+            seeders=max(0, int(release.get("seeders") or 0)),
+            size=max(0, int(release.get("size") or 0)),
+            season=season_number,
+            episode=episode_number,
+            release_mode=release_mode,
+        )
+    except (MediaIntegrationError, ValueError) as exc:
+        flash(str(exc), "error")
+        return redirect(
+            url_for(
+                "movies.tv_episode",
+                movie_id=movie_id,
+                season_number=season_number,
+                episode_number=episode_number,
+            )
+        )
+    flash(
+        "Saved the best exact episode source."
+        if release_mode == "episode"
+        else "Saved the best season-pack fallback for this episode.",
+        "success",
+    )
+    return redirect(
+        url_for(
+            "movies.tv_episode",
+            movie_id=movie_id,
+            season_number=season_number,
+            episode_number=episode_number,
+        )
+        + "#episode-player"
+    )
 
 
 def _optional_positive_int(value) -> int | None:

@@ -14,7 +14,6 @@ from app.mytv.models import (
     TVTheme,
 )
 from app.mytv.services import ChannelEntry, GithubTVSync
-from app.mytv.streaming import StreamUnavailable
 
 CSRF_META = re.compile(r'<meta name="csrf-token" content="([^"]+)">')
 
@@ -121,6 +120,14 @@ def test_mytv_group_and_channel_overrides(authenticated_client, app):
     assert response.status_code == 200
     channels = authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()
     assert [item["name"] for item in channels["channels"]] == ["News Two"]
+
+    response = authenticated_client.patch(
+        f"/my-tv/api/channels/{channel_id}", json={"enabled": None}, headers=headers
+    )
+    assert response.status_code == 200
+    all_channels = authenticated_client.get("/my-tv/api/channels?state=all").get_json()
+    restored = next(item for item in all_channels["channels"] if item["id"] == channel_id)
+    assert restored["enabled_override"] is None
 
 
 def test_mytv_confirmed_offline_channels_are_hidden(authenticated_client, app):
@@ -402,7 +409,7 @@ def test_mytv_playback_uses_an_alternate_source_and_quarantines_failure(
 
     def failed_transcode(url: str):
         calls.append(url)
-        raise StreamUnavailable("offline")
+        return Response("upstream unavailable", status=503, content_type="text/plain")
 
     def working_proxy(url: str):
         calls.append(url)

@@ -645,6 +645,8 @@ def playback_info(channel_id: int):
 def play(channel_id: int):
     channel = _playable_channel(channel_id)
     candidates = _playback_candidates(channel)
+    last_error_response = None
+    source_failed = False
     for attempt, candidate in enumerate(candidates, start=1):
         try:
             response = (
@@ -654,9 +656,14 @@ def play(channel_id: int):
             )
         except (StreamUnavailable, requests.RequestException, OSError):
             mark_stream_failure(candidate.stream_url)
+            source_failed = True
             continue
         if response.status_code >= 400:
-            return response
+            last_error_response = response
+            if response.status_code != 429:
+                mark_stream_failure(candidate.stream_url)
+                source_failed = True
+            continue
         mark_stream_success(candidate.stream_url)
         record_channel_health(
             channel.preference_key,
@@ -666,6 +673,8 @@ def play(channel_id: int):
         response.headers["X-Dragon-TV-Source-Attempt"] = str(attempt)
         response.headers["X-Dragon-TV-Source-Candidates"] = str(len(candidates))
         return response
+    if last_error_response is not None and not source_failed:
+        return last_error_response
     record_channel_health(
         channel.preference_key,
         online=False,

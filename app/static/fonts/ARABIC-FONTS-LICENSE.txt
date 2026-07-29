@@ -1,0 +1,6 @@
+Noto Sans Arabic, Cairo, and Tajawal are distributed under the SIL Open Font License, Version 1.1.
+
+These local WOFF2 subsets are bundled so Dragon subtitle rendering does not depend on a font CDN at playback time.
+
+License text:
+https://openfontlicense.org/open-font-license-official-text/

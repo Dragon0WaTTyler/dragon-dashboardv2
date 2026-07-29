@@ -2,7 +2,18 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    and_,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.extensions import db
@@ -44,18 +55,35 @@ class Movie(db.Model):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
+    progress_entries: Mapped[list[MovieProgress]] = relationship(
+        back_populates="movie",
+        cascade="all, delete-orphan",
+        order_by="MovieProgress.updated_at.desc()",
+    )
     progress: Mapped[MovieProgress | None] = relationship(
-        back_populates="movie", cascade="all, delete-orphan", uselist=False
+        primaryjoin=lambda: and_(
+            Movie.id == MovieProgress.movie_id,
+            MovieProgress.season.is_(None),
+            MovieProgress.episode.is_(None),
+        ),
+        uselist=False,
+        viewonly=True,
+        overlaps="movie,progress_entries",
     )
 
 
 class MovieProgress(db.Model):
     __tablename__ = "movie_progress"
+    __table_args__ = (
+        Index("ix_movie_progress_scope", "movie_id", "season", "episode"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     movie_id: Mapped[str] = mapped_column(
-        ForeignKey("movies.id", ondelete="CASCADE"), unique=True, index=True
+        ForeignKey("movies.id", ondelete="CASCADE"), index=True
     )
+    season: Mapped[int | None] = mapped_column(Integer)
+    episode: Mapped[int | None] = mapped_column(Integer)
     current_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     duration_seconds: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     completed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
@@ -64,4 +92,4 @@ class MovieProgress(db.Model):
         DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
     )
 
-    movie: Mapped[Movie] = relationship(back_populates="progress")
+    movie: Mapped[Movie] = relationship(back_populates="progress_entries", overlaps="progress")

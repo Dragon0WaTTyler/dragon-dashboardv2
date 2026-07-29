@@ -24,6 +24,9 @@ TIMING_PATTERN = re.compile(
     r"^(\d{1,2}:\d{2}:\d{2})[,.](\d{3})(\s+-->\s+)"
     r"(\d{1,2}:\d{2}:\d{2})[,.](\d{3})(.*)$"
 )
+WEBVTT_TIMING_PATTERN = re.compile(
+    r"^\d{1,2}:\d{2}:\d{2}\.\d{3}\s+-->\s+\d{1,2}:\d{2}:\d{2}\.\d{3}(?:\s+.*)?$"
+)
 EPISODE_TOKEN_PATTERN = re.compile(r"\bs(?P<season>\d{1,2})e(?P<episode>\d{1,3})\b", re.I)
 
 
@@ -231,6 +234,8 @@ def to_webvtt(payload: bytes, file_format: str) -> bytes:
         raise SubtitleProviderError("The downloaded file does not contain subtitle cues.")
     if file_format.lower() == "vtt":
         body = text if text.startswith("WEBVTT") else f"WEBVTT\n\n{text}"
+        if not any(WEBVTT_TIMING_PATTERN.match(line.strip()) for line in body.split("\n")):
+            raise SubtitleProviderError("The downloaded file does not contain subtitle cues.")
         return f"{body.rstrip()}\n".encode()
 
     converted: list[str] = []
@@ -242,7 +247,10 @@ def to_webvtt(payload: bytes, file_format: str) -> bytes:
                 f"{match.group(4)}.{match.group(5)}{match.group(6)}"
             )
         converted.append(line)
-    return f"WEBVTT\n\n{'\n'.join(converted).rstrip()}\n".encode()
+    body = f"WEBVTT\n\n{'\n'.join(converted).rstrip()}\n"
+    if not any(WEBVTT_TIMING_PATTERN.match(line.strip()) for line in body.split("\n")):
+        raise SubtitleProviderError("The downloaded file does not contain subtitle cues.")
+    return body.encode()
 
 
 class WyzieSubtitleProvider:
@@ -788,6 +796,7 @@ class FallbackSubtitleProvider:
         episode_title: str = "",
     ) -> list[SubtitleCandidate]:
         messages: list[str] = []
+        by_provider: list[tuple[str, list[SubtitleCandidate]]] = []
         for provider in self.providers:
             try:
                 candidates = provider.search(
@@ -801,7 +810,39 @@ class FallbackSubtitleProvider:
                 messages.append(str(exc))
                 continue
             if candidates:
-                return candidates
+                by_provider.append((provider.name, candidates))
+        if by_provider:
+            requested_languages = [code.lower() for code in _language_codes(languages)]
+            ordered: list[SubtitleCandidate] = []
+            seen: set[tuple[str, str, str]] = set()
+            for language in requested_languages:
+                provider_buckets = [
+                    (name, [candidate for candidate in candidates if candidate.language == language])
+                    for name, candidates in by_provider
+                ]
+                max_count = max((len(bucket) for _name, bucket in provider_buckets), default=0)
+                for index in range(max_count):
+                    for _name, bucket in provider_buckets:
+                        if index >= len(bucket):
+                            continue
+                        candidate = bucket[index]
+                        key = (
+                            candidate.language,
+                            candidate.provider,
+                            candidate.path,
+                        )
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        ordered.append(candidate)
+            remainder = [
+                candidate
+                for _name, candidates in by_provider
+                for candidate in candidates
+                if (candidate.language, candidate.provider, candidate.path) not in seen
+            ]
+            ordered.extend(remainder)
+            return ordered
         if messages:
             raise SubtitleProviderError(messages[0])
         return []

@@ -55,6 +55,10 @@ def notion_movie_provider() -> NotionMovieProvider:
             token=current_app.config["DRAGON_NOTION_TOKEN"],
             database_id=current_app.config["DRAGON_NOTION_DATABASE_ID"],
             data_source_id=current_app.config["DRAGON_NOTION_DATA_SOURCE_ID"],
+            tv_show_database_id=current_app.config.get("DRAGON_NOTION_TV_SHOW_DATABASE_ID", ""),
+            tv_show_data_source_id=current_app.config.get("DRAGON_NOTION_TV_SHOW_DATA_SOURCE_ID", ""),
+            tv_episode_database_id=current_app.config.get("DRAGON_NOTION_TV_EPISODE_DATABASE_ID", ""),
+            tv_episode_data_source_id=current_app.config.get("DRAGON_NOTION_TV_EPISODE_DATA_SOURCE_ID", ""),
         )
         current_app.extensions["dragon_notion_movie_provider"] = provider
     return provider
@@ -81,7 +85,8 @@ def sync_notion_library(*, force: bool = False) -> LibrarySyncResult:
         )
     try:
         items = provider.list_items()
-        library_ids = [_upsert_notion_item(item).id for item in items]
+        hydrated = [_hydrate_notion_item(provider, item) for item in items]
+        library_ids = [_upsert_notion_item(item).id for item in hydrated]
         db.session.commit()
     except (MediaIntegrationError, ValueError) as exc:
         db.session.rollback()
@@ -186,6 +191,7 @@ def add_to_library(
     details = tmdb_catalog_provider().details(media_type, tmdb_id)
     if media_type == "tv":
         season = season or 1
+        details = _hydrate_tv_details(details)
     notion_item = notion_movie_provider().upsert_media(
         details,
         season=season,
@@ -231,12 +237,15 @@ def import_release(
     if media_type == "tv" and not episode and release_mode != "season_pack":
         raise ValueError("Choose an episode before importing this series release.")
     details = tmdb_catalog_provider().details(media_type, tmdb_id)
+    if media_type == "tv":
+        details = _hydrate_tv_details(details)
     notion_item = notion_movie_provider().upsert_media(
         details,
         magnet_uri=magnet_uri,
         release_title=release_title,
         season=season,
         episode=episode,
+        release_mode=release_mode,
     )
     item = {
         **notion_item,
@@ -253,6 +262,13 @@ def import_release(
                 "label": _release_label(media_type, season, episode, release_mode),
                 "locator": magnet_uri,
                 "selected": True,
+                "season": season if media_type == "tv" else None,
+                "episode": episode if media_type == "tv" else None,
+                "source_role": (
+                    "season_pack_fallback"
+                    if media_type == "tv" and release_mode == "season_pack"
+                    else "exact_episode" if media_type == "tv" else ""
+                ),
                 "metadata": {
                     "origin": "jackett",
                     "release_mode": release_mode,
@@ -388,16 +404,19 @@ def _upsert_notion_item(item: dict) -> Movie:
         **dict(movie.metadata_state or {}),
         "library_origin": "notion",
         "notion_last_edited_time": item.get("last_edited_time"),
+        "personal_score_label": item.get("personal_score_label"),
         "season": item.get("season"),
         "episode": item.get("episode"),
         "release_title": item.get("release_title"),
+        **_tv_metadata_state(item),
     }
-    _upsert_playback_sources(movie, item.get("playback_sources") or [])
+    _upsert_playback_sources(movie, item.get("playback_sources") or [], media_type=movie.media_type)
+    _upsert_tv_episode_sources(movie, item.get("episode_items") or [])
     return movie
 
 
-def _upsert_playback_sources(movie: Movie, sources: list[dict]) -> None:
-    if any(source.get("selected") for source in sources):
+def _upsert_playback_sources(movie: Movie, sources: list[dict], *, media_type: str) -> None:
+    if any(source.get("selected") for source in sources) and media_type != "tv":
         for current in db.session.scalars(
             db.select(PlaybackSource).where(PlaybackSource.movie_id == movie.id)
         ):
@@ -412,6 +431,9 @@ def _upsert_playback_sources(movie: Movie, sources: list[dict]) -> None:
                 PlaybackSource.movie_id == movie.id,
                 PlaybackSource.kind == kind,
                 PlaybackSource.locator == locator,
+                PlaybackSource.season == _optional_int(source.get("season")),
+                PlaybackSource.episode == _optional_int(source.get("episode")),
+                PlaybackSource.source_role == str(source.get("source_role") or ""),
             )
         )
         if existing is None:
@@ -420,11 +442,19 @@ def _upsert_playback_sources(movie: Movie, sources: list[dict]) -> None:
         existing.label = str(source.get("label") or f"Imported {kind}")[:300]
         existing.status = "available"
         existing.selected = bool(source.get("selected", existing.selected))
+        existing.season = _optional_int(source.get("season"))
+        existing.episode = _optional_int(source.get("episode"))
+        existing.source_role = str(source.get("source_role") or "")
         existing.metadata_json = {
             **dict(existing.metadata_json or {}),
             **dict(source.get("metadata") or {}),
             "origin": dict(source.get("metadata") or {}).get("origin", "notion"),
         }
+
+
+def _upsert_tv_episode_sources(movie: Movie, episode_items: list[dict]) -> None:
+    for item in episode_items:
+        _upsert_playback_sources(movie, item.get("playback_sources") or [], media_type="tv")
 
 
 def _library_movies(library_ids: list[str] | None) -> list[Movie]:
@@ -511,3 +541,99 @@ def _invalidate_sync_cache(movie_id: str) -> None:
 
 def _normalized(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
+
+
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value) if value not in {None, ""} else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _hydrate_tv_details(details: dict[str, Any]) -> dict[str, Any]:
+    if str(details.get("media_type") or "") != "tv":
+        return details
+    seasons = [item for item in list(details.get("seasons") or []) if int(item.get("season_number") or 0) > 0]
+    episodes_by_season: dict[str, list[dict]] = {}
+    for season in seasons:
+        season_number = int(season.get("season_number") or 0)
+        if season_number < 1:
+            continue
+        provider = tmdb_catalog_provider()
+        if hasattr(provider, "episodes"):
+            episodes_by_season[str(season_number)] = provider.episodes(
+                int(details["tmdb_id"]),
+                season_number,
+            )
+        else:
+            episodes_by_season[str(season_number)] = []
+    return {
+        **details,
+        "episodes_by_season": episodes_by_season,
+        "tv_total_seasons": len(seasons),
+        "tv_total_episodes": sum(len(items) for items in episodes_by_season.values()),
+    }
+
+
+def _hydrate_notion_item(provider: NotionMovieProvider, item: dict[str, Any]) -> dict[str, Any]:
+    if str(item.get("media_type") or "") != "tv" or not item.get("tmdb_id"):
+        return item
+    hydrated = {
+        **item,
+        **_hydrate_tv_details(tmdb_catalog_provider().details("tv", int(item["tmdb_id"]))),
+    }
+    if (
+        current_app.config.get("DRAGON_NOTION_WRITEBACK_ENABLED")
+        and getattr(provider, "tv_show_configured", False)
+        and getattr(provider, "tv_episode_configured", False)
+    ):
+        magnet_uri = ""
+        release_mode = "episode"
+        source = next((entry for entry in item.get("playback_sources") or [] if entry.get("locator")), None)
+        if source:
+            magnet_uri = str(source.get("locator") or "")
+            metadata = dict(source.get("metadata") or {})
+            release_mode = str(metadata.get("release_mode") or "episode")
+        hydrated = provider.upsert_media(
+            hydrated,
+            magnet_uri=magnet_uri,
+            release_title=str(item.get("release_title") or ""),
+            season=_optional_int(item.get("season")),
+            episode=_optional_int(item.get("episode")),
+            release_mode=release_mode,
+            status=str(item.get("status") or "watching"),
+        )
+    return hydrated
+
+
+def _tv_metadata_state(item: dict[str, Any]) -> dict[str, Any]:
+    if str(item.get("media_type") or "") != "tv":
+        return {}
+    seasons = [dict(entry) for entry in list(item.get("seasons") or [])]
+    episodes_by_season = item.get("episodes_by_season")
+    if not episodes_by_season:
+        grouped: dict[str, list[dict]] = {}
+        for entry in list(item.get("episode_items") or []):
+            season_number = int(entry.get("season") or entry.get("season_number") or 0)
+            if season_number < 1:
+                continue
+            grouped.setdefault(str(season_number), []).append(
+                {
+                    "episode_number": int(entry.get("episode") or entry.get("episode_number") or 0),
+                    "season_number": season_number,
+                    "name": str(entry.get("name") or ""),
+                    "still_url": str(entry.get("still_url") or ""),
+                    "runtime_minutes": _optional_int(entry.get("runtime_minutes")),
+                }
+            )
+        episodes_by_season = grouped
+    return {
+        "tv_show_notion_page_id": item.get("tv_show_notion_page_id") or item.get("notion_page_id"),
+        "tv_show_notion_url": item.get("tv_show_notion_url") or item.get("notion_url"),
+        "tv_total_seasons": item.get("tv_total_seasons") or len(seasons),
+        "tv_total_episodes": item.get("tv_total_episodes") or sum(
+            len(list(entries or [])) for entries in dict(episodes_by_season or {}).values()
+        ),
+        "tv_seasons": seasons,
+        "tv_episodes": episodes_by_season or {},
+    }

@@ -259,6 +259,9 @@ export const runRuntime = () => {
     }
     torrent.files.forEach((file) => file.deselect());
     session.file = media;
+    // Keep the chosen file selected so WebTorrent keeps downloading its pieces
+    // sequentially while the local HTTP server and prefetch readers wait on it.
+    media.select(1);
     const streamServer = await ensureServer(String(message.origin || ""));
     const address = streamServer.address();
     session.streamUrl = buildStreamUrl(address, media);

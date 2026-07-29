@@ -92,6 +92,36 @@ def test_article_extractor_prefers_article_over_main_chrome_and_void_form_tags()
     assert "Share" not in result["content_text"]
 
 
+def test_article_extractor_captures_inline_image_and_youtube_media():
+    body = b"""
+        <html><main>
+        <article>
+          <p>The opening paragraph explains the report and gives enough detail to read.</p>
+          <figure>
+            <img src="https://example.com/images/report.jpg" alt="Feature image">
+          </figure>
+          <iframe src="https://www.youtube.com/embed/abc123" title="Interview clip"></iframe>
+          <p>The closing paragraph keeps the story readable after the media block.</p>
+        </article>
+        </main></html>
+    """
+    extractor = ArticleExtractor(
+        timeout_seconds=3,
+        resolver=public_resolver,
+        opener=FakeOpener(FakeResponse(body)),
+    )
+
+    result = extractor.extract("https://example.com/story")
+
+    kinds = [block["kind"] for block in result["content_blocks"]]
+    assert kinds == ["text", "image", "youtube", "text"]
+    assert result["content_blocks"][1]["src"] == "https://example.com/images/report.jpg"
+    assert result["content_blocks"][1]["alt"] == "Feature image"
+    assert result["content_blocks"][2]["src"] == "https://www.youtube-nocookie.com/embed/abc123"
+    assert result["content_blocks"][2]["title"] == "Interview clip"
+    assert "opening paragraph" in result["content_text"]
+
+
 def test_article_extractor_rejects_private_hosts():
     def private_resolver(host, port, *, type=None):
         return [(2, type, 6, "", ("127.0.0.1", port))]

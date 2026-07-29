@@ -41,6 +41,7 @@ class Article(db.Model):
     topic: Mapped[str] = mapped_column(String(160), default="", nullable=False)
     excerpt: Mapped[str] = mapped_column(Text, default="", nullable=False)
     content_text: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    content_blocks: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     image_url: Mapped[str] = mapped_column(String(1000), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="unread", nullable=False)
     fulltext_state: Mapped[str] = mapped_column(String(30), default="not_requested", nullable=False)

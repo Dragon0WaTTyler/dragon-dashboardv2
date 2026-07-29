@@ -246,7 +246,7 @@ def subtitle_track(movie_id: str, token: str):
     if provider is None:
         abort(404)
     cache_key = (
-        f"{provider_name}:{file_format}:{path}:{member_name}:{season or ''}:"
+        f"v2:{provider_name}:{file_format}:{path}:{member_name}:{season or ''}:"
         f"{episode or ''}:{episode_title.casefold()}"
     )
     cache = current_app.extensions.setdefault("dragon_subtitle_cache", {})

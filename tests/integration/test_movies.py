@@ -1,3 +1,4 @@
+from app.movies import routes as movie_routes
 from app.extensions import db
 from app.movies.models import Movie
 from app.playback.models import PlaybackSource
@@ -9,6 +10,7 @@ class StubNotionProvider:
 
     def __init__(self):
         self.watched = []
+        self.scores = []
 
     def list_items(self):
         return []
@@ -25,6 +27,9 @@ class StubNotionProvider:
 
     def mark_watched(self, page_id, *, started):
         self.watched.append((page_id, started))
+
+    def set_score(self, page_id, score_label):
+        self.scores.append((page_id, score_label))
 
 
 class StubTmdbProvider:
@@ -76,6 +81,19 @@ class StubTmdbProvider:
             "external_ids": {"tmdb_id": "329865", "tmdb_type": "movie"},
         }
 
+    def episodes(self, tmdb_id, season_number):
+        assert (tmdb_id, season_number) == (1399, 1)
+        return [
+            {
+                "season_number": 1,
+                "episode_number": 1,
+                "name": "Pilot",
+                "overview": "",
+                "still_url": "",
+                "runtime_minutes": 60,
+            }
+        ]
+
 
 def add_movie(app, **overrides) -> str:
     values = {
@@ -119,6 +137,39 @@ def test_movie_status_mutation_requires_csrf(authenticated_client, app):
     assert response.status_code == 302
     with app.app_context():
         assert db.session.get(Movie, movie_id).status == "watched"
+
+
+def test_movie_score_uses_notion_labels_and_writes_back(authenticated_client, app):
+    notion = StubNotionProvider()
+    with app.app_context():
+        app.config["DRAGON_NOTION_WRITEBACK_ENABLED"] = True
+        app.extensions["dragon_notion_movie_provider"] = notion
+        movie = Movie(
+            title="Arrival",
+            normalized_title="arrival",
+            status="watching",
+            external_ids={"notion_page_id": "notion-page-1"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    page = authenticated_client.get(f"/movies/{movie_id}")
+    response = authenticated_client.post(
+        f"/movies/{movie_id}/score",
+        data={"score": "masterpiece", "csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Personal score and Notion were updated." in html
+    assert "masterpiece" in html
+    with app.app_context():
+        movie = db.session.get(Movie, movie_id)
+        assert movie.personal_score == 4.0
+        assert movie.metadata_state["personal_score_label"] == "masterpiece"
+    assert notion.scores == [("notion-page-1", "masterpiece")]
 
 
 def test_movie_search_uses_tmdb_for_titles_missing_from_notion(authenticated_client, app):
@@ -179,6 +230,34 @@ def test_import_writes_notion_and_creates_selected_player_source(authenticated_c
     assert notion.watched == [("notion-page-1", True)]
 
 
+def test_movie_api_import_unexpected_errors_stay_json(authenticated_client, app, monkeypatch):
+    def boom(*args, **kwargs):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(movie_routes, "import_release", boom)
+
+    page = authenticated_client.get("/movies")
+    response = authenticated_client.post(
+        "/movies/api/import",
+        headers={"X-CSRFToken": csrf_from(page)},
+        json={
+            "media_type": "movie",
+            "tmdb_id": 329865,
+            "magnet_uri": "magnet:?xt=urn:btih:AAAA&dn=arrival",
+            "release_title": "Arrival 2016 1080p",
+            "tracker": "YTS",
+            "seeders": 18,
+            "size": 1_500_000_000,
+        },
+    )
+
+    assert response.status_code == 500
+    payload = response.get_json()
+    assert payload["ok"] is False
+    assert payload["error"]["code"] == "internal_error"
+    assert payload["error"]["message"] == "The request could not be completed."
+
+
 def test_library_add_defaults_series_to_season_one(authenticated_client, app):
     notion = StubNotionProvider()
     with app.app_context():
@@ -201,3 +280,150 @@ def test_library_add_defaults_series_to_season_one(authenticated_client, app):
         assert movie.status == "want_to_watch"
         assert movie.media_type == "tv"
         assert movie.metadata_state["season"] == 1
+
+
+def test_resolve_tv_episode_source_updates_episode_page_with_fallback(
+    authenticated_client, app, monkeypatch
+):
+    notion = StubNotionProvider()
+    with app.app_context():
+        app.config["DRAGON_NOTION_WRITEBACK_ENABLED"] = True
+        app.config["DRAGON_PLAYBACK_ENABLED"] = True
+        app.config["DRAGON_MAGNETS_ENABLED"] = True
+        app.extensions["dragon_notion_movie_provider"] = notion
+        app.extensions["dragon_tmdb_catalog_provider"] = StubTmdbProvider()
+
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "season": 1,
+                "episode": 1,
+                "tv_total_seasons": 1,
+                "tv_total_episodes": 1,
+                "tv_seasons": [
+                    {"season_number": 1, "name": "Season 1", "episode_count": 1, "poster_url": ""}
+                ],
+                "tv_episodes": {
+                    "1": [
+                        {
+                            "season_number": 1,
+                            "episode_number": 1,
+                            "name": "Pilot",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        }
+                    ]
+                },
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    def fake_release_lookup(*, mode, **kwargs):
+        if mode == "exact_episode":
+            return {"items": []}
+        return {
+            "items": [
+                {
+                    "magnet_uri": "magnet:?xt=urn:btih:AAAA&dn=sopranos-s01-pack",
+                    "title": "The Sopranos S01 1080p pack",
+                    "tracker": "YTS",
+                    "seeders": 42,
+                    "size": 5_000_000_000,
+                }
+            ]
+        }
+
+    monkeypatch.setattr(movie_routes, "release_lookup", fake_release_lookup)
+
+    page = authenticated_client.get(f"/movies/{movie_id}/seasons/1/episodes/1")
+    response = authenticated_client.post(
+        f"/movies/{movie_id}/seasons/1/episodes/1/resolve-source",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert "Saved the best season-pack fallback for this episode." in html
+    assert "A season-pack fallback is already saved for this page." in html
+    assert "Local source ready" in html
+    assert 'data-kind="local"' in html
+
+    with app.app_context():
+        sources = list(
+            db.session.scalars(
+                db.select(PlaybackSource).where(PlaybackSource.movie_id == movie_id)
+            )
+        )
+        assert any(
+            source.season == 1
+            and source.episode == 1
+            and source.source_role == "season_pack_fallback"
+            for source in sources
+        )
+
+
+def test_tv_episode_hides_local_player_when_playback_flags_are_disabled(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="Disabled Playback",
+            normalized_title="disabled playback",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_total_seasons": 1,
+                "tv_total_episodes": 1,
+                "tv_seasons": [
+                    {"season_number": 1, "name": "Season 1", "episode_count": 1, "poster_url": ""}
+                ],
+                "tv_episodes": {
+                    "1": [
+                        {
+                            "season_number": 1,
+                            "episode_number": 1,
+                            "name": "Pilot",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        }
+                    ]
+                },
+            },
+        )
+        db.session.add(movie)
+        db.session.flush()
+        db.session.add(
+            PlaybackSource(
+                movie_id=movie.id,
+                kind="magnet",
+                label="S01 season pack Jackett magnet",
+                locator="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+                season=1,
+                episode=1,
+                source_role="season_pack_fallback",
+                metadata_json={"season_pack": True, "season": 1, "episode": 1, "release_mode": "season_pack"},
+                selected=True,
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = False
+    app.config["DRAGON_MAGNETS_ENABLED"] = False
+    app.config["DRAGON_VIDSRC_ENABLED"] = False
+
+    response = authenticated_client.get(f"/movies/{movie_id}/seasons/1/episodes/1")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'id="episode-player"' not in html
+    assert "Play selected episode from pack" not in html
+    assert 'data-local-endpoint=""' not in html

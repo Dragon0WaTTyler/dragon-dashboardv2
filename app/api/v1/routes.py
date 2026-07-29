@@ -7,6 +7,7 @@ from flask_login import login_required
 from sqlalchemy import text
 
 from app.api.v1.responses import collection_response, error_response, item_response
+from app.books.book_quotes import BookQuotesSnapshotService
 from app.books.repositories import BookRepository
 from app.books.services import book_detail, book_item
 from app.chess.repositories import ChessRepository
@@ -81,6 +82,16 @@ def _bounded_int(value: str | None, default: int, maximum: int) -> int:
         return default
 
 
+def _optional_positive_int(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
 @bp.get("/movies")
 @login_required
 def movies_collection():
@@ -122,7 +133,20 @@ def movie_progress_detail(movie_id: str):
     movie = MovieRepository.get(movie_id)
     if movie is None:
         return error_response("not_found", "Movie not found.", 404)
-    return item_response({"movie_id": movie.id, "progress": progress_dict(movie.progress)})
+    try:
+        season, episode = MovieService.progress_scope(
+            season=_optional_positive_int(request.args.get("season")),
+            episode=_optional_positive_int(request.args.get("episode")),
+        )
+    except ValueError as exc:
+        return error_response("validation_error", str(exc), 422)
+    progress = MovieService.get_progress(movie, season=season, episode=episode)
+    return item_response({
+        "movie_id": movie.id,
+        "season": season,
+        "episode": episode,
+        "progress": progress_dict(progress),
+    })
 
 
 @bp.put("/playback-progress/movie/<movie_id>")
@@ -145,6 +169,12 @@ def update_movie_progress(movie_id: str):
     completed = payload.get("completed", False)
     if not isinstance(completed, bool):
         errors["completed"] = "Must be a boolean."
+    season = _optional_positive_int(payload.get("season"))
+    episode = _optional_positive_int(payload.get("episode"))
+    try:
+        season, episode = MovieService.progress_scope(season=season, episode=episode)
+    except ValueError as exc:
+        errors["episode"] = str(exc)
     client_updated_at = None
     if payload.get("client_updated_at"):
         try:
@@ -162,13 +192,20 @@ def update_movie_progress(movie_id: str):
             duration_seconds=values["duration_seconds"],
             completed=completed,
             client_updated_at=client_updated_at,
+            season=season,
+            episode=episode,
         )
     except ProgressConflictError as exc:
         return error_response(
             "progress_conflict", "A newer progress update is already stored.", 409,
             fields={"stored_progress": str(exc.progress)},
         )
-    return item_response({"movie_id": movie.id, "progress": progress_dict(progress)})
+    return item_response({
+        "movie_id": movie.id,
+        "season": season,
+        "episode": episode,
+        "progress": progress_dict(progress),
+    })
 
 
 @bp.get("/youtube")
@@ -251,9 +288,25 @@ def article_fulltext_status(article_id: str):
 @login_required
 def books_collection():
     books = BookRepository.list(
-        q=str(request.args.get("q") or ""), status=str(request.args.get("status") or "")
+        q=str(request.args.get("q") or ""),
+        status=str(request.args.get("status") or ""),
+        format=str(request.args.get("format") or ""),
+        language=str(request.args.get("language") or ""),
+        metadata=str(request.args.get("metadata") or ""),
+        audiobook=str(request.args.get("audiobook") or ""),
+        author=str(request.args.get("author") or ""),
+        translator=str(request.args.get("translator") or ""),
+        highlights=str(request.args.get("highlights") or ""),
+        quotes=str(request.args.get("quotes") or ""),
+        notes=str(request.args.get("notes") or ""),
+        collection=str(request.args.get("collection") or ""),
+        review=str(request.args.get("review") or ""),
     )
-    items = [book_item(book) for book in books]
+    highlight_counts = BookQuotesSnapshotService.book_highlight_counts(books)
+    items = [
+        book_item(book, external_highlight_count=highlight_counts.get(book.id, 0))
+        for book in books
+    ]
     return collection_response(items, total=len(items), limit=len(items) or 1, offset=0)
 
 

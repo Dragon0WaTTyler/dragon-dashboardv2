@@ -106,6 +106,25 @@
 .release-item__body { min-width: 0; }
 .release-item h3 { overflow-wrap: anywhere; margin: 0 0 var(--space-2); font-size: 1rem; }
 .release-item p { margin: 0; color: var(--color-text-muted); font-size: .875rem; }
+.release-item__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.release-item__tags span {
+  display: inline-flex;
+  min-height: 26px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 4%);
+  color: var(--color-text-muted);
+  font-size: .75rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .release-item .button { flex: 0 0 auto; }
 
 .movie-actions {
@@ -234,7 +253,168 @@
   color: var(--color-text-muted);
 }
 .movie-release-browser__controls { margin-top: var(--space-4); }
-.movie-player { overflow: hidden; border: 1px solid var(--color-border-strong); border-radius: var(--radius-container); background: var(--color-surface); }
+.tv-season-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+}
+.tv-season-card,
+.tv-episode-card {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: var(--color-surface-muted);
+  color: inherit;
+  text-decoration: none;
+}
+.tv-season-card__poster,
+.tv-episode-card__still {
+  display: grid;
+  overflow: hidden;
+  background: #100d0d;
+  color: var(--color-accent);
+  place-items: center;
+}
+.tv-season-card__poster {
+  aspect-ratio: 2 / 3;
+  border-radius: calc(var(--radius-control) - 4px);
+}
+.tv-episode-card__still {
+  aspect-ratio: 16 / 9;
+  border-radius: calc(var(--radius-control) - 4px);
+}
+.tv-season-card__poster img,
+.tv-episode-card__still img { width: 100%; height: 100%; object-fit: cover; }
+.tv-season-card h3,
+.tv-episode-card h3 { margin: 0; font-size: 1rem; }
+.tv-season-card p,
+.tv-episode-card p { margin: 0; color: var(--color-text-muted); }
+.tv-season-card__stats,
+.tv-episode-card__stats,
+.tv-season-summary__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: .85rem;
+}
+.tv-episode-list {
+  display: grid;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+.tv-episode-card.is-active {
+  border-color: rgb(225 68 81 / 55%);
+  box-shadow: 0 0 0 1px rgb(225 68 81 / 24%);
+}
+.tv-episode-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.tv-episode-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-8) var(--space-5);
+  margin-top: var(--space-5);
+}
+.tv-episode-tile {
+  display: block;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+.tv-episode-tile__poster {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-control);
+  background: #100d0d;
+  box-shadow: 0 12px 30px rgb(0 0 0 / 18%);
+  transition:
+    transform 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+.tv-episode-tile:hover .tv-episode-tile__poster,
+.tv-episode-tile:focus-visible .tv-episode-tile__poster {
+  transform: translateY(-2px);
+  border-color: rgb(225 68 81 / 36%);
+  box-shadow: 0 18px 40px rgb(0 0 0 / 28%);
+}
+.tv-episode-tile__poster img { width: 100%; height: 100%; object-fit: cover; }
+.tv-episode-tile__body { gap: var(--space-2); }
+.tv-episode-tile__body h3 {
+  margin: 0;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+.tv-episode-tile__overview {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: .875rem;
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+.tv-episode-tile__meta,
+.tv-episode-tile__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+  color: var(--color-text-muted);
+  font-size: .8rem;
+}
+.tv-episode-tile__badges span {
+  display: inline-flex;
+  min-height: 24px;
+  align-items: center;
+  padding: 0 8px;
+  border: 1px solid rgb(255 255 255 / 10%);
+  border-radius: 999px;
+  background: rgb(255 255 255 / 4%);
+}
+.tv-episode-tile.is-active .tv-episode-tile__poster {
+  border-color: rgb(225 68 81 / 62%);
+  box-shadow: 0 0 0 1px rgb(225 68 81 / 20%), 0 20px 48px rgb(0 0 0 / 34%);
+}
+.tv-episode-tile.is-active .tv-episode-tile__body h3 {
+  color: rgb(255 244 244);
+}
+.tv-episode-tile.is-active .tv-episode-tile__badges span:last-child {
+  border-color: rgb(225 68 81 / 42%);
+  background: rgb(225 68 81 / 12%);
+  color: rgb(255 228 231);
+}
+.tv-progress-inline {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+}
+.tv-season-summary { display: grid; gap: var(--space-4); }
+.tv-season-summary__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+}
+.movie-player {
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+  --caption-position: 12%;
+  --caption-bg-opacity: 35%;
+  --caption-shadow-alpha: 80%;
+  --caption-shadow-blur: 12px;
+}
 .movie-player [hidden] { display: none; }
 .movie-player__heading { display: flex; gap: var(--space-4); align-items: start; justify-content: space-between; padding: var(--space-5); border-bottom: 1px solid var(--color-border); }
 .movie-player__heading h2 { margin: var(--space-1) 0 0; text-wrap: balance; }
@@ -381,30 +561,84 @@
 }
 .movie-player__captions {
   position: absolute;
-  inset: auto clamp(18px, 3vw, 34px) 84px;
+  inset: auto clamp(18px, 3vw, 34px) max(96px, var(--caption-position, 12%));
   z-index: 9;
   display: grid;
   justify-items: center;
   pointer-events: none;
 }
 .movie-player__caption-chip {
-  max-width: min(80%, 920px);
-  padding: 10px 18px;
-  border-radius: 18px;
-  background: rgb(0 0 0 / 50%);
+  width: 100%;
+  max-width: 100%;
+  padding: 12px 20px;
+  border-radius: 16px;
+  background: rgb(0 0 0 / var(--caption-bg-opacity, 35%));
   backdrop-filter: blur(var(--caption-blur, 0px));
   box-shadow: 0 18px 50px rgb(0 0 0 / 35%);
 }
-.movie-player__caption-chip span {
+[data-player-caption-text] {
+  display: grid;
+  justify-items: center;
+  gap: .08em;
   color: var(--caption-color, #fff);
   font-family: var(--caption-font-family, "IBM Plex Sans", sans-serif);
-  font-size: var(--caption-size, 30px);
-  font-weight: 600;
-  line-height: 1.35;
-  letter-spacing: .01em;
+  font-size: var(--caption-effective-size, var(--caption-size, 30px));
+  font-weight: var(--caption-weight, 700);
+  line-height: 1.32;
+  letter-spacing: 0;
   text-align: center;
-  text-shadow: 0 2px 12px rgb(0 0 0 / 68%);
-  white-space: pre-line;
+  text-wrap: pretty;
+  text-shadow:
+    0 2px 0 rgb(0 0 0 / 92%),
+    0 6px var(--caption-shadow-blur, 12px) rgb(0 0 0 / var(--caption-shadow-alpha, 80%)),
+    0 0 1px rgb(0 0 0 / 96%);
+  white-space: normal;
+  -webkit-font-smoothing: antialiased;
+}
+.movie-player__caption-line {
+  display: block;
+  max-inline-size: min(100%, 28em);
+  padding-inline: .08em;
+  unicode-bidi: plaintext;
+  white-space: nowrap;
+}
+.movie-player[data-caption-language="ar"] .movie-player__captions {
+  justify-items: center;
+}
+.movie-player[data-caption-language="ar"] .movie-player__caption-chip {
+  justify-self: center;
+  width: 100%;
+  max-width: 100%;
+  direction: rtl;
+}
+.movie-player[data-caption-language="ar"] [data-player-caption-text] {
+  direction: rtl;
+  text-align: center;
+  font-size: var(--caption-effective-size, var(--caption-size, 34px));
+  line-height: 1.34;
+  letter-spacing: .01em;
+  word-spacing: .05em;
+  text-shadow:
+    0 2px 0 rgb(0 0 0 / 94%),
+    0 8px 18px rgb(0 0 0 / 86%),
+    0 0 1px rgb(0 0 0 / 100%);
+  -webkit-text-stroke: .65px rgb(0 0 0 / 82%);
+}
+.movie-player[data-caption-language="ar"] .movie-player__caption-line {
+  max-inline-size: 100%;
+}
+.movie-player[data-caption-background="off"] .movie-player__caption-chip,
+.movie-player[data-caption-background="shadow"] .movie-player__caption-chip {
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+.movie-player[data-caption-background="box"] .movie-player__caption-chip {
+  backdrop-filter: none;
+}
+.movie-player[data-caption-background="blur"] .movie-player__caption-chip {
+  backdrop-filter: blur(var(--caption-blur, 10px));
 }
 .movie-player__timeline {
   display: block;
@@ -565,6 +799,13 @@
   display: grid;
   gap: 16px;
   padding-top: 16px;
+}
+.movie-player__subtitle-screen[data-player-subtitle-screen="appearance"] {
+  grid-template-columns: 1fr 1fr;
+}
+.movie-player__subtitle-screen[data-player-subtitle-screen="appearance"] .movie-player__subtitle-back,
+.movie-player__subtitle-screen[data-player-subtitle-screen="appearance"] .movie-player__subtitle-reset {
+  grid-column: 1 / -1;
 }
 .movie-player__subtitle-list {
   display: grid;
@@ -803,7 +1044,7 @@
   background: #e50914 !important;
 }
 .movie-player.is-watch-mode .movie-player__captions {
-  bottom: 92px;
+  bottom: max(96px, var(--caption-position, 12%));
 }
 @keyframes movie-player-spin {
   to { transform: rotate(360deg); }
@@ -820,6 +1061,7 @@
   .filter-bar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .filter-bar__search { grid-column: span 2; }
   .movie-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .tv-episode-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 760px) {
   .filter-bar { grid-template-columns: 1fr 1fr; }
@@ -832,6 +1074,8 @@
   .movie-recommendation__card { grid-template-columns: minmax(110px, 34vw) minmax(0, 1fr); gap: var(--space-5); }
   .movie-recommendation__body h2 { font-size: clamp(1.7rem, 8vw, 2.7rem); }
   .movie-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6) var(--space-4); }
+  .tv-season-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tv-episode-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-6) var(--space-4); }
   .movie-discovery__form { grid-template-columns: 1fr 1fr; }
   .movie-discovery__query { grid-column: 1 / -1; }
   .movie-discovery__results { grid-template-columns: 1fr; }
@@ -855,11 +1099,22 @@
     border-radius: 22px;
   }
   .movie-player__captions {
-    inset: auto 12px 78px;
+    inset-inline: 12px;
   }
   .movie-player__caption-chip {
     max-width: 100%;
     padding: 9px 14px;
+  }
+  .movie-player[data-caption-language="ar"] .movie-player__caption-chip {
+    width: 100%;
+    max-width: 100%;
+  }
+  .movie-player[data-caption-language="ar"] [data-player-caption-text] {
+    font-size: var(--caption-effective-size, var(--caption-size, 34px));
+    line-height: 1.34;
+  }
+  .movie-player__subtitle-screen[data-player-subtitle-screen="appearance"] {
+    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 420px) {
@@ -870,7 +1125,9 @@
   .movie-recommendation__card { grid-template-columns: 1fr; }
   .movie-recommendation__poster { width: min(58vw, 210px); }
   .movie-discovery__form,
-  .release-dialog__episode-picker { grid-template-columns: 1fr; }
+  .release-dialog__episode-picker,
+  .tv-season-grid,
+  .tv-episode-grid { grid-template-columns: 1fr; }
   .movie-discovery__query { grid-column: auto; }
   .discovery-card { grid-template-columns: 88px minmax(0, 1fr); }
   .discovery-card__poster { min-height: 132px; }
@@ -880,4 +1137,5 @@
 
 @media (prefers-reduced-motion: reduce) {
   .movie-recommendation { animation: none; }
+  .tv-episode-tile__poster { transition: none; }
 }

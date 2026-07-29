@@ -36,3 +36,14 @@ def test_security_headers_and_request_ids(client):
     assert response.headers["X-Request-ID"].startswith("req_")
     assert "default-src 'self'" in response.headers["Content-Security-Policy"]
     assert "img-src 'self' data: https:" in response.headers["Content-Security-Policy"]
+
+
+def test_sqlite_connections_enable_wal_and_busy_timeout(app):
+    with app.app_context():
+        with db.engine.connect() as connection:
+            journal_mode = connection.exec_driver_sql("PRAGMA journal_mode").scalar_one()
+            busy_timeout = connection.exec_driver_sql("PRAGMA busy_timeout").scalar_one()
+            foreign_keys = connection.exec_driver_sql("PRAGMA foreign_keys").scalar_one()
+    assert str(journal_mode).lower() == "wal"
+    assert int(busy_timeout) == 30000
+    assert int(foreign_keys) == 1

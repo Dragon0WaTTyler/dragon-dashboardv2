@@ -51,24 +51,6 @@
       {% endif %}
     </section>
 
-    {% if workspace.continue_watching %}
-    <section class="today-section report-section" aria-labelledby="next-title">
-      <div class="section-heading section-heading--action">
-        <div><span class="eyebrow">Continue watching</span><h2 id="next-title">Pick up where you stopped</h2></div>
-      </div>
-      <div class="today-poster-grid">
-        {% for movie in workspace.continue_watching %}
-        <article class="today-poster-card">
-          <a class="today-poster-card__image" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}">
-            {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="240" height="360"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
-          </a>
-          <h3 dir="auto"><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h3>
-          <progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>
-        </article>
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
     {% endif %}
 
     {% if dragon_feature('youtube', 'today') %}
@@ -100,12 +82,12 @@
     {% if dragon_feature('reading', 'today') %}
     <section class="today-section report-section" aria-labelledby="reading-today-title">
       <div class="section-heading section-heading--action">
-        <div><span class="eyebrow">Continue reading</span><h2 id="reading-today-title">Saved reads</h2></div>
+        <div><span class="eyebrow">Latest from News</span><h2 id="reading-today-title">News mix</h2></div>
         <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-reading-countdown>New reads every 5 min</span></span><a href="{{ url_for('reading.index') }}">View all</a></div>
       </div>
-      {% if workspace.continue_reading %}
+      {% if workspace.news_mix %}
       <div class="today-media-grid" data-live-reading>
-        {% for article in workspace.continue_reading %}
+        {% for article in workspace.news_mix %}
         <article class="today-media-card" data-live-reading-card>
           <a class="today-media-card__image" data-media-frame data-live-reading-link data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">
             {% if article.image_url %}<img data-media-image data-live-reading-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" data-live-reading-fallback aria-hidden="true">R</span>{% else %}<span class="media-fallback" data-live-reading-fallback aria-hidden="true">R</span>{% endif %}
@@ -125,7 +107,7 @@
         <div><span class="eyebrow" dir="auto">Article of the day · {{ workspace.article_of_day.source }}</span><h3 dir="auto"><a data-article-open="{{ url_for('reading.open_article', article_id=workspace.article_of_day.id) }}" href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">{{ workspace.article_of_day.title }}</a></h3><p dir="auto">{{ workspace.article_of_day.excerpt or 'A saved local read, ready when you are.' }}</p></div>
       </article>
       {% else %}
-      {{ empty_state('No saved reads', 'Your next unread or in-progress article will appear here.') }}
+      {{ empty_state('No news yet', 'Sync articles to fill this mix from the latest News items.') }}
       {% endif %}
     </section>
     {% endif %}
@@ -161,13 +143,36 @@
     {% if dragon_feature('books', 'today') %}<section aria-labelledby="book-today-title">
       <span class="eyebrow">Current book</span>
       <h2 id="book-today-title">Reading now</h2>
-      {% if workspace.current_book %}
-      <article class="today-book">
-        <a class="today-book__cover" data-media-frame href="{{ url_for('books.detail', book_id=workspace.current_book.id) }}">
-          {% if workspace.current_book.cover_url %}<img data-media-image src="{{ workspace.current_book.cover_url }}" alt="Cover of {{ workspace.current_book.title }}" loading="lazy" width="240" height="360"><span class="media-fallback" aria-hidden="true">{{ workspace.current_book.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ workspace.current_book.title[:1]|upper }}</span>{% endif %}
-        </a>
-        <div class="today-book__body"><h3 dir="auto"><a href="{{ url_for('books.detail', book_id=workspace.current_book.id) }}">{{ workspace.current_book.title }}</a></h3><p dir="auto">{{ workspace.current_book.authors|join(', ') or 'Unknown author' }}</p><progress class="progress-track" value="{{ workspace.current_book.progress_percent }}" max="100" aria-label="{{ workspace.current_book.progress_percent }} percent read">{{ workspace.current_book.progress_percent }}%</progress><small>Page {{ workspace.current_book.current_page }} of {{ workspace.current_book.page_count or '?' }}</small></div>
-      </article>
+      {% set current_books = workspace.current_books or ([workspace.current_book] if workspace.current_book else []) %}
+      {% if current_books %}
+      <div class="today-book-switcher{% if current_books|length > 1 %} today-book-switcher--multi{% endif %}" data-book-switcher>
+        <div class="today-book-switcher__viewport" data-book-viewport>
+          {% for book in current_books %}
+          <article class="today-book" data-book-panel data-book-title="{{ book.title }}" {% if not loop.first %}hidden aria-hidden="true"{% else %}aria-hidden="false"{% endif %}>
+            <a class="today-book__cover" data-media-frame href="{{ url_for('books.detail', book_id=book.id) }}">
+              {% if book.cover_url %}<img data-media-image src="{{ book.cover_url }}" alt="Cover of {{ book.title }}" loading="lazy" width="240" height="360"><span class="media-fallback" aria-hidden="true">{{ book.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ book.title[:1]|upper }}</span>{% endif %}
+            </a>
+            <div class="today-book__body">
+              <h3 dir="auto"><a href="{{ url_for('books.detail', book_id=book.id) }}">{{ book.title }}</a></h3>
+              <p dir="auto">{{ book.authors|join(', ') or 'Unknown author' }}</p>
+              <div class="today-book__progress">
+                <div class="today-book__progress-meta">
+                  <span class="today-book__page-count">Page {{ book.current_page }} of {{ book.page_count or '?' }}</span>
+                  <span class="today-book__percent">{{ book.progress_percent }}%</span>
+                </div>
+                <progress class="progress-track" value="{{ book.progress_percent }}" max="100" aria-label="{{ book.progress_percent }} percent read">{{ book.progress_percent }}%</progress>
+              </div>
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+        {% if current_books|length > 1 %}
+        <button class="today-book-switcher__next" type="button" data-book-next aria-label="Show next reading book">
+          <span aria-hidden="true">›</span>
+        </button>
+        <p class="today-book-switcher__count" aria-live="polite"><span data-book-current-index>1</span> / {{ current_books|length }}</p>
+        {% endif %}
+      </div>
       {% else %}<p class="muted">No current book.</p>{% endif %}
     </section>{% endif %}
 
@@ -175,16 +180,20 @@
       <span class="eyebrow">Now watching</span>
       <h2 id="watching-now-title">Movie or series</h2>
       {% if workspace.watching_now %}
+      {% set watch_target = workspace.watching_now.watch_target %}
+      {% set watch_href = url_for('movies.detail', movie_id=workspace.watching_now.id, season=watch_target.season, episode=watch_target.episode, _anchor='movie-player') if watch_target else url_for('movies.detail', movie_id=workspace.watching_now.id, _anchor='movie-player') %}
       <article class="today-book today-watch-now">
-        <a class="today-book__cover" data-media-frame href="{{ url_for('movies.detail', movie_id=workspace.watching_now.id) }}">
+        <a class="today-book__cover" data-media-frame href="{{ watch_href }}">
           {% if workspace.watching_now.poster_url %}<img data-media-image src="{{ workspace.watching_now.poster_url }}" alt="Poster for {{ workspace.watching_now.title }}" loading="lazy" width="240" height="360"><span class="media-fallback" aria-hidden="true">{{ workspace.watching_now.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ workspace.watching_now.title[:1]|upper }}</span>{% endif %}
         </a>
         <div class="today-book__body">
-          <h3 dir="auto"><a href="{{ url_for('movies.detail', movie_id=workspace.watching_now.id) }}">{{ workspace.watching_now.title }}</a></h3>
+          <h3 dir="auto"><a href="{{ watch_href }}">{{ workspace.watching_now.title }}</a></h3>
           <p>{{ workspace.watching_now.year or 'Year unknown' }} · {{ workspace.watching_now.media_type|replace('_', ' ')|title }}</p>
-          {% if workspace.watching_now.progress %}
+          {% if workspace.watching_now.progress and not watch_target.from_completed_episode %}
           <progress class="progress-track" value="{{ workspace.watching_now.progress.percent }}" max="100" aria-label="{{ workspace.watching_now.progress.percent }} percent watched">{{ workspace.watching_now.progress.percent }}%</progress>
-          <small>{{ workspace.watching_now.progress.percent }}% watched</small>
+          <small>{% if watch_target %}S{{ '%02d'|format(watch_target.season) }}E{{ '%02d'|format(watch_target.episode) }} · {% endif %}{{ workspace.watching_now.progress.percent }}% watched</small>
+          {% elif watch_target %}
+          <small>S{{ '%02d'|format(watch_target.season) }}E{{ '%02d'|format(watch_target.episode) }} next</small>
           {% endif %}
         </div>
       </article>

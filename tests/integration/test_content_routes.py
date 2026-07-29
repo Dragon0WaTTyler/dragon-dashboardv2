@@ -1,6 +1,6 @@
-from app.books.models import Book
+from app.books.models import Book, Quote
 from app.extensions import db
-from app.movies.models import Movie
+from app.movies.models import Movie, MovieProgress
 from app.reading.models import Article, ReadingSource
 from app.youtube.models import YouTubeVideo
 from tests.conftest import csrf_from
@@ -49,7 +49,14 @@ def seed_content(app) -> dict[str, str]:
             status="reading",
             page_count=300,
             current_page=25,
+            personal_score=4.5,
+            favorite=True,
+            collections=["Shelf Alpha", "Shelf Beta"],
+            personal_notes="Keep this one close for the next reread.",
             cover_url="https://images.example.test/book.jpg",
+        )
+        book.quotes.append(
+            Quote(text="A line worth keeping.", note="Pocket note", page=19)
         )
         movie = Movie(
             title="A Daily Film",
@@ -57,7 +64,25 @@ def seed_content(app) -> dict[str, str]:
             status="want_to_watch",
             poster_url="https://images.example.test/movie.jpg",
         )
-        db.session.add_all([video, watch_video, rtl_video, source, article, book, movie])
+        series = Movie(
+            title="Active Series",
+            normalized_title="active series",
+            status="watching",
+            media_type="tv",
+            poster_url="https://images.example.test/series.jpg",
+        )
+        db.session.add_all([video, watch_video, rtl_video, source, article, book, movie, series])
+        db.session.flush()
+        db.session.add(
+            MovieProgress(
+                movie_id=series.id,
+                season=1,
+                episode=5,
+                current_seconds=2400,
+                duration_seconds=2400,
+                completed=True,
+            )
+        )
         db.session.commit()
         return {"video": video.id, "article": article.id, "book": book.id}
 
@@ -81,6 +106,26 @@ def test_primary_content_pages_render(authenticated_client, app):
     book_detail = authenticated_client.get(f"/books/{ids['book']}").get_data(as_text=True)
     assert 'class="book-detail' in book_detail
     assert 'src="https://images.example.test/book.jpg"' in book_detail
+    assert "Reading context" in book_detail
+    assert "Current copies" in book_detail
+    assert "Register a file" in book_detail
+    assert "Track an edition" in book_detail
+    assert "Synced lines" in book_detail
+    assert "Saved lines" in book_detail
+    assert "Capture" in book_detail
+    assert "Shelf Alpha, Shelf Beta" in book_detail
+    assert "Keep this one close for the next reread." in book_detail
+    books_index = authenticated_client.get("/books").get_data(as_text=True)
+    assert "Search library" in books_index
+    assert "Search titles, authors, and shelves." in books_index
+    assert "Diagnostics" in books_index
+    assert "Edition &amp; audio" not in books_index
+    assert "Browse the library by maintenance lane" not in books_index
+    diagnostics = authenticated_client.get("/settings/knowledge/diagnostics").get_data(
+        as_text=True
+    )
+    assert "Browse cleanup lanes from diagnostics" in diagnostics
+    assert "Formats" in diagnostics
 
     youtube_detail = authenticated_client.get(f"/youtube/{ids['video']}")
     youtube_html = youtube_detail.get_data(as_text=True)
@@ -131,6 +176,8 @@ def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     today_html = today.get_data(as_text=True)
     assert "focus-strip" not in today_html
     assert "Choose one thing" not in today_html
+    assert "Pick up where you stopped" not in today_html
+    assert "season=1&amp;episode=6#movie-player" in today_html
     assert 'class="today-feature"' in today_html
     assert 'src="https://images.example.test/movie.jpg"' in today_html
     assert 'src="https://images.example.test/watch-video.jpg"' in today_html

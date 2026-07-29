@@ -21,6 +21,9 @@ class PlaybackSource(db.Model):
     locator: Mapped[str] = mapped_column(Text, nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="available", nullable=False)
     selected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    season: Mapped[int | None] = mapped_column(Integer)
+    episode: Mapped[int | None] = mapped_column(Integer)
+    source_role: Mapped[str] = mapped_column(String(40), default="", nullable=False)
     metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(

@@ -31,6 +31,8 @@ class FakeWebTorrentClient:
                 "bufferPercent": 75,
                 "streamUrl": "http://127.0.0.1:54321/dragon-stream/secret/hash/movie.mp4",
                 "directStream": True,
+                "headReady": True,
+                "tailReady": True,
                 "complete": False,
                 "peers": 2,
                 "downloadSpeed": 1024,
@@ -143,6 +145,45 @@ def test_cached_torrent_metadata_is_used_without_network(tmp_path):
     assert status["cache_hit"] is True
     start_payload = next(payload for command, payload in client.requests if command == "start")
     assert start_payload["torrentFile"] == str(metadata)
+
+
+def test_transcode_sessions_wait_for_the_first_playable_chunk(tmp_path):
+    manager, client = manager_for(tmp_path)
+    started = manager.start(
+        movie_id="movie-1",
+        user_id="user-1",
+        source_id="source-1",
+        magnet=MAGNET,
+        origin="http://127.0.0.1:5050",
+    )
+
+    session_id = started["id"]
+    wait_until_ready(manager, session_id)
+    client.results[session_id] = {
+        "fileName": "The.Sopranos.S02E13.1080p.BluRay.x265-RARBG.mp4",
+        "totalBytes": 1000,
+        "downloadedBytes": 20,
+        "fileProgress": 0.02,
+        "bufferPercent": 0,
+        "streamUrl": "http://127.0.0.1:54321/dragon-stream/secret/hash/episode.mp4",
+        "directStream": False,
+        "headReady": False,
+        "tailReady": False,
+        "complete": False,
+        "peers": 1,
+        "downloadSpeed": 512,
+        "timings": {"metadata_ms": 12, "stream_ready_ms": 18},
+        "error": "",
+    }
+
+    status = manager.status(session_id, user_id="user-1")
+    assert status["state"] == "buffering"
+    assert "first playable chunk" in status["message"]
+
+    client.results[session_id]["headReady"] = True
+    status = manager.status(session_id, user_id="user-1")
+    assert status["state"] == "ready"
+    assert status["stream_kind"] == "transcode"
 
 
 def test_cache_cleanup_expires_inactive_entries_but_keeps_active(tmp_path):

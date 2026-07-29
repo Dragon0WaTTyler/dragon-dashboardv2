@@ -59,6 +59,8 @@ def test_jackett_filters_low_seed_and_duplicate_results():
     assert session.params["Query"] == "Arrival 2016"
     assert [item["title"] for item in results] == ["Arrival 2016 1080p"]
     assert results[0]["seeders"] == 18
+    assert results[0]["quality_label"] == "1080p"
+    assert "1080p" in results[0]["release_tags"]
 
 
 def test_jackett_returns_only_exact_episode_when_available():
@@ -195,3 +197,45 @@ def test_jackett_season_pack_mode_ignores_exact_and_side_mentions():
     assert [item["title"] for item in results] == [
         "The Sopranos Season 1 Complete 1080p"
     ]
+
+
+def test_jackett_release_profile_prefers_browser_and_subtitle_friendly_matches():
+    provider = JackettReleaseProvider(
+        base_url="http://127.0.0.1:9117",
+        api_key="secret",
+        min_seeders=5,
+        session=FakeSession(),
+    )
+
+    rows = [
+        {
+            "title": "Arrival 2016 1080p BluRay x265",
+            "magnet_uri": "magnet:?xt=urn:btih:1111&dn=arrival-hevc",
+            "seeders": 20,
+            "size": 2_000_000_000,
+            "tracker": "TPB",
+        },
+        {
+            "title": "Arrival 2016 1080p WEB-DL x264 Arabic Subs",
+            "magnet_uri": "magnet:?xt=urn:btih:2222&dn=arrival-h264",
+            "seeders": 20,
+            "size": 2_200_000_000,
+            "tracker": "TPB",
+        },
+    ]
+
+    results = provider._filter(
+        rows,
+        10,
+        match_context={"title_variants": ["Arrival"], "year": 2016},
+    )
+
+    assert [item["title"] for item in results] == [
+        "Arrival 2016 1080p WEB-DL x264 Arabic Subs",
+        "Arrival 2016 1080p BluRay x265",
+    ]
+    assert results[0]["codec_label"] == "H.264"
+    assert results[0]["playback_label"] == "Browser friendly"
+    assert results[0]["subtitle_label"] == "Subtitle signal"
+    assert "Subs" in results[0]["release_tags"]
+    assert results[1]["playback_label"] == "Transcode likely"

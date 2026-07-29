@@ -1,0 +1,77 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+{% block title %}{{ export.book.title }} · Kindle export · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block content %}
+<article class="kindle-export knowledge-stream-page knowledge-stream-page--kindle-export">
+  <a class="back-link" href="{{ url_for('books.detail', book_id=export.book.id) }}">← Back to book</a>
+  <header class="kindle-export__header">
+    <div>
+      <span class="eyebrow">Manual Kindle transfer</span>
+      <h1 dir="auto">{{ export.book.title }}</h1>
+      <p>KFX and AZW3 stay inventory-first. No conversion, copying, or automatic device transfer runs here.</p>
+    </div>
+    <div class="kindle-export__actions">
+      {{ badge(export.manifest.preferred_format or 'No file', 'accent' if export.preferred else 'warning') }}
+      <a class="button button--quiet" href="{{ url_for('books.kindle_export_manifest', book_id=export.book.id) }}">Manifest JSON</a>
+    </div>
+  </header>
+
+  <section class="knowledge-stream-intro" aria-labelledby="kindle-overview-title">
+    <div class="knowledge-stream-intro__lead">
+      <span class="eyebrow">Transfer boundaries</span>
+      <h2 id="kindle-overview-title">Prepare the local file you actually want to send</h2>
+      <p>This page stays inventory-first: Dragon ranks the local transfer set in Kindle order, exposes the manifest, and leaves copying, conversion, and device sync outside the web runtime.</p>
+    </div>
+    <div class="knowledge-stream-intro__cards">
+      <div class="knowledge-stream-intro__card">
+        <strong>Preferred order</strong>
+        <small>KFX → AZW3 → EPUB → PDF stays the same everywhere the library compares, recommends, or exports text assets.</small>
+      </div>
+      <div class="knowledge-stream-intro__card">
+        <strong>Current transfer set</strong>
+        <small>{{ export.assets|length }} local transfer asset{{ 's' if export.assets|length != 1 else '' }}{% if export.manifest.preferred_format %} · best available is {{ export.manifest.preferred_format }}{% else %} · no approved transfer file yet{% endif %}</small>
+      </div>
+    </div>
+  </section>
+
+  {% if export.preferred %}
+  <section class="kindle-export__recommended" aria-labelledby="kindle-recommended-title">
+    <div>
+      <span class="eyebrow">Recommended asset</span>
+      <h2 id="kindle-recommended-title">{{ export.preferred.format }} · {{ export.preferred.filename }}</h2>
+      <p>{{ export.preferred.edition_title }}{% if export.preferred.edition_language %} · {{ export.preferred.edition_language }}{% endif %}</p>
+    </div>
+    <dl>
+      <div><dt>Size</dt><dd>{{ export.preferred.file_size_label }}</dd></div>
+      <div><dt>Verification</dt><dd>{{ export.preferred.verification_status|replace('_',' ')|title }}</dd></div>
+      <div><dt>SHA-256</dt><dd><code>{{ export.preferred.file_hash }}</code></dd></div>
+    </dl>
+    <a class="button button--primary" href="{{ url_for('books.text_asset_stream', book_id=export.book.id, asset_id=export.preferred.id) }}">Download recommended</a>
+  </section>
+  {% else %}
+  <p class="book-detail__empty">No local KFX, AZW3, EPUB, or PDF asset is registered for Kindle transfer.</p>
+  {% endif %}
+
+  {% if export.assets %}
+  <section class="knowledge-panel" aria-labelledby="kindle-assets-title">
+    <div class="section-heading section-heading--action">
+      <div><span class="eyebrow">Transfer queue</span><h2 id="kindle-assets-title">All local files</h2><p class="knowledge-panel__summary">The reviewed local assets stay visible here in the same priority order, so you can compare the full transfer set before you download anything.</p></div>
+      {{ badge(export.assets|length ~ ' assets') }}
+    </div>
+    <div class="knowledge-rows kindle-export-rows">
+      {% for asset in export.assets %}
+      <div class="knowledge-row">
+        <strong>{{ asset.format }}</strong>
+        <span>{{ asset.filename }}</span>
+        <small>{{ asset.verification_status|replace('_',' ')|title }} · {{ asset.file_size_label }}{% if asset.preferred %} · Recommended{% endif %}</small>
+        <div class="candidate-actions">
+          <a class="button button--quiet" href="{{ url_for('books.text_asset_stream', book_id=export.book.id, asset_id=asset.id) }}">Download</a>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
+</article>
+{% endblock %}

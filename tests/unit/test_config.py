@@ -100,6 +100,22 @@ def test_false_boolean_override_wins_over_environment(tmp_path: Path, monkeypatc
     assert settings.external_sync_enabled is False
 
 
+def test_book_notion_settings_are_separate_from_movie_notion_settings(tmp_path: Path):
+    settings = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "NOTION_TOKEN": "private-token",
+            "NOTION_DATABASE_ID": "movie-db",
+            "NOTION_BOOKS_DATABASE_ID": "book-db",
+        },
+    )
+
+    assert settings.notion_database_id == "movie-db"
+    assert settings.book_notion_database_id == "book-db"
+    assert "book_notion_database_id" not in settings.safe_summary()
+
+
 def test_subdl_key_enables_subtitles_without_entering_safe_summary(tmp_path: Path):
     settings = Settings.load(
         tmp_path,

@@ -9,6 +9,8 @@ from sqlalchemy.orm import selectinload
 from app.extensions import db
 from app.history.services import HistoryService
 from app.movies.models import Movie, MovieProgress
+from app.movies.scoring import score_option_for_input
+from app.playback.models import PlaybackSource
 from app.shared.time import utc_now
 
 MOVIE_STATUSES = {"want_to_watch", "watching", "finished", "watched", "unknown"}
@@ -43,6 +45,13 @@ class ProgressConflictError(ValueError):
         self.progress = progress
 
 
+def _optional_int(value: Any) -> int | None:
+    try:
+        return int(value) if value not in {None, ""} else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _utc_json(value: datetime | None) -> str | None:
     if value is None:
         return None
@@ -58,6 +67,8 @@ def progress_dict(progress: MovieProgress | None) -> dict[str, Any] | None:
     if progress.duration_seconds > 0:
         percent = min(100, round(progress.current_seconds / progress.duration_seconds * 100))
     return {
+        "season": progress.season,
+        "episode": progress.episode,
         "current_seconds": progress.current_seconds,
         "duration_seconds": progress.duration_seconds,
         "percent": percent,
@@ -66,7 +77,34 @@ def progress_dict(progress: MovieProgress | None) -> dict[str, Any] | None:
     }
 
 
+def _display_progress(movie: Movie) -> MovieProgress | None:
+    entries = list(movie.progress_entries or [])
+    if entries:
+        return entries[0]
+    return movie.progress
+
+
+def _watch_target(progress: MovieProgress | None) -> dict[str, Any] | None:
+    if progress is None or not progress.season or not progress.episode:
+        return None
+    percent = 0
+    if progress.duration_seconds > 0:
+        percent = min(100, round(progress.current_seconds / progress.duration_seconds * 100))
+    completed = bool(progress.completed or percent >= 92)
+    episode = int(progress.episode) + 1 if completed else int(progress.episode)
+    return {
+        "season": int(progress.season),
+        "episode": episode,
+        "from_completed_episode": completed,
+    }
+
+
 def movie_item(movie: Movie) -> dict[str, Any]:
+    progress = _display_progress(movie)
+    score_option = score_option_for_input(
+        movie.personal_score,
+        stored_label=dict(movie.metadata_state or {}).get("personal_score_label"),
+    )
     return {
         "id": movie.id,
         "title": movie.title,
@@ -74,8 +112,10 @@ def movie_item(movie: Movie) -> dict[str, Any]:
         "year": movie.year,
         "status": movie.status,
         "personal_score": movie.personal_score,
+        "personal_score_label": score_option.label if score_option else None,
         "poster_url": movie.poster_url,
-        "progress": progress_dict(movie.progress),
+        "progress": progress_dict(progress),
+        "watch_target": _watch_target(progress),
     }
 
 
@@ -96,6 +136,376 @@ def movie_detail(movie: Movie) -> dict[str, Any]:
         "external_ids": dict(movie.external_ids or {}),
         "metadata_state": dict(movie.metadata_state or {}),
         "updated_at": _utc_json(movie.updated_at),
+    }
+
+
+def tv_catalog(movie: Movie) -> dict[str, Any]:
+    metadata = dict(movie.metadata_state or {})
+    seasons = metadata.get("tv_seasons")
+    episodes = metadata.get("tv_episodes")
+    return {
+        "total_seasons": int(metadata.get("tv_total_seasons") or 0),
+        "total_episodes": int(metadata.get("tv_total_episodes") or 0),
+        "seasons": list(seasons) if isinstance(seasons, list) else [],
+        "episodes": dict(episodes) if isinstance(episodes, dict) else {},
+        "show_notion_page_id": str(metadata.get("tv_show_notion_page_id") or ""),
+        "show_notion_url": str(metadata.get("tv_show_notion_url") or ""),
+    }
+
+
+def _tv_progress_lookup(movie: Movie) -> dict[tuple[int, int], MovieProgress]:
+    lookup: dict[tuple[int, int], MovieProgress] = {}
+    for progress in movie.progress_entries or []:
+        if progress.season and progress.episode:
+            lookup[(int(progress.season), int(progress.episode))] = progress
+    return lookup
+
+
+def _tv_source_lookup(movie: Movie) -> dict[tuple[int, int], dict[str, PlaybackSource | None]]:
+    rows = list(
+        db.session.scalars(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie.id,
+                PlaybackSource.kind == "magnet",
+                PlaybackSource.status == "available",
+            )
+        )
+    )
+    catalog = tv_catalog(movie)
+    season_episodes: dict[int, list[int]] = {}
+    for season_key, episode_rows in (catalog.get("episodes") or {}).items():
+        season_number = int(season_key)
+        season_episodes[season_number] = [
+            int(row.get("episode_number") or 0)
+            for row in episode_rows or []
+            if int(row.get("episode_number") or 0) > 0
+        ]
+    lookup: dict[tuple[int, int], dict[str, PlaybackSource | None]] = {}
+    for row in rows:
+        metadata = dict(row.metadata_json or {})
+        season = _optional_int(row.season)
+        if season is None:
+            season = _optional_int(metadata.get("season"))
+        if season is None:
+            continue
+        episode = _optional_int(row.episode)
+        if episode is None:
+            episode = _optional_int(metadata.get("episode"))
+        source_role = str(row.source_role or metadata.get("source_role") or "")
+        season_pack = bool(
+            metadata.get("season_pack")
+            or source_role == "season_pack_fallback"
+            or str(metadata.get("release_mode") or "") == "season_pack"
+        )
+        target_episodes = [episode] if episode is not None else []
+        if not target_episodes and season_pack:
+            target_episodes = season_episodes.get(season, [])
+        for target_episode in target_episodes:
+            key = (season, int(target_episode))
+            bucket = lookup.setdefault(key, {"exact": None, "fallback": None})
+            if season_pack:
+                bucket["fallback"] = row
+            elif source_role == "exact_episode":
+                bucket["exact"] = row
+            elif bucket["exact"] is None:
+                bucket["exact"] = row
+    return lookup
+
+
+def _progress_completed(progress: dict[str, Any] | None) -> bool:
+    if not progress:
+        return False
+    return bool(progress.get("completed") or int(progress.get("percent") or 0) >= 92)
+
+
+def _episode_position(season: int | None, episode: int | None) -> tuple[int, int] | None:
+    if not season or not episode:
+        return None
+    return (int(season), int(episode))
+
+
+def _tv_furthest_position(
+    movie: Movie,
+    *,
+    catalog: dict[str, Any],
+    progress_lookup: dict[tuple[int, int], MovieProgress],
+) -> tuple[int, int] | None:
+    episode_keys: set[tuple[int, int]] = set()
+    for season in catalog["seasons"]:
+        season_number = int(season.get("season_number") or 0)
+        if season_number < 1:
+            continue
+        for row in catalog["episodes"].get(str(season_number)) or []:
+            episode_number = int(row.get("episode_number") or 0)
+            if episode_number > 0:
+                episode_keys.add((season_number, episode_number))
+
+    candidates: list[tuple[int, int]] = []
+    metadata_key = _episode_position(
+        (movie.metadata_state or {}).get("season"),
+        (movie.metadata_state or {}).get("episode"),
+    )
+    if metadata_key and metadata_key in episode_keys:
+        candidates.append(metadata_key)
+
+    for key, progress in progress_lookup.items():
+        if key not in episode_keys:
+            continue
+        progress_data = progress_dict(progress)
+        if _progress_completed(progress_data) or int(progress.current_seconds or 0) > 0:
+            candidates.append(key)
+
+    return max(candidates) if candidates else None
+
+
+def _tv_effective_progress(
+    *,
+    season_number: int,
+    episode_number: int,
+    progress_lookup: dict[tuple[int, int], MovieProgress],
+    furthest_position: tuple[int, int] | None,
+) -> dict[str, Any] | None:
+    key = (int(season_number), int(episode_number))
+    explicit = progress_dict(progress_lookup.get(key))
+    if furthest_position and key < furthest_position:
+        return {
+            "season": season_number,
+            "episode": episode_number,
+            "current_seconds": 0,
+            "duration_seconds": 0,
+            "percent": 100,
+            "completed": True,
+            "updated_at": explicit.get("updated_at") if explicit else None,
+            "inferred": True,
+        }
+    return explicit
+
+
+def _tv_resume_target(
+    movie: Movie,
+    *,
+    catalog: dict[str, Any],
+    progress_lookup: dict[tuple[int, int], MovieProgress],
+) -> dict[str, Any] | None:
+    episode_index: dict[tuple[int, int], dict[str, Any]] = {}
+    for season in catalog["seasons"]:
+        season_number = int(season.get("season_number") or 0)
+        if season_number < 1:
+            continue
+        for row in catalog["episodes"].get(str(season_number)) or []:
+            episode_number = int(row.get("episode_number") or 0)
+            if episode_number < 1:
+                continue
+            episode_index[(season_number, episode_number)] = row
+
+    latest_partial: dict[str, Any] | None = None
+    for progress in movie.progress_entries or []:
+        if not progress.season or not progress.episode:
+            continue
+        if progress.completed or progress.current_seconds <= 0:
+            continue
+        row = episode_index.get((int(progress.season), int(progress.episode)))
+        percent = progress_dict(progress)
+        latest_partial = {
+            "season": int(progress.season),
+            "episode": int(progress.episode),
+            "name": str((row or {}).get("name") or f"Episode {progress.episode}"),
+            "progress": percent,
+            "mode": "resume",
+        }
+        break
+
+    metadata_season = int((movie.metadata_state or {}).get("season") or 0)
+    metadata_episode = int((movie.metadata_state or {}).get("episode") or 0)
+    metadata_waypoint: dict[str, Any] | None = None
+    if metadata_season > 0 and metadata_episode > 0:
+        row = episode_index.get((metadata_season, metadata_episode))
+        if row is not None:
+            metadata_waypoint = {
+                "season": metadata_season,
+                "episode": metadata_episode,
+                "name": str(row.get("name") or f"Episode {metadata_episode}"),
+                "progress": progress_dict(progress_lookup.get((metadata_season, metadata_episode))),
+                "mode": "current",
+            }
+
+    if latest_partial and metadata_waypoint:
+        partial_key = (int(latest_partial["season"]), int(latest_partial["episode"]))
+        metadata_key = (int(metadata_waypoint["season"]), int(metadata_waypoint["episode"]))
+        if metadata_key > partial_key:
+            return metadata_waypoint
+        return latest_partial
+    if metadata_waypoint:
+        return metadata_waypoint
+    if latest_partial:
+        return latest_partial
+
+    for season in catalog["seasons"]:
+        season_number = int(season.get("season_number") or 0)
+        if season_number < 1:
+            continue
+        for row in catalog["episodes"].get(str(season_number)) or []:
+            episode_number = int(row.get("episode_number") or 0)
+            if episode_number < 1:
+                continue
+            progress_data = progress_dict(progress_lookup.get((season_number, episode_number)))
+            if not progress_data or not progress_data["completed"]:
+                return {
+                    "season": season_number,
+                    "episode": episode_number,
+                    "name": str(row.get("name") or f"Episode {episode_number}"),
+                    "progress": progress_data,
+                    "mode": "next",
+                }
+    return None
+
+
+def tv_show_workspace(movie: Movie) -> dict[str, Any]:
+    catalog = tv_catalog(movie)
+    progress_lookup = _tv_progress_lookup(movie)
+    source_lookup = _tv_source_lookup(movie)
+    furthest_position = _tv_furthest_position(
+        movie,
+        catalog=catalog,
+        progress_lookup=progress_lookup,
+    )
+    completed_seasons = 0
+    watched_episodes = 0
+    seasons: list[dict[str, Any]] = []
+
+    for season in catalog["seasons"]:
+        season_number = int(season.get("season_number") or 0)
+        if season_number < 1:
+            continue
+        episode_rows = list(catalog["episodes"].get(str(season_number)) or [])
+        completed_count = 0
+        available_count = 0
+        for row in episode_rows:
+            episode_number = int(row.get("episode_number") or 0)
+            if episode_number < 1:
+                continue
+            progress_data = _tv_effective_progress(
+                season_number=season_number,
+                episode_number=episode_number,
+                progress_lookup=progress_lookup,
+                furthest_position=furthest_position,
+            )
+            if _progress_completed(progress_data):
+                completed_count += 1
+                watched_episodes += 1
+            if source_lookup.get((season_number, episode_number), {}).get("exact") or source_lookup.get((season_number, episode_number), {}).get("fallback"):
+                available_count += 1
+        episode_count = max(len([row for row in episode_rows if int(row.get("episode_number") or 0) > 0]), int(season.get("episode_count") or 0))
+        if episode_count and completed_count >= episode_count:
+            completed_seasons += 1
+        seasons.append(
+            {
+                **season,
+                "season_number": season_number,
+                "episode_count": episode_count,
+                "completed_episode_count": completed_count,
+                "available_episode_count": available_count,
+                "completion_percent": min(100, round(completed_count / episode_count * 100)) if episode_count else 0,
+                "is_completed": bool(episode_count and completed_count >= episode_count),
+            }
+        )
+
+    resume_target = _tv_resume_target(movie, catalog=catalog, progress_lookup=progress_lookup)
+    return {
+        "show": movie_item(movie),
+        "catalog": catalog,
+        "seasons": seasons,
+        "completed_seasons": completed_seasons,
+        "watched_episodes": watched_episodes,
+        "resume_target": resume_target,
+    }
+
+
+def tv_season_workspace(movie: Movie, *, season_number: int, selected_episode: int | None = None) -> dict[str, Any]:
+    catalog = tv_catalog(movie)
+    progress_lookup = _tv_progress_lookup(movie)
+    source_lookup = _tv_source_lookup(movie)
+    furthest_position = _tv_furthest_position(
+        movie,
+        catalog=catalog,
+        progress_lookup=progress_lookup,
+    )
+    resume_target = _tv_resume_target(movie, catalog=catalog, progress_lookup=progress_lookup)
+    season_entry = next(
+        (
+            item
+            for item in catalog["seasons"]
+            if int(item.get("season_number") or 0) == int(season_number)
+        ),
+        None,
+    )
+    episode_rows = list(catalog["episodes"].get(str(season_number)) or [])
+    episodes: list[dict[str, Any]] = []
+    watched_count = 0
+    selected = None
+
+    for row in episode_rows:
+        episode_number = int(row.get("episode_number") or 0)
+        if episode_number < 1:
+            continue
+        progress = _tv_effective_progress(
+            season_number=season_number,
+            episode_number=episode_number,
+            progress_lookup=progress_lookup,
+            furthest_position=furthest_position,
+        )
+        if _progress_completed(progress):
+            watched_count += 1
+        sources = source_lookup.get((season_number, episode_number), {})
+        item = {
+            **row,
+            "episode_number": episode_number,
+            "progress": progress,
+            "has_exact_source": bool(sources.get("exact")),
+            "has_fallback_source": bool(sources.get("fallback")),
+            "has_local_source": bool(sources.get("exact") or sources.get("fallback")),
+        }
+        episodes.append(item)
+        if selected_episode == episode_number:
+            selected = item
+
+    if selected is None and episodes:
+        selected = next(
+            (item for item in episodes if not _progress_completed(item.get("progress"))),
+            episodes[0],
+        )
+        selected_episode = int(selected["episode_number"])
+
+    player_sources: list[dict[str, Any]] = []
+    if selected_episode:
+        from app.playback.services import PlaybackService
+
+        player_sources = PlaybackService.tv_episode_player_sources(
+            movie.id,
+            season=season_number,
+            episode=selected_episode,
+        )
+
+    season_progress = min(100, round(watched_count / len(episodes) * 100)) if episodes else 0
+    return {
+        "show": movie_item(movie),
+        "catalog": catalog,
+        "season": {
+            **dict(season_entry or {}),
+            "season_number": season_number,
+            "episode_count": len(episodes) or int((season_entry or {}).get("episode_count") or 0),
+            "watched_episode_count": watched_count,
+            "completion_percent": season_progress,
+        },
+        "episodes": episodes,
+        "selected_episode": selected,
+        "selected_episode_number": selected_episode,
+        "resume_target": (
+            resume_target
+            if resume_target and int(resume_target.get("season") or 0) == int(season_number)
+            else None
+        ),
+        "player_sources": player_sources,
     }
 
 
@@ -353,10 +763,17 @@ class MovieService:
         return movie
 
     @staticmethod
-    def set_score(movie: Movie, score: float | None) -> Movie:
+    def set_score(movie: Movie, score: float | None, *, label: str | None = None) -> Movie:
         if score is not None and not 0 <= score <= 5:
             raise ValueError("Score must be between 0 and 5.")
         movie.personal_score = score
+        if label is not None or score is None:
+            metadata_state = dict(movie.metadata_state or {})
+            if label:
+                metadata_state["personal_score_label"] = label
+            else:
+                metadata_state.pop("personal_score_label", None)
+            movie.metadata_state = metadata_state
         HistoryService.record(
             domain="movies",
             entity_type="movie",
@@ -375,12 +792,17 @@ class MovieService:
         duration_seconds: int,
         completed: bool,
         client_updated_at: datetime | None = None,
+        season: int | None = None,
+        episode: int | None = None,
     ) -> MovieProgress:
+        season, episode = MovieService.progress_scope(season=season, episode=episode)
         if current_seconds < 0 or duration_seconds < 0:
             raise ValueError("Progress values must be non-negative.")
         if duration_seconds and current_seconds > duration_seconds:
             current_seconds = duration_seconds
-        progress = movie.progress or MovieProgress(movie=movie)
+        progress = MovieService.get_progress(movie, season=season, episode=episode)
+        if progress is None:
+            progress = MovieProgress(movie=movie, season=season, episode=episode)
         if progress.id and client_updated_at and progress.client_updated_at:
             stored = progress.client_updated_at
             if stored.tzinfo is None:
@@ -400,11 +822,49 @@ class MovieService:
             entity_type="movie",
             entity_id=movie.id,
             event_type="playback_progress",
-            label=f"Playback progress saved for {movie.title}",
-            metadata={"current_seconds": current_seconds, "duration_seconds": duration_seconds},
+            label=(
+                f"Playback progress saved for {movie.title}"
+                if not season or not episode
+                else f"Playback progress saved for {movie.title} S{season:02d}E{episode:02d}"
+            ),
+            metadata={
+                "current_seconds": current_seconds,
+                "duration_seconds": duration_seconds,
+                "season": season,
+                "episode": episode,
+            },
         )
         db.session.commit()
         return progress
+
+    @staticmethod
+    def progress_scope(
+        *,
+        season: int | None = None,
+        episode: int | None = None,
+    ) -> tuple[int | None, int | None]:
+        if season is None and episode is None:
+            return None, None
+        if not season or not episode:
+            raise ValueError("Choose a season and episode for episode progress.")
+        if season < 1 or episode < 1:
+            raise ValueError("Season and episode must be positive.")
+        return int(season), int(episode)
+
+    @staticmethod
+    def get_progress(
+        movie: Movie,
+        *,
+        season: int | None = None,
+        episode: int | None = None,
+    ) -> MovieProgress | None:
+        season, episode = MovieService.progress_scope(season=season, episode=episode)
+        query = db.select(MovieProgress).where(MovieProgress.movie_id == movie.id)
+        if season is None:
+            query = query.where(MovieProgress.season.is_(None), MovieProgress.episode.is_(None))
+        else:
+            query = query.where(MovieProgress.season == season, MovieProgress.episode == episode)
+        return db.session.scalar(query.order_by(MovieProgress.updated_at.desc()).limit(1))
 
     @staticmethod
     def continue_watching(limit: int = 6) -> list[Movie]:
@@ -412,7 +872,8 @@ class MovieService:
             db.select(Movie)
             .join(MovieProgress)
             .where(MovieProgress.completed.is_(False), MovieProgress.current_seconds > 0)
-            .options(selectinload(Movie.progress))
+            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
+            .distinct()
             .order_by(MovieProgress.updated_at.desc())
             .limit(limit)
         )
@@ -424,7 +885,7 @@ class MovieService:
             db.select(Movie)
             .join(MovieProgress)
             .where(MovieProgress.completed.is_(False), MovieProgress.current_seconds > 0)
-            .options(selectinload(Movie.progress))
+            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
             .order_by(MovieProgress.updated_at.desc())
             .limit(1)
         )

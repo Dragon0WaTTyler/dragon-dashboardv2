@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import UTC, datetime
 
 from app.books.services import BookService
@@ -14,6 +15,7 @@ YOUTUBE_ROTATION_SECONDS = 5 * 60
 YOUTUBE_ROTATION_SIZE = 4
 READING_ROTATION_SECONDS = 5 * 60
 READING_ROTATION_SIZE = 4
+READING_MIX_POOL_SIZE = 24
 POCKETTUBE_FAVORITE_GROUP = "my favoret"
 
 
@@ -30,6 +32,17 @@ def _cyclic_window(items: list[dict], *, start: int, limit: int) -> list[dict]:
     if not items:
         return []
     return [items[(start + index) % len(items)] for index in range(min(limit, len(items)))]
+
+
+def _seeded_random_window(items: list[dict], *, seed: str, limit: int) -> list[dict]:
+    if not items:
+        return []
+    return sorted(
+        items,
+        key=lambda item: hashlib.sha256(
+            f"{seed}:{item.get('id') or item.get('title') or ''}".encode()
+        ).hexdigest(),
+    )[:limit]
 
 
 class TodayService:
@@ -62,9 +75,11 @@ class TodayService:
         pockettube_start = (youtube_bucket * YOUTUBE_ROTATION_SIZE) % max(
             len(pockettube_favorite_group), 1
         )
-        reading_items = ReadingService.continue_reading(5000)
-        reading_start = (reading_bucket * READING_ROTATION_SIZE) % max(
-            len(reading_items), 1
+        reading_items = ReadingService.latest_news_mix(limit=READING_MIX_POOL_SIZE)
+        news_mix = _seeded_random_window(
+            reading_items,
+            seed=f"today:reading:{reading_bucket}",
+            limit=READING_ROTATION_SIZE,
         )
         return {
             "recommended_movie": MovieService.rotating_recommended(movie_bucket),
@@ -78,11 +93,8 @@ class TodayService:
                 start=pockettube_start,
                 limit=YOUTUBE_ROTATION_SIZE,
             ),
-            "continue_reading": _cyclic_window(
-                reading_items,
-                start=reading_start,
-                limit=READING_ROTATION_SIZE,
-            ),
+            "news_mix": news_mix,
+            "continue_reading": news_mix,
             "rotation": {
                 "movie_bucket": movie_bucket,
                 "youtube_bucket": youtube_bucket,
@@ -100,16 +112,15 @@ class TodayService:
     def workspace(at: datetime | None = None) -> dict:
         warnings = [item for item in list_freshness() if item["state"] != "fresh"]
         live = TodayService.live_rotation(at)
-        continue_watching = [
-            movie_item(movie) for movie in MovieService.continue_watching(4)
-        ]
         watching_now = MovieService.watching_now()
+        current_books = BookService.current_books()
         return {
-            "continue_watching": continue_watching,
+            "continue_watching": [],
             "watching_now": movie_item(watching_now) if watching_now else None,
             **live,
             "article_of_day": ReadingService.article_of_day(),
-            "current_book": BookService.current_book(),
+            "current_book": current_books[0] if current_books else None,
+            "current_books": current_books,
             "chess_training": ChessService.dashboard()["puzzles"][:3],
             "freshness_warnings": warnings,
         }

@@ -18,6 +18,56 @@
   let retryAt = 0;
   let inFlight = false;
 
+  function setupBookSwitcher() {
+    const switcher = root.querySelector("[data-book-switcher]");
+    if (!switcher) return;
+    const panels = [...switcher.querySelectorAll("[data-book-panel]")];
+    const nextButton = switcher.querySelector("[data-book-next]");
+    const indexLabel = switcher.querySelector("[data-book-current-index]");
+    const viewport = switcher.querySelector("[data-book-viewport]");
+    if (panels.length <= 1 || !nextButton || !viewport) return;
+
+    let activeIndex = Math.max(0, panels.findIndex((panel) => !panel.hidden));
+    let touchStartX = null;
+
+    function setActive(index) {
+      activeIndex = (index + panels.length) % panels.length;
+      panels.forEach((panel, panelIndex) => {
+        const active = panelIndex === activeIndex;
+        panel.hidden = !active;
+        panel.setAttribute("aria-hidden", String(!active));
+      });
+      if (indexLabel) indexLabel.textContent = String(activeIndex + 1);
+      animateUpdate(panels[activeIndex]);
+    }
+
+    nextButton.addEventListener("click", () => {
+      setActive(activeIndex + 1);
+    });
+
+    viewport.addEventListener(
+      "touchstart",
+      (event) => {
+        if (event.touches.length !== 1) return;
+        touchStartX = event.touches[0].clientX;
+      },
+      {passive: true}
+    );
+
+    viewport.addEventListener(
+      "touchend",
+      (event) => {
+        if (touchStartX === null) return;
+        const endX = event.changedTouches[0]?.clientX ?? touchStartX;
+        const deltaX = endX - touchStartX;
+        touchStartX = null;
+        if (Math.abs(deltaX) < 40) return;
+        setActive(deltaX < 0 ? activeIndex + 1 : activeIndex - 1);
+      },
+      {passive: true}
+    );
+  }
+
   function detailUrl(prefix, id) {
     return `${prefix}/${encodeURIComponent(id)}`;
   }
@@ -193,7 +243,7 @@
       if (movieChanged) renderMovie(live.recommended_movie);
       if (youtubeChanged) renderYouTube(live.latest_youtube || []);
       if (youtubeChanged) renderPocketTube(live.pockettube_favorite || []);
-      if (readingChanged) renderReading(live.continue_reading || []);
+      if (readingChanged) renderReading(live.news_mix || live.continue_reading || []);
       root.dataset.movieBucket = rotation.movie_bucket;
       root.dataset.youtubeBucket = rotation.youtube_bucket;
       root.dataset.readingBucket = rotation.reading_bucket;
@@ -209,7 +259,7 @@
           const updates = [];
           if (movieChanged) updates.push("movie pick");
           if (youtubeChanged) updates.push("video mixes");
-          if (readingChanged) updates.push("saved reads");
+          if (readingChanged) updates.push("news mix");
           announcer.textContent = `${updates.join(", ")} updated.`;
         }
       }
@@ -234,5 +284,6 @@
   root.addEventListener("today:refresh", refreshLive);
   document.addEventListener("visibilitychange", tick);
   window.setInterval(tick, 15000);
+  setupBookSwitcher();
   tick();
 })();

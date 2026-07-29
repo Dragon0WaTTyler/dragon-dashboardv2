@@ -1,11 +1,11 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge, empty_state %}
-{% block title %}Reading · Dragon{% endblock %}
+{% block title %}News · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/reading.js') }}" defer></script>{% endblock %}
 {% block content %}
 <header class="page-header">
-  <div><span class="eyebrow">Editorial inbox</span><h1>Reading</h1><p>Cached articles, deliberate full-text loading, and visible source health.</p></div>
+  <div><span class="eyebrow">Editorial inbox</span><h1>News</h1><p>Cached articles, deliberate full-text loading, and visible source health.</p></div>
   <div class="reading-header-actions">
     {{ badge(articles|length ~ ' articles', 'accent') }}
     <form method="post" action="{{ url_for('reading.sync_articles') }}" data-reading-sync>

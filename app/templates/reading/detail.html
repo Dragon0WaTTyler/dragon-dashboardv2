@@ -3,7 +3,7 @@
 {% block title %}{{ article.title }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
 {% block content %}
-<a class="back-link" href="{{ url_for('reading.index') }}">← Back to Reading</a>
+<a class="back-link" href="{{ url_for('reading.index') }}">← Back to News</a>
 <article class="reading-detail reading-detail--{{ article.direction }}">
   {% if article.image_url %}
   <figure class="reading-detail__hero" data-media-frame>
@@ -22,7 +22,33 @@
 
   <div class="reading-detail__layout">
     <section class="reading-detail__content" aria-label="Article text" lang="{{ article.language }}">
-      {% if article.content_text %}
+      {% if article.content_blocks %}
+      <span class="eyebrow reading-detail__content-label">{{ article.content_label }}</span>
+      <div class="article-body article-body--blocks">
+        {% for block in article.content_blocks %}
+        {% if block.kind == 'text' %}
+        <p dir="auto">{{ block.text }}</p>
+        {% elif block.kind == 'image' %}
+        <figure class="article-media article-media--image">
+          <img src="{{ block.src }}" alt="{{ block.alt or article.title }}" loading="lazy">
+          {% if block.alt %}<figcaption dir="auto">{{ block.alt }}</figcaption>{% endif %}
+        </figure>
+        {% elif block.kind == 'youtube' %}
+        <figure class="article-media article-media--video">
+          <iframe
+            src="{{ block.src }}"
+            title="{{ block.title or article.title }}"
+            loading="lazy"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowfullscreen
+            referrerpolicy="strict-origin-when-cross-origin"
+          ></iframe>
+          {% if block.title %}<figcaption dir="auto">{{ block.title }}</figcaption>{% endif %}
+        </figure>
+        {% endif %}
+        {% endfor %}
+      </div>
+      {% elif article.content_text %}
       <span class="eyebrow reading-detail__content-label">{{ article.content_label }}</span>
       <div class="article-body">
         {% for paragraph in article.content_paragraphs %}<p dir="auto">{{ paragraph }}</p>{% endfor %}
@@ -35,7 +61,7 @@
     </section>
 
     <aside class="reading-detail__rail" aria-label="Article actions" lang="en" dir="ltr">
-      <span class="eyebrow">Reading</span>
+      <span class="eyebrow">News</span>
       <h2>Keep your place</h2>
       <form class="reading-detail__status" method="post" action="{{ url_for('reading.update_status', article_id=article.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

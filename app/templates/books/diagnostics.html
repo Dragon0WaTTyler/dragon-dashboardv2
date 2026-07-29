@@ -1,0 +1,193 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+{% block title %}Knowledge diagnostics · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('books.index') }}">← Books</a>
+<header class="page-header knowledge-diagnostics__header">
+  <div>
+    <span class="eyebrow">Settings · Knowledge</span>
+    <h1>Diagnostics</h1>
+    <p>Local-only health for identity, editions, assets, candidates, and provider boundaries.</p>
+  </div>
+  <div class="knowledge-diagnostics__actions">
+    {{ badge(diagnostics.review.candidates_review_required ~ ' candidates need review', 'warning' if diagnostics.review.candidates_review_required else 'success') }}
+    <form method="post" action="{{ url_for('knowledge_settings.refresh_book_quotes') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button button--secondary" type="submit">Refresh Book Quotes</button>
+    </form>
+    <a class="button button--secondary" href="{{ url_for('knowledge_settings.book_quotes_review') }}">Book Quotes review</a>
+    <a class="button button--secondary" href="{{ url_for('knowledge_settings.kindle_clippings') }}">Kindle outbox</a>
+  </div>
+</header>
+
+<div class="knowledge-stream-page knowledge-stream-page--diagnostics">
+  <section class="knowledge-stream-intro" aria-label="Diagnostics guide">
+    <div class="knowledge-stream-intro__lead">
+      <span class="eyebrow">Control surface</span>
+      <h2>See what is healthy, what needs review, and where the local library still has weak spots</h2>
+      <p>This dashboard is the operating view for Knowledge V2 on Wednesday, July 22, 2026: counts at the top, review queues in the middle, and integrity boundaries on the side so you can act without losing the architecture rules.</p>
+    </div>
+    <div class="knowledge-stream-intro__cards">
+      <div class="knowledge-stream-intro__card">
+        <strong>Review stays actionable</strong>
+        <small>Open queues and candidate counts show where local cleanup still blocks clean identity, formats, or matched highlights.</small>
+      </div>
+      <div class="knowledge-stream-intro__card">
+        <strong>Boundaries stay explicit</strong>
+        <small>Providers, Book Quotes refreshes, and local caches keep their roles visible so diagnostics does not drift into hidden automation.</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="books-lane-groups" aria-label="Library maintenance lanes">
+    <div class="books-lane-groups__intro">
+      <span class="eyebrow">Library shortcuts</span>
+      <h2>Browse cleanup lanes from diagnostics</h2>
+      <p>The main Books view now stays focused on browsing. Metadata queues, format coverage, and reading-signal triage live here instead.</p>
+    </div>
+    <div class="books-lane-group books-lane-group--metadata">
+      <div class="books-lane-group__header">
+        <p class="books-lane-group__label">Metadata</p>
+        <p class="books-lane-group__summary">Inbox, ISBN cleanup, candidate review, and the records that are already verified.</p>
+      </div>
+      <nav class="segmented books-metadata-sections" aria-label="Books metadata sections">
+        {% for item in metadata_sections if item.key != 'all' %}
+        <a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+    <div class="books-lane-group">
+      <div class="books-lane-group__header">
+        <p class="books-lane-group__label">Formats</p>
+        <p class="books-lane-group__summary">Preferred Kindle copies first, PDF-only fallbacks second, and missing digital shelves last.</p>
+      </div>
+      <nav class="segmented books-format-sections" aria-label="Books format sections">
+        {% for item in format_sections if item.key != 'all' %}
+        <a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+    <div class="books-lane-group">
+      <div class="books-lane-group__header">
+        <p class="books-lane-group__label">Signals</p>
+        <p class="books-lane-group__summary">Highlights, saved quotes, notes, and audiobook-ready books that already carry reading history.</p>
+      </div>
+      <nav class="segmented books-signal-sections" aria-label="Books signal sections">
+        {% for item in signal_sections if item.key != 'all' %}
+        <a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+        {% endfor %}
+      </nav>
+    </div>
+  </section>
+
+  <section class="diagnostics-metrics" aria-label="Knowledge counts">
+    {% for item in diagnostics.summary %}
+    <div>
+      <span>{{ item.label }}</span>
+      <strong>{{ item.value }}</strong>
+      <small>{{ item.note }}</small>
+    </div>
+    {% endfor %}
+  </section>
+
+  <div class="diagnostics-layout">
+  <main class="diagnostics-main">
+    <section class="knowledge-panel" aria-labelledby="format-title">
+      <div class="section-heading section-heading--action">
+        <div><span class="eyebrow">Assets</span><h2 id="format-title">Format coverage</h2><p class="knowledge-panel__summary">Check whether the local library is landing on the preferred text ladder and whether audiobook assets are keeping up beside it.</p></div>
+        {{ badge('KFX → AZW3 → EPUB → PDF') }}
+      </div>
+      <div class="format-ladder diagnostics-format-ladder">
+        {% for slot in diagnostics.text_formats %}
+        <div class="format-ladder__slot{% if slot.available %} is-available{% endif %}">
+          <span>{{ slot.priority }}</span>
+          <strong>{{ slot.format }}</strong>
+          <small>{{ slot.count }} registered</small>
+        </div>
+        {% endfor %}
+      </div>
+      <div class="audio-format-strip" aria-label="Audiobook asset formats">
+        {% for item in diagnostics.audio_formats %}
+        <div>
+          <strong>{{ item.format }}</strong>
+          <span>{{ item.count }} audio asset{{ 's' if item.count != 1 else '' }}</span>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="knowledge-panel" aria-labelledby="queues-title">
+      <div class="section-heading"><span class="eyebrow">Review</span><h2 id="queues-title">Open queues</h2><p class="knowledge-panel__summary">These queues are the local worklists that still need explicit review before the library feels clean and trustworthy.</p></div>
+      <div class="diagnostics-queues">
+        {% for queue_name, queue_items in diagnostics.queues.items() %}
+        <section aria-labelledby="queue-{{ queue_name }}">
+          <h3 id="queue-{{ queue_name }}">{{ queue_name|replace('_',' ')|title }}</h3>
+          {% if queue_items %}
+          <div class="knowledge-rows">
+            {% for item in queue_items %}
+            <a class="diagnostics-row" href="{{ item.url if item.url is defined else url_for('books.detail', book_id=item.detail_url_id) }}">
+              <strong dir="auto">{{ item.title }}</strong>
+              <span>{{ item.state|replace('_',' ')|title }}</span>
+              <small>{{ item.note }}</small>
+            </a>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="book-detail__empty">Clear.</p>
+          {% endif %}
+        </section>
+        {% endfor %}
+      </div>
+    </section>
+  </main>
+
+  <aside class="diagnostics-side">
+    <section class="knowledge-panel" aria-labelledby="review-counts-title">
+      <div class="section-heading"><span class="eyebrow">Counts</span><h2 id="review-counts-title">Review state</h2><p class="knowledge-panel__summary">The side counters keep the main operational signals visible even while you are focused on one queue or one provider issue.</p></div>
+      <dl class="metadata-grid diagnostics-facts">
+        <div><dt>Unmatched books</dt><dd>{{ diagnostics.review.unmatched_books }}</dd></div>
+        <div><dt>Metadata</dt><dd>{{ diagnostics.review.metadata_needs_review }} need review</dd></div>
+        <div><dt>No text assets</dt><dd>{{ diagnostics.review.no_text_assets }}</dd></div>
+        <div><dt>No audiobooks</dt><dd>{{ diagnostics.review.no_audiobooks }}</dd></div>
+        <div><dt>Candidates</dt><dd>{{ diagnostics.review.candidates_review_required }} open</dd></div>
+        <div><dt>Kindle outbox</dt><dd>{{ diagnostics.review.kindle_pending }} pending</dd></div>
+        <div><dt>Kindle failures</dt><dd>{{ diagnostics.review.kindle_failed }}</dd></div>
+        <div><dt>Unmatched highlights</dt><dd>{{ diagnostics.review.unmatched_highlights }}</dd></div>
+        <div><dt>Matched highlights</dt><dd>{{ diagnostics.review.kindle_matched }}</dd></div>
+        <div><dt>Book Quotes matched</dt><dd>{{ diagnostics.review.book_quotes_matched }}</dd></div>
+        <div><dt>Book Quotes review</dt><dd>{{ diagnostics.review.book_quotes_needs_review + diagnostics.review.book_quotes_ambiguous }}</dd></div>
+        <div><dt>Confirmed</dt><dd>{{ diagnostics.review.candidates_confirmed }}</dd></div>
+        <div><dt>Rejected</dt><dd>{{ diagnostics.review.candidates_rejected }}</dd></div>
+      </dl>
+    </section>
+
+    <section class="knowledge-panel" aria-labelledby="integrity-title">
+      <div class="section-heading"><span class="eyebrow">Integrity</span><h2 id="integrity-title">Guards</h2><p class="knowledge-panel__summary">These guards tell you whether the local model is still respecting identity, checksum, and provider-boundary rules from the roadmap.</p></div>
+      <div class="diagnostics-signals">
+        {% for signal in diagnostics.integrity %}
+        <div class="diagnostics-signal diagnostics-signal--{{ signal.state }}">
+          <span aria-hidden="true"></span>
+          <strong>{{ signal.label }}</strong>
+          <small>{{ signal.note }}{% if signal.issue_count %} · {{ signal.issue_count }} issue{{ 's' if signal.issue_count != 1 else '' }}{% endif %}</small>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+
+    <section class="knowledge-panel" aria-labelledby="providers-title">
+      <div class="section-heading"><span class="eyebrow">Boundaries</span><h2 id="providers-title">Providers</h2><p class="knowledge-panel__summary">Provider boundaries stay visible here so metadata, candidate discovery, and Kindle sync keep their exact responsibilities.</p></div>
+      <div class="provider-boundaries">
+        {% for provider in diagnostics.provider_boundaries %}
+        <div>
+          <strong>{{ provider.label }}</strong>
+          <span>{{ provider.state }}</span>
+          <small>{{ provider.note }}</small>
+        </div>
+        {% endfor %}
+      </div>
+    </section>
+  </aside>
+</div>
+</div>
+{% endblock %}

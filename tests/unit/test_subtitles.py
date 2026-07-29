@@ -5,7 +5,9 @@ from zipfile import ZipFile
 import pytest
 
 from app.playback.subtitles import (
+    FallbackSubtitleProvider,
     SubdlSubtitleProvider,
+    SubtitleCandidate,
     SubtitleProviderError,
     WyzieSubtitleProvider,
     to_webvtt,
@@ -404,7 +406,76 @@ def test_subdl_download_reuses_cached_archive_payload_for_other_episodes():
 def test_subtitle_conversion_rejects_non_caption_payloads():
     with pytest.raises(SubtitleProviderError, match="does not contain subtitle cues"):
         to_webvtt(b"not a subtitle", "srt")
+    with pytest.raises(SubtitleProviderError, match="does not contain subtitle cues"):
+        to_webvtt(b"WEBVTT\n\nSorry <!-- broken -->\n", "vtt")
 
     provider = SubdlSubtitleProvider("private-key", session=FakeSession([]))
     with pytest.raises(SubtitleProviderError, match="invalid subtitle path"):
         provider.download("https://attacker.example/subtitle.srt", file_format="srt")
+
+
+def test_fallback_subtitle_provider_merges_candidates_across_providers():
+    class ProviderA:
+        name = "wyzie"
+
+        def search(self, movie, *, languages="ar,en", season=None, episode=None, episode_title=""):
+            return [
+                SubtitleCandidate(
+                    language="ar",
+                    language_name="Arabic",
+                    label="Wyzie Arabic 1",
+                    path="https://wyzie.example/ar1.srt",
+                    file_format="srt",
+                    member_name="wyzie-ar1.srt",
+                    hearing_impaired=False,
+                    provider=self.name,
+                ),
+                SubtitleCandidate(
+                    language="en",
+                    language_name="English",
+                    label="Wyzie English 1",
+                    path="https://wyzie.example/en1.srt",
+                    file_format="srt",
+                    member_name="wyzie-en1.srt",
+                    hearing_impaired=False,
+                    provider=self.name,
+                ),
+            ]
+
+    class ProviderB:
+        name = "subdl"
+
+        def search(self, movie, *, languages="ar,en", season=None, episode=None, episode_title=""):
+            return [
+                SubtitleCandidate(
+                    language="ar",
+                    language_name="Arabic",
+                    label="SubDL Arabic 1",
+                    path="/subtitle/subdl-ar1",
+                    file_format="srt",
+                    member_name="subdl-ar1.srt",
+                    hearing_impaired=False,
+                    provider=self.name,
+                ),
+                SubtitleCandidate(
+                    language="en",
+                    language_name="English",
+                    label="SubDL English 1",
+                    path="/subtitle/subdl-en1",
+                    file_format="srt",
+                    member_name="subdl-en1.srt",
+                    hearing_impaired=False,
+                    provider=self.name,
+                ),
+            ]
+
+    provider = FallbackSubtitleProvider([ProviderA(), ProviderB()])
+
+    items = provider.search({"title": "The Sopranos"}, languages="ar,en", season=4, episode=1)
+
+    assert [item.label for item in items] == [
+        "Wyzie Arabic 1",
+        "SubDL Arabic 1",
+        "Wyzie English 1",
+        "SubDL English 1",
+    ]

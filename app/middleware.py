@@ -27,10 +27,11 @@ def install_request_middleware(app: Flask) -> None:
         frame_sources = ["'self'"]
         script_sources = ["'self'"]
         media_sources = ["'self'"]
-        if request.endpoint == "youtube.detail":
+        if request.endpoint in {"youtube.detail", "reading.detail"}:
             frame_sources.extend(
                 ("https://www.youtube-nocookie.com", "https://www.youtube.com")
             )
+        if request.endpoint == "youtube.detail":
             script_sources.append("https://www.youtube.com")
         if app.config.get("DRAGON_VIDSRC_ENABLED"):
             parsed = urlsplit(str(app.config.get("DRAGON_VIDSRC_EMBED_URL") or ""))

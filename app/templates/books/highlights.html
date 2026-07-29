@@ -1,0 +1,175 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, notice %}
+{% block title %}Highlights · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block content %}
+<nav class="segmented books-sections" aria-label="Books sections">
+  {% for item in library_sections %}
+  <a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+  {% endfor %}
+</nav>
+<a class="back-link" href="{{ url_for('books.index') }}">← Books</a>
+<article class="kindle-clippings knowledge-stream-page knowledge-stream-page--highlights">
+  <header class="kindle-clippings__header">
+    <div>
+      <span class="eyebrow">Knowledge library</span>
+      <h1>Highlights</h1>
+      <p>Matched synced highlights stay canonical in Notion <code>Book Quotes</code>. This view stays local, searchable, and focused on the books they already map to.</p>
+    </div>
+    <div class="kindle-clippings__actions">
+      {{ badge(highlights.filtered_count ~ ' shown', 'accent') }}
+      {{ badge(highlights.book_count ~ ' books', 'success' if highlights.book_count else 'neutral') }}
+      {{ badge(highlights.review_count ~ ' review', 'warning' if highlights.review_count else 'success') }}
+      {% if highlights.refreshed_at %}{{ badge('Refreshed ' ~ highlights.refreshed_at) }}{% endif %}
+      {% if highlights.review_count %}
+      <a class="button button--quiet" href="{{ url_for('knowledge_settings.book_quotes_review', state='review') }}">Review queue</a>
+      {% endif %}
+      <a class="button button--quiet" href="{{ url_for('knowledge_settings.diagnostics') }}">Diagnostics</a>
+    </div>
+  </header>
+
+  {% if highlights.last_error %}
+  {{ notice('Book Quotes refresh needs review', highlights.last_error, 'warning') }}
+  {% elif not highlights.refreshed_at %}
+  {{ notice('No local snapshot yet', 'Run Refresh Book Quotes from diagnostics after a Kindle sync to fill this highlights view.', 'warning') }}
+  {% endif %}
+
+  <section class="diagnostics-metrics kindle-clippings__metrics" aria-label="Highlights counts">
+    <div>
+      <span>Snapshot</span>
+      <strong>{{ highlights.snapshot_count }}</strong>
+      <small>Cached Book Quotes rows</small>
+    </div>
+    <div>
+      <span>Matched</span>
+      <strong>{{ highlights.matched_count }}</strong>
+      <small>Linked highlight rows</small>
+    </div>
+    <div>
+      <span>Shown</span>
+      <strong>{{ highlights.filtered_count }}</strong>
+      <small>After local filters</small>
+    </div>
+    <div>
+      <span>Books</span>
+      <strong>{{ highlights.book_count }}</strong>
+      <small>Local books with synced highlights</small>
+    </div>
+    <div>
+      <span>Review</span>
+      <strong>{{ highlights.review_count }}</strong>
+      <small>Rows still waiting on cleaner matching</small>
+    </div>
+    <div>
+      <span>Refreshed</span>
+      <strong>{{ highlights.refreshed_at or 'Never' }}</strong>
+      <small>{{ highlights.last_checked_at or 'No local check yet' }}</small>
+    </div>
+  </section>
+
+  <section class="knowledge-stream-intro" aria-label="Highlights guide">
+    <div class="knowledge-stream-intro__lead">
+      <span class="eyebrow">Synced stream</span>
+      <h2>Follow the Book Quotes lines that already belong to local books</h2>
+      <p>This view is for rediscovery after matching is done: the synced text stays canonical in Notion, while Dragon keeps the local browsing, search, and jump-back into the right book.</p>
+    </div>
+    <div class="knowledge-stream-intro__cards">
+      <div class="knowledge-stream-intro__card">
+        <strong>Canonical source</strong>
+        <small>Matched rows still belong to <code>Book Quotes</code>; this page only projects them locally.</small>
+      </div>
+      <div class="knowledge-stream-intro__card">
+        <strong>Review stays separate</strong>
+        <small>Rows that still need cleaner matching remain in the review queue instead of polluting the stream.</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="knowledge-panel" aria-labelledby="highlights-search-title">
+    <div class="section-heading section-heading--action">
+      <div><span class="eyebrow">Search</span><h2 id="highlights-search-title">Find synced highlights</h2><p class="knowledge-panel__summary">Search the local snapshot by quote text or narrow the stream to one mapped book.</p></div>
+      <div class="candidate-heading-actions">
+        {{ badge('Local cache only') }}
+        {% if highlights.query %}{{ badge('Query: ' ~ highlights.query) }}{% endif %}
+      </div>
+    </div>
+    <div class="knowledge-stream-filter-layout">
+      <div class="knowledge-stream-filter-layout__copy">
+        <p>Use the stream when you want to remember what already landed from Kindle without opening the review queue or digging through Notion.</p>
+      </div>
+      <form class="compact-filters compact-filters--wide knowledge-stream-filters" method="get" action="{{ url_for('books.highlights') }}">
+        <label class="field">
+          <span>Search</span>
+          <input type="search" name="q" value="{{ highlights.query }}" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Book</span>
+          <select name="book_id">
+            <option value="">All books</option>
+            {% for option in highlights.book_options %}
+            <option value="{{ option.id }}"{% if highlights.book_id == option.id %} selected{% endif %}>{{ option.title }}{% if option.authors %} · {{ option.authors }}{% endif %} · {{ option.count }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="filter-actions">
+          <button class="button button--primary" type="submit">Apply</button>
+          <a class="button button--quiet" href="{{ url_for('books.highlights') }}">Reset</a>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="knowledge-panel" aria-labelledby="highlights-list-title">
+    <div class="section-heading section-heading--action">
+      <div><span class="eyebrow">Library view</span><h2 id="highlights-list-title">Matched highlights</h2><p class="knowledge-panel__summary">Each card keeps the quote, the mapped local book, and the original synced context in one place.</p></div>
+      <div class="candidate-heading-actions">
+        {% if highlights.configured %}{{ badge('Destination configured', 'success') }}{% else %}{{ badge('Destination missing', 'warning') }}{% endif %}
+      </div>
+    </div>
+    {% if highlights.rows %}
+    <div class="book-highlights-stream">
+      {% for row in highlights.rows %}
+      <article class="book-highlight-card" id="highlight-{{ row.id }}">
+        <div class="book-highlight-card__meta">
+          <span class="eyebrow" dir="auto">{{ row.book_authors }}</span>
+          <h3><a href="{{ url_for('books.detail', book_id=row.book_id) }}">{{ row.book_title }}</a></h3>
+          <div class="book-card__badges">
+            {{ badge(row.source) }}
+            {{ badge(row.kind|replace('_',' ')|title) }}
+            {% if row.page %}{{ badge('Page ' ~ row.page) }}{% endif %}
+            {% if row.location %}{{ badge('Loc ' ~ row.location) }}{% endif %}
+          </div>
+        </div>
+        <blockquote class="book-highlight-card__quote" dir="{{ row.direction }}">
+          <p>{{ row.text }}</p>
+        </blockquote>
+        <div class="book-highlight-card__footer">
+          <small dir="auto">
+            {% if row.created_at %}Saved {{ row.created_at }}{% elif row.imported_at %}Imported {{ row.imported_at }}{% else %}Synced highlight{% endif %}
+            {% if row.source_title and row.source_title != row.book_title %} · Source title: {{ row.source_title }}{% endif %}
+            {% if row.source_author and row.source_author != row.book_authors %} · Source author: {{ row.source_author }}{% endif %}
+          </small>
+          <div class="book-highlight-card__actions">
+            <a class="button button--quiet" href="{{ url_for('books.detail', book_id=row.book_id) }}">Open book</a>
+            {% if row.notion_url %}
+            <a class="button button--quiet" href="{{ row.notion_url }}" target="_blank" rel="noreferrer">Open in Notion</a>
+            {% endif %}
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <p class="book-detail__empty">
+      {% if highlights.matched_count %}
+      No matched highlights in this filter yet.
+      {% elif highlights.snapshot_count %}
+      No Book Quotes rows map cleanly to local books yet. Use the review queue to finish matching.
+      {% else %}
+      No cached Book Quotes snapshot rows yet.
+      {% endif %}
+    </p>
+    {% endif %}
+  </section>
+</article>
+{% endblock %}

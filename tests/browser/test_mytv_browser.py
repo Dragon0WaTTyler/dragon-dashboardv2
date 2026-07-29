@@ -88,10 +88,14 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     assert metrics["scrollWidth"] == metrics["clientWidth"]
     assert metrics["unlabeled"] == 0
     assert page.get_by_role("button", name="Check channels").is_visible()
+    assert page.get_by_label("Channel availability for News One").input_value() == "default"
+    card_copy = page.locator(".tv-channel-card .tv-channel-copy").first
+    assert "News One" in card_copy.inner_text()
     page.get_by_role("button", name="Play News One").click()
     page.locator("#playerLoading").wait_for(state="hidden")
+    assert page.get_by_text("Live", exact=True).is_visible()
 
-    page.get_by_role("button", name="Manage", exact=True).click()
+    page.get_by_role("tab", name="Manage", exact=True).click()
     assert page.get_by_role("heading", name="GitHub catalogue", level=2).is_visible()
     assert page.locator("[data-toggle-source]").count() == 0
     assert page.get_by_role("switch", name="Disable bouquet News").is_visible()

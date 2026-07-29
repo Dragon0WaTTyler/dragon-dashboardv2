@@ -90,6 +90,53 @@ def test_playback_progress_contract_and_conflict(authenticated_client, app):
     assert conflict.get_json()["error"]["code"] == "progress_conflict"
 
 
+def test_tv_playback_progress_is_scoped_by_episode(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    token = csrf_from(authenticated_client.get(f"/movies/{movie_id}"))
+    first = {
+        "season": 1,
+        "episode": 5,
+        "current_seconds": 60,
+        "duration_seconds": 120,
+        "completed": False,
+        "client_updated_at": "2026-07-14T10:00:00Z",
+    }
+    second = {
+        "season": 1,
+        "episode": 6,
+        "current_seconds": 20,
+        "duration_seconds": 100,
+        "completed": False,
+        "client_updated_at": "2026-07-14T10:01:00Z",
+    }
+    for payload in (first, second):
+        response = authenticated_client.put(
+            f"/api/v1/playback-progress/movie/{movie_id}",
+            json=payload,
+            headers={"X-CSRFToken": token},
+        )
+        assert response.status_code == 200
+
+    episode_five = authenticated_client.get(
+        f"/api/v1/playback-progress/movie/{movie_id}?season=1&episode=5"
+    )
+    episode_six = authenticated_client.get(
+        f"/api/v1/playback-progress/movie/{movie_id}?season=1&episode=6"
+    )
+    assert episode_five.get_json()["item"]["progress"]["percent"] == 50
+    assert episode_six.get_json()["item"]["progress"]["percent"] == 20
+
+
 def test_playback_progress_rejects_bad_json(authenticated_client, app):
     movie_id = add_movie(app)
     token = csrf_from(authenticated_client.get(f"/movies/{movie_id}"))

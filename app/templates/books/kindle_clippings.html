@@ -1,0 +1,297 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, notice %}
+{% block title %}Kindle clippings · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('knowledge_settings.diagnostics') }}">← Knowledge diagnostics</a>
+<article class="kindle-clippings knowledge-stream-page knowledge-stream-page--outbox">
+  <header class="kindle-clippings__header">
+    <div>
+      <span class="eyebrow">Settings · Knowledge</span>
+      <h1>Kindle clippings outbox</h1>
+      <p>Local queue only. This page parses pasted My Clippings text and keeps pending Book Quotes payloads for a future manual sync.</p>
+    </div>
+    <div class="kindle-clippings__actions">
+      {{ badge(outbox.pending_count ~ ' pending', 'warning' if outbox.pending_count else 'success') }}
+      {{ badge(outbox.review_count ~ ' review', 'warning' if outbox.review_count else 'success') }}
+      {{ badge(outbox.failed_count ~ ' failed', 'warning' if outbox.failed_count else 'success') }}
+      {{ badge(outbox.synced_count ~ ' synced') }}
+    </div>
+  </header>
+
+  <section class="diagnostics-metrics kindle-clippings__metrics" aria-label="Kindle clipping counts">
+    <div>
+      <span>Pending</span>
+      <strong>{{ outbox.pending_count }}</strong>
+      <small>Waiting in local outbox</small>
+    </div>
+    <div>
+      <span>Matched</span>
+      <strong>{{ outbox.matched_count }}</strong>
+      <small>Linked by local identity</small>
+    </div>
+    <div>
+      <span>Review</span>
+      <strong>{{ outbox.needs_review_count + outbox.ambiguous_count }}</strong>
+      <small>Needs relation check</small>
+    </div>
+    <div>
+      <span>Synced</span>
+      <strong>{{ outbox.synced_count }}</strong>
+      <small>Known hashes</small>
+    </div>
+    <div>
+      <span>Retries</span>
+      <strong>{{ outbox.attempt_count }}</strong>
+      <small>Recorded failed attempts</small>
+    </div>
+    <div>
+      <span>Failures</span>
+      <strong>{{ outbox.failed_count }}</strong>
+      <small>{{ outbox.last_error or 'No local sync errors yet' }}</small>
+    </div>
+  </section>
+
+  <section class="knowledge-stream-intro" aria-label="Kindle outbox guide">
+    <div class="knowledge-stream-intro__lead">
+      <span class="eyebrow">Manual outbox</span>
+      <h2>Parse Kindle exports, triage the local queue, then sync only when the review state is clean</h2>
+      <p>This page is still local-only on Wednesday, July 22, 2026: pasted clipping text becomes a reviewable queue, local matches can improve reliability, and Book Quotes sync stays explicit instead of automatic.</p>
+    </div>
+    <div class="knowledge-stream-intro__cards">
+      <div class="knowledge-stream-intro__card">
+        <strong>Import is explicit</strong>
+        <small>Dragon only reads what you paste from <code>My Clippings</code>; it does not pull from Kindle devices or hidden background readers.</small>
+      </div>
+      <div class="knowledge-stream-intro__card">
+        <strong>Sync is manual-first</strong>
+        <small>The outbox can validate readiness and push pending items on demand, but only after the local queue looks trustworthy.</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="knowledge-panel" aria-labelledby="kindle-filter-title">
+    <div class="section-heading section-heading--action">
+      <div>
+        <span class="eyebrow">Triage lanes</span>
+        <h2 id="kindle-filter-title">Move between matched rows, review work, and failures</h2>
+        <p class="knowledge-panel__summary">The same local outbox can be sliced into review, matched, ambiguous, and failed work so you can clean the queue before any manual sync.</p>
+      </div>
+      <div class="candidate-heading-actions">
+        {{ badge(outbox.active_filter|replace('_', ' ')|title) }}
+      </div>
+    </div>
+    <nav class="segmented kindle-clippings__filters" aria-label="Kindle outbox filter">
+      {% for filter in outbox.filters %}
+      <a href="{{ url_for('knowledge_settings.kindle_clippings', state=filter.key) }}"{% if outbox.active_filter == filter.key %} aria-current="page"{% endif %}>{{ filter.label }} · {{ filter.count }}</a>
+      {% endfor %}
+    </nav>
+  </section>
+
+  <div class="kindle-clippings__layout">
+    <main class="kindle-clippings__main">
+      <section class="knowledge-panel" aria-labelledby="kindle-import-title">
+        <div class="section-heading">
+          <span class="eyebrow">Import</span>
+          <h2 id="kindle-import-title">Paste clippings</h2>
+          <p class="knowledge-panel__summary">Drop raw Kindle export text here to parse highlights, notes, and bookmarks into the local queue without touching Notion yet.</p>
+        </div>
+        <form class="kindle-clippings-form" method="post" action="{{ url_for('knowledge_settings.queue_kindle_clippings') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="state" value="{{ outbox.active_filter }}">
+          <label class="field kindle-clippings-form__text">
+            <span>My Clippings text</span>
+            <textarea name="raw_text" rows="12" spellcheck="false" required></textarea>
+          </label>
+          <button class="button button--primary" type="submit">Queue clippings</button>
+        </form>
+      </section>
+
+      <section class="knowledge-panel" aria-labelledby="pending-clippings-title">
+        <div class="section-heading section-heading--action">
+          <div><span class="eyebrow">Outbox</span><h2 id="pending-clippings-title">Pending payloads</h2><p class="knowledge-panel__summary">Each row keeps the parsed quote, current local match state, and the manual actions you can take before syncing or clearing it.</p></div>
+          <div class="candidate-heading-actions">
+            {{ badge(outbox.filtered_count ~ ' shown') }}
+            {{ badge('Book Quotes shape') }}
+            {% if outbox.can_reset_failed %}
+            <form method="post" action="{{ url_for('knowledge_settings.reset_kindle_clipping_failures') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="state" value="{{ outbox.active_filter }}">
+              <button class="button button--quiet" type="submit">Reset failed</button>
+            </form>
+            {% endif %}
+            {% if outbox.can_clear_filtered %}
+            <form method="post" action="{{ url_for('knowledge_settings.clear_kindle_clippings') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="state" value="{{ outbox.active_filter }}">
+              <button class="button button--quiet" type="submit">Clear {{ outbox.active_filter }}</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+        {% if outbox.pending %}
+        <div class="knowledge-rows kindle-clippings-rows">
+          {% for projection in outbox.pending %}
+          {% set item = projection.item %}
+          {% set payload = item.payload %}
+          {% set match = projection.match %}
+          <article class="knowledge-row">
+            <strong dir="auto">{{ payload.book_title or 'Untitled book' }}</strong>
+            <span dir="auto">{{ payload.quote or payload.kind|title }}</span>
+            <div class="kindle-clippings-match kindle-clippings-match--{{ match.state }}">
+              <strong>{{ match.state|replace('_',' ')|title }}</strong>
+              {% if match.book_id and match.state == 'matched' %}
+              <a href="{{ url_for('books.detail', book_id=match.book_id) }}">{{ match.book_title }}</a>
+              {% elif match.book_title %}
+              <span>{{ match.book_title }}</span>
+              {% endif %}
+              <small>{{ match.note }}</small>
+            </div>
+            <small>
+              {{ payload.kind|title }}
+              {% if payload.location %} · loc {{ payload.location }}{% endif %}
+              {% if payload.page %} · page {{ payload.page }}{% endif %}
+              {% if item.attempts %} · {{ item.attempts }} retries{% endif %}
+            </small>
+            {% if item.last_error %}
+            <small>
+              Last error: {{ item.last_error }}
+              {% if item.last_error_at %} · {{ item.last_error_at }}{% endif %}
+            </small>
+            {% endif %}
+            <code title="{{ item.unique_hash }}">{{ item.unique_hash[:12] }}</code>
+            <div class="kindle-clippings-actions">
+              <form class="kindle-clippings-assign" method="post" action="{{ url_for('knowledge_settings.assign_kindle_clipping_book', unique_hash=item.unique_hash) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="state" value="{{ outbox.active_filter }}">
+                <label class="field">
+                  <span>Manual match</span>
+                  <select name="book_id" required>
+                    <option value="">Choose book</option>
+                    {% for option in outbox.book_options %}
+                    <option value="{{ option.id }}"{% if match.book_id == option.id %} selected{% endif %}>{{ option.title }}{% if option.authors %} · {{ option.authors }}{% endif %}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button class="button button--quiet" type="submit">Save match</button>
+              </form>
+              <form class="kindle-clippings-remove" method="post" action="{{ url_for('knowledge_settings.remove_kindle_clipping', unique_hash=item.unique_hash) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="state" value="{{ outbox.active_filter }}">
+                <button class="button button--quiet" type="submit">Remove</button>
+              </form>
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="book-detail__empty">{% if outbox.pending_count %}No clippings in this filter.{% else %}No pending clippings.{% endif %}</p>
+        {% endif %}
+      </section>
+    </main>
+
+    <aside class="kindle-clippings__side">
+      <section class="knowledge-panel" aria-labelledby="kindle-sync-title">
+        <div class="section-heading section-heading--action">
+          <div>
+            <span class="eyebrow">Reliability</span>
+            <h2 id="kindle-sync-title">Sync readiness</h2>
+            <p class="knowledge-panel__summary">This side rail tracks whether the local token, Book Quotes target, and validation state are ready for an explicit manual sync.</p>
+          </div>
+          {{ badge('Validated' if sync_readiness.state == 'validated' else 'Configured' if sync_readiness.state == 'configured' else 'Needs review' if sync_readiness.state == 'needs_review' else 'Not configured', 'success' if sync_readiness.state == 'validated' else 'accent' if sync_readiness.state == 'configured' else 'warning' if sync_readiness.state == 'needs_review' else 'neutral') }}
+        </div>
+        <p class="book-detail__empty">No live sync client runs here yet. Dragon only checks local Kindle sync material, can validate Book Quotes access on demand, and lets you clear those local files safely.</p>
+        {% if sync_readiness.note %}
+        {{ notice('Local credential check needs review', sync_readiness.note, 'warning') }}
+        {% endif %}
+        <div class="diagnostics-signals kindle-sync-readiness">
+          <div class="diagnostics-signal{% if sync_readiness.state != 'configured' and sync_readiness.state != 'validated' %} diagnostics-signal--attention{% endif %}">
+            <span aria-hidden="true"></span>
+            <strong>Local credentials {% if sync_readiness.state == 'configured' or sync_readiness.state == 'validated' %}present{% elif sync_readiness.state == 'needs_review' %}need review{% else %}missing{% endif %}</strong>
+            <small>{% if sync_readiness.state == 'configured' or sync_readiness.state == 'validated' %}A dedicated local Kindle token is available for a future manual sync client.{% elif sync_readiness.state == 'needs_review' %}A local token or metadata file exists, but the readiness boundary still needs attention.{% else %}No local Kindle sync credentials are configured.{% endif %}</small>
+          </div>
+          <div class="diagnostics-signal">
+            <span aria-hidden="true"></span>
+            <strong>Destination locked to {{ sync_readiness.destination_label }}</strong>
+            <small>Future Kindle sync stays scoped to the canonical quotes database only.</small>
+          </div>
+          <div class="diagnostics-signal{% if not sync_readiness.target_id_configured and sync_readiness.metadata_present %} diagnostics-signal--attention{% endif %}">
+            <span aria-hidden="true"></span>
+            <strong>Book Quotes target {% if sync_readiness.target_id_configured %}configured{% else %}missing{% endif %}</strong>
+            <small>{% if sync_readiness.target_id_configured %}A local {{ sync_readiness.target_kind|replace('_', ' ') }} ID is stored for the dedicated Book Quotes destination.{% elif sync_readiness.metadata_present %}Readiness metadata exists, but no local Book Quotes target ID is stored yet.{% else %}No local readiness metadata stored yet.{% endif %}</small>
+          </div>
+          <div class="diagnostics-signal{% if sync_readiness.validation_state == 'invalid' or (sync_readiness.target_id_configured and sync_readiness.validation_state == 'not_checked') %} diagnostics-signal--attention{% endif %}">
+            <span aria-hidden="true"></span>
+            <strong>{% if sync_readiness.validation_state == 'valid' %}Validated on {{ sync_readiness.validated_at }}{% elif sync_readiness.validation_state == 'invalid' %}Last validation failed{% else %}Validation not run yet{% endif %}</strong>
+            <small>{% if sync_readiness.validation_state == 'valid' %}Local token reached the configured Book Quotes target successfully.{% elif sync_readiness.validation_state == 'invalid' %}Checked {{ sync_readiness.last_checked_at or 'recently' }}. Fix the local token or target setup, then validate again.{% else %}{% if sync_readiness.target_id_configured and sync_readiness.token_configured %}Run validation before relying on this future manual sync path.{% else %}Add the local token and Book Quotes target before validation.{% endif %}{% endif %}</small>
+          </div>
+          <div class="diagnostics-signal diagnostics-signal--attention">
+            <span aria-hidden="true"></span>
+            <strong>No background sync</strong>
+            <small>Kindle upload stays explicit on this page only. There is still no hardware read or automatic sync loop.</small>
+          </div>
+        </div>
+        {% if sync_readiness.clearable %}
+        <div class="kindle-sync-actions">
+          {% if sync_readiness.token_configured and sync_readiness.target_id_configured and outbox.pending_count %}
+          <form method="post" action="{{ url_for('knowledge_settings.sync_kindle_clippings') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="state" value="{{ outbox.active_filter }}">
+            <button class="button button--primary" type="submit">Sync pending to Book Quotes</button>
+          </form>
+          {% endif %}
+          {% if sync_readiness.token_configured and sync_readiness.target_id_configured %}
+          <form method="post" action="{{ url_for('knowledge_settings.validate_kindle_clipping_credentials') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="state" value="{{ outbox.active_filter }}">
+            <button class="button button--quiet" type="submit">Validate local credentials</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('knowledge_settings.clear_kindle_clipping_credentials') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="state" value="{{ outbox.active_filter }}">
+            <button class="button button--quiet" type="submit">Clear local credentials</button>
+          </form>
+        </div>
+        {% endif %}
+      </section>
+
+      <section class="knowledge-panel" aria-labelledby="kindle-boundary-title">
+        <div class="section-heading">
+          <span class="eyebrow">Boundary</span>
+          <h2 id="kindle-boundary-title">Manual only</h2>
+          <p class="knowledge-panel__summary">These rules keep the outbox aligned with the roadmap: local parsing first, explicit sync second, and no hidden device reads or provider writes.</p>
+        </div>
+        <div class="diagnostics-signals">
+          <div class="diagnostics-signal">
+            <span aria-hidden="true"></span>
+            <strong>Explicit Notion sync only</strong>
+            <small>Normal page loads stay local. Only the manual sync button talks to Book Quotes.</small>
+          </div>
+          <div class="diagnostics-signal">
+            <span aria-hidden="true"></span>
+            <strong>No Kindle device read</strong>
+            <small>Only pasted text is parsed. Local files and tokens stay out of the UI.</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="knowledge-panel" aria-labelledby="kindle-shape-title">
+        <div class="section-heading">
+          <span class="eyebrow">Payload</span>
+          <h2 id="kindle-shape-title">Stored fields</h2>
+          <p class="knowledge-panel__summary">The queue keeps only the fields needed for deduplication, matching, and later sync into the canonical Book Quotes destination.</p>
+        </div>
+        <dl class="metadata-grid diagnostics-facts">
+          <div><dt>Source</dt><dd>Kindle</dd></div>
+          <div><dt>Identity</dt><dd>Title, author, kind</dd></div>
+          <div><dt>Position</dt><dd>Page, location, clipping date</dd></div>
+          <div><dt>Dedup</dt><dd>SHA-256 hash</dd></div>
+          <div><dt>Matching</dt><dd>DragonBookID when safe</dd></div>
+          <div><dt>Last error</dt><dd>{{ outbox.last_error or 'Never' }}</dd></div>
+        </dl>
+      </section>
+    </aside>
+  </div>
+</article>
+{% endblock %}

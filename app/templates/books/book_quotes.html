@@ -1,0 +1,233 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, notice %}
+{% block title %}Book Quotes review · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('knowledge_settings.diagnostics') }}">← Knowledge diagnostics</a>
+<article class="kindle-clippings knowledge-stream-page knowledge-stream-page--review">
+  <header class="kindle-clippings__header">
+    <div>
+      <span class="eyebrow">Settings · Knowledge</span>
+      <h1>Book Quotes review</h1>
+      <p>Canonical Book Quotes rows stay in Notion. This page only caches them locally, projects matches, and lets you save local review hints when a row still needs a Dragon book.</p>
+    </div>
+    <div class="kindle-clippings__actions">
+      {{ badge(book_quotes.snapshot_count ~ ' rows', 'accent') }}
+      {{ badge(book_quotes.review_count ~ ' review', 'warning' if book_quotes.review_count else 'success') }}
+      {{ badge(book_quotes.matched_count ~ ' matched', 'success' if book_quotes.matched_count else 'neutral') }}
+      {{ badge('Refreshed' if book_quotes.refreshed_at else 'Not refreshed', 'success' if book_quotes.refreshed_at else 'warning') }}
+    </div>
+  </header>
+
+  {% if book_quotes.last_error %}
+  {{ notice('Book Quotes refresh needs review', book_quotes.last_error, 'warning') }}
+  {% elif not book_quotes.refreshed_at %}
+  {{ notice('No local snapshot yet', 'Run Refresh Book Quotes from diagnostics before using this review queue.', 'warning') }}
+  {% endif %}
+
+  <section class="diagnostics-metrics kindle-clippings__metrics" aria-label="Book Quotes counts">
+    <div>
+      <span>Rows</span>
+      <strong>{{ book_quotes.snapshot_count }}</strong>
+      <small>Cached from Notion</small>
+    </div>
+    <div>
+      <span>Matched</span>
+      <strong>{{ book_quotes.matched_count }}</strong>
+      <small>Linked to local books</small>
+    </div>
+    <div>
+      <span>Review</span>
+      <strong>{{ book_quotes.review_count }}</strong>
+      <small>Needs a local relation check</small>
+    </div>
+    <div>
+      <span>Ambiguous</span>
+      <strong>{{ book_quotes.ambiguous_count }}</strong>
+      <small>More than one likely book</small>
+    </div>
+    <div>
+      <span>Needs review</span>
+      <strong>{{ book_quotes.needs_review_count }}</strong>
+      <small>Missing or weak relation evidence</small>
+    </div>
+    <div>
+      <span>Refreshed</span>
+      <strong>{{ book_quotes.refreshed_at or 'Never' }}</strong>
+      <small>{{ book_quotes.last_checked_at or 'No local check yet' }}</small>
+    </div>
+  </section>
+
+  <section class="knowledge-stream-intro" aria-label="Book Quotes review guide">
+    <div class="knowledge-stream-intro__lead">
+      <span class="eyebrow">Local review queue</span>
+      <h2>Triage synced Book Quotes rows before they belong in the library stream</h2>
+      <p>This page is the reliability layer between the canonical Notion snapshot and the local highlights stream. Use it to separate rows that already map cleanly from rows that still need a human decision.</p>
+    </div>
+    <div class="knowledge-stream-intro__cards">
+      <div class="knowledge-stream-intro__card">
+        <strong>Canonical rows stay upstream</strong>
+        <small>The snapshot is cached locally for review, but the source of truth still lives in Notion <code>Book Quotes</code>.</small>
+      </div>
+      <div class="knowledge-stream-intro__card">
+        <strong>Manual hints stay local</strong>
+        <small>When you save a match here, you are improving local reliability without mutating Knowledge or Book Quotes directly.</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="knowledge-panel" aria-labelledby="book-quotes-filter-title">
+    <div class="section-heading section-heading--action">
+      <div>
+        <span class="eyebrow">Triage lanes</span>
+        <h2 id="book-quotes-filter-title">Move between clean matches and review work</h2>
+        <p class="knowledge-panel__summary">Each lane keeps the same local snapshot, but focuses you on the rows that are already matched, ambiguous, or still missing enough relation evidence.</p>
+      </div>
+      <div class="candidate-heading-actions">
+        {{ badge(book_quotes.active_filter|replace('_', ' ')|title) }}
+      </div>
+    </div>
+    <nav class="segmented kindle-clippings__filters" aria-label="Book Quotes filter">
+      {% for filter in book_quotes.filters %}
+      <a href="{{ url_for('knowledge_settings.book_quotes_review', state=filter.key, q=book_quotes.query) }}"{% if book_quotes.active_filter == filter.key %} aria-current="page"{% endif %}>{{ filter.label }} · {{ filter.count }}</a>
+      {% endfor %}
+    </nav>
+  </section>
+
+  <div class="kindle-clippings__layout">
+    <main class="kindle-clippings__main">
+      <section class="knowledge-panel" aria-labelledby="book-quotes-search-title">
+        <div class="section-heading section-heading--action">
+          <div><span class="eyebrow">Search</span><h2 id="book-quotes-search-title">Find synced highlights</h2><p class="knowledge-panel__summary">Search the snapshot by quote text, title, author, or reading position before you decide whether a local match is trustworthy.</p></div>
+          <div class="candidate-heading-actions">
+            {{ badge(book_quotes.filtered_count ~ ' shown') }}
+            {% if book_quotes.query %}{{ badge('Query: ' ~ book_quotes.query) }}{% endif %}
+          </div>
+        </div>
+        <div class="knowledge-stream-filter-layout">
+          <div class="knowledge-stream-filter-layout__copy">
+            <p>Search works inside the current lane, so you can narrow the queue without losing whether you are looking at matched rows, ambiguous rows, or the ones that still need attention.</p>
+          </div>
+          <form class="candidate-form knowledge-stream-filters" method="get" action="{{ url_for('knowledge_settings.book_quotes_review') }}">
+            <input type="hidden" name="state" value="{{ book_quotes.active_filter }}">
+            <label class="field candidate-form__title"><span>Search text, title, author, or position</span><input name="q" autocomplete="off" value="{{ book_quotes.query }}"></label>
+            <button class="button button--secondary" type="submit">Apply search</button>
+          </form>
+        </div>
+      </section>
+
+      <section class="knowledge-panel" aria-labelledby="book-quotes-rows-title">
+        <div class="section-heading section-heading--action">
+          <div><span class="eyebrow">Queue</span><h2 id="book-quotes-rows-title">Snapshot rows</h2><p class="knowledge-panel__summary">Every row keeps the synced text, the current local match state, and the manual match controls in one triage surface.</p></div>
+          <div class="candidate-heading-actions">
+            {{ badge('Local review only') }}
+            {% if book_quotes.configured %}{{ badge('Destination configured', 'success') }}{% else %}{{ badge('Destination missing', 'warning') }}{% endif %}
+          </div>
+        </div>
+        {% if book_quotes.rows %}
+        <div class="knowledge-rows kindle-clippings-rows">
+          {% for row in book_quotes.rows %}
+          <article class="knowledge-row" id="book-quote-{{ row.id }}">
+            <strong dir="auto">{{ row.title }}</strong>
+            <span dir="auto">{{ row.quote or row.kind|title }}</span>
+            <div class="kindle-clippings-match kindle-clippings-match--{{ row.match.state }}">
+              <strong>{{ row.match.state|replace('_',' ')|title }}</strong>
+              {% if row.match.book_id %}
+              <a href="{{ url_for('books.detail', book_id=row.match.book_id) }}">{{ row.match.book_title }}</a>
+              {% elif row.match.book_title %}
+              <span>{{ row.match.book_title }}</span>
+              {% endif %}
+              <small>{{ row.match.note }}</small>
+            </div>
+            <small dir="auto">
+              {{ row.author }}
+              {% if row.location %} · loc {{ row.location }}{% endif %}
+              {% if row.page %} · page {{ row.page }}{% endif %}
+              {% if row.created_at %} · {{ row.created_at }}{% endif %}
+            </small>
+            {% if row.imported_at %}
+            <small>Imported {{ row.imported_at }}</small>
+            {% endif %}
+            <code title="{{ row.notion_page_id or row.id }}">{{ (row.notion_page_id or row.id)[:12] }}</code>
+            <div class="kindle-clippings-actions">
+              <form class="kindle-clippings-assign" method="post" action="{{ url_for('knowledge_settings.assign_book_quote_book', item_key=row.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="state" value="{{ book_quotes.active_filter }}">
+                <input type="hidden" name="q" value="{{ book_quotes.query }}">
+                <label class="field">
+                  <span>Manual match</span>
+                  <select name="book_id" required>
+                    <option value="">Choose book</option>
+                    {% for option in book_quotes.book_options %}
+                    <option value="{{ option.id }}"{% if row.match.book_id == option.id %} selected{% endif %}>{{ option.title }}{% if option.authors %} · {{ option.authors }}{% endif %}</option>
+                    {% endfor %}
+                  </select>
+                </label>
+                <button class="button button--quiet" type="submit">Save match</button>
+              </form>
+              {% if row.manual_local_match %}
+              <form class="kindle-clippings-remove" method="post" action="{{ url_for('knowledge_settings.clear_book_quote_match', item_key=row.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="state" value="{{ book_quotes.active_filter }}">
+                <input type="hidden" name="q" value="{{ book_quotes.query }}">
+                <button class="button button--quiet" type="submit">Clear local match</button>
+              </form>
+              {% endif %}
+              {% if row.notion_url %}
+              <a class="button button--quiet" href="{{ row.notion_url }}" target="_blank" rel="noreferrer">Open in Notion</a>
+              {% endif %}
+            </div>
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="book-detail__empty">{% if book_quotes.snapshot_count %}No Book Quotes rows in this filter.{% else %}No local Book Quotes snapshot rows yet.{% endif %}</p>
+        {% endif %}
+      </section>
+    </main>
+
+    <aside class="kindle-clippings__side">
+      <section class="knowledge-panel" aria-labelledby="book-quotes-boundary-title">
+        <div class="section-heading">
+          <span class="eyebrow">Boundary</span>
+          <h2 id="book-quotes-boundary-title">Canonical stays in Notion</h2>
+          <p class="knowledge-panel__summary">This review queue improves local confidence, but it still respects the upstream data boundaries from the roadmap.</p>
+        </div>
+        <div class="diagnostics-signals">
+          <div class="diagnostics-signal">
+            <span aria-hidden="true"></span>
+            <strong>Refresh is explicit</strong>
+            <small>Normal page loads stay local. New Book Quotes rows only appear after a manual refresh.</small>
+          </div>
+          <div class="diagnostics-signal">
+            <span aria-hidden="true"></span>
+            <strong>Review hints are local</strong>
+            <small>Manual matches saved here are local-only reliability hints and do not mutate Notion Knowledge or Book Quotes.</small>
+          </div>
+          <div class="diagnostics-signal">
+            <span aria-hidden="true"></span>
+            <strong>Canonical relation still wins</strong>
+            <small>If a refreshed Book Quotes row later carries a real relation or DragonBookID from Notion, that canonical evidence replaces the local hint.</small>
+          </div>
+        </div>
+      </section>
+
+      <section class="knowledge-panel" aria-labelledby="book-quotes-fields-title">
+        <div class="section-heading">
+          <span class="eyebrow">Payload</span>
+          <h2 id="book-quotes-fields-title">Cached fields</h2>
+          <p class="knowledge-panel__summary">These are the fields the local snapshot keeps ready for matching, search, and later projection into the book detail surfaces.</p>
+        </div>
+        <dl class="metadata-grid diagnostics-facts">
+          <div><dt>Identity</dt><dd>Book title, author, DragonBookID</dd></div>
+          <div><dt>Highlight</dt><dd>Quote, kind, source</dd></div>
+          <div><dt>Position</dt><dd>Page, location, created at</dd></div>
+          <div><dt>Refresh</dt><dd>{{ book_quotes.refreshed_at or 'Never' }}</dd></div>
+          <div><dt>Last check</dt><dd>{{ book_quotes.last_checked_at or 'Never' }}</dd></div>
+          <div><dt>Error</dt><dd>{{ book_quotes.last_error or 'None' }}</dd></div>
+        </dl>
+      </section>
+    </aside>
+  </div>
+</article>
+{% endblock %}

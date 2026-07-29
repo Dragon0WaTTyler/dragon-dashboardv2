@@ -378,8 +378,25 @@
     const body = element("div", "release-item__body");
     body.append(element("h3", "", release.title));
     const kindLabel = releaseMode === "season_pack" ? "Season pack" : "Episode";
-    const meta = `${kindLabel} · ${release.seeders} seeders · ${formatBytes(release.size)} · ${release.tracker}`;
+    const labels = [
+      kindLabel,
+      release.quality_label,
+      release.codec_label,
+      release.playback_label,
+      release.subtitle_label,
+      `${release.seeders} seeders`,
+      formatBytes(release.size),
+      release.tracker,
+    ].filter(Boolean);
+    const meta = labels.join(" · ");
     body.append(element("p", "", meta));
+    if (Array.isArray(release.release_tags) && release.release_tags.length) {
+      const tagRow = element("div", "release-item__tags");
+      release.release_tags.slice(0, 5).forEach((tag) => {
+        tagRow.append(element("span", "", tag));
+      });
+      body.append(tagRow);
+    }
     const buttonLabel = releaseMode === "season_pack" && !episode
       ? "Add pack to Notion"
       : releaseMode === "season_pack"

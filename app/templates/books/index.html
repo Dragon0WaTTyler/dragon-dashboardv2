@@ -3,15 +3,41 @@
 {% block title %}Books · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
 {% block content %}
+<nav class="segmented books-sections" aria-label="Books sections">
+  {% for item in library_sections %}
+  <a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+  {% endfor %}
+</nav>
 <header class="page-header">
-  <div><span class="eyebrow">Personal library</span><h1>Books</h1><p>Reading progress, linked quotes, and provider-independent local metadata.</p></div>
-  {{ badge(books|length ~ ' books', 'accent') }}
+  <div><span class="eyebrow">Knowledge library</span><h1>{{ page_title }}</h1><p>{{ page_description }}</p></div>
+  <div class="reading-header-actions">
+    {{ badge(books|length ~ ' books', 'accent') }}
+    <a class="button button--secondary" href="{{ url_for('knowledge_settings.diagnostics') }}">Diagnostics</a>
+  </div>
 </header>
-<form class="compact-filters compact-filters--books" method="get">
-  <label class="field"><span>Search</span><input type="search" name="q" value="{{ q }}"></label>
-  <label class="field"><span>Status</span><select name="status"><option value="">All</option>{% for value in ['want_to_read','reading','paused','finished'] %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+{% if collection_groups %}
+<section class="collections-strip" aria-label="Collection shelves">
+  {% for item in collection_groups %}
+  <a class="collection-chip{% if item.active %} collection-chip--active{% endif %}" href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>
+    <span class="eyebrow">{{ item.count }} books</span>
+    <strong>{{ item.name }}</strong>
+    {% if item.preview %}<small>{{ item.preview }}</small>{% endif %}
+  </a>
+  {% endfor %}
+</section>
+{% endif %}
+<form class="compact-filters compact-filters--wide" method="get">
+  <div class="knowledge-filter-search">
+    <label class="field"><span>Search library</span><input type="search" name="q" value="{{ q }}"></label>
+    <p class="knowledge-filter-search__hint">Search titles, authors, and shelves.</p>
+  </div>
+  <label class="field"><span>Status</span><select name="status"{% if locked_status_label %} disabled{% endif %}><option value="">{% if locked_status_label %}{{ locked_status_label }}{% else %}All{% endif %}</option>{% if not locked_status_label %}{% for value in ['wishlist','reading','paused','finished','dropped','reference'] %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}{% endif %}</select></label>
+  <label class="field"><span>Collection</span><select name="collection"><option value="">Any</option>{% for value in collections %}<option value="{{ value }}"{% if collection|lower == value|lower %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
   <label class="field"><span>View</span><select name="view"><option value="grid"{% if view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if view == 'list' %} selected{% endif %}>Compact list</option></select></label>
-  <button class="button button--primary" type="submit">Apply</button>
+  <div class="filter-actions">
+    <button class="button button--primary" type="submit">Apply</button>
+    <a class="button button--quiet" href="{{ reset_href }}">Reset</a>
+  </div>
 </form>
 {% if books %}
 <div class="book-grid{% if view == 'list' %} book-grid--list{% endif %}" aria-label="Book results">
@@ -21,15 +47,21 @@
       {% if book.cover_url %}<img data-media-image src="{{ book.cover_url }}" alt="Cover of {{ book.title }}" loading="lazy" width="180" height="270"><span class="media-fallback" aria-hidden="true">{{ book.title[:1] }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ book.title[:1] }}</span>{% endif %}
     </a>
     <div class="book-card__body">
-      <span class="eyebrow" dir="auto">{{ book.authors|join(', ') or 'Unknown author' }}</span>
-      <h2 dir="auto"><a href="{{ url_for('books.detail', book_id=book.id) }}">{{ book.title }}</a></h2>
-      <p>{{ book.current_page }} / {{ book.page_count or '?' }} pages</p>
-      {{ badge(book.status|replace('_',' ')|title, 'accent' if book.status == 'reading' else '') }}
+      <div class="book-card__header">
+        <div class="book-card__title-block">
+          <span class="eyebrow" dir="auto">{{ book.authors|join(', ') or 'Unknown author' }}</span>
+          <h2 dir="auto"><a href="{{ url_for('books.detail', book_id=book.id) }}">{{ book.title }}</a></h2>
+        </div>
+        <div class="book-card__status">
+          {{ badge(book.status|replace('_',' ')|title, 'accent' if book.status == 'reading' else '') }}
+        </div>
+      </div>
+      <p class="book-card__summary">{{ book.current_page }} / {{ book.page_count or '?' }} pages</p>
     </div>
   </article>
   {% endfor %}
 </div>
 {% else %}
-{{ empty_state('Your book library is empty', 'Import a validated local snapshot when migration is explicitly approved.') }}
+{{ empty_state(empty_title, empty_message) }}
 {% endif %}
 {% endblock %}

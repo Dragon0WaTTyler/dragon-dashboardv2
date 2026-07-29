@@ -1,0 +1,69 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+{% block title %}{{ reader.book.title }} · EPUB reader · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/book-reader.js') }}" defer></script>{% endblock %}
+{% block content %}
+<article class="book-reader knowledge-stream-page knowledge-stream-page--reader" data-book-reader data-progress-url="{{ url_for('books.text_asset_reader_progress', book_id=reader.book.id, asset_id=reader.asset.id) }}" data-initial-chapter="{{ reader.progress.chapter_index or 0 }}" data-initial-scroll="{{ reader.progress.scroll_percent or 0 }}">
+  <a class="back-link" href="{{ url_for('books.detail', book_id=reader.book.id) }}">← Back to book</a>
+  <header class="book-reader__header">
+    <div>
+      <span class="eyebrow">Local EPUB reader</span>
+      <h1 dir="auto">{{ reader.book.title }}</h1>
+      <p>{{ reader.filename }}</p>
+    </div>
+    <div class="book-reader__status">
+      {{ badge(reader.chapters|length ~ ' chapters', 'accent') }}
+      <span data-reader-status>{% if reader.progress.updated_at %}Resume chapter {{ reader.progress.chapter_index + 1 }}{% else %}Ready{% endif %}</span>
+    </div>
+  </header>
+
+  <section class="knowledge-stream-intro" aria-labelledby="reader-overview-title">
+    <div class="knowledge-stream-intro__lead">
+      <span class="eyebrow">Reader context</span>
+      <h2 id="reader-overview-title">Read the local EPUB without leaving Dragon</h2>
+      <p>The browser reader stays local-first: Dragon extracts safe chapter text, keeps progress in the local book state, and leaves device sync for later layers of the roadmap.</p>
+    </div>
+    <div class="knowledge-stream-intro__cards">
+      <div class="knowledge-stream-intro__card">
+        <strong>Resume point</strong>
+        <small>
+          {% if reader.progress.updated_at %}
+          Chapter {{ reader.progress.chapter_index + 1 }}{% if reader.progress.scroll_percent %} · {{ reader.progress.scroll_percent }}% through the saved chapter{% endif %}
+          {% else %}
+          Start from chapter 1 and Dragon will keep the place locally after you move through the text.
+          {% endif %}
+        </small>
+      </div>
+      <div class="knowledge-stream-intro__card">
+        <strong>Coverage</strong>
+        <small>{{ reader.chapters|length }} extracted chapter{{ 's' if reader.chapters|length != 1 else '' }} · {{ reader.asset.format }} asset · local runtime only</small>
+      </div>
+    </div>
+  </section>
+
+  <div class="book-reader__layout">
+    <aside class="book-reader__rail" aria-labelledby="reader-chapters-title">
+      <h2 id="reader-chapters-title">Chapters</h2>
+      <p class="knowledge-panel__summary">Jump between chapters from the rail, then let the reader keep the latest local chapter and scroll position for the same EPUB asset.</p>
+      <nav class="book-reader__chapters" aria-label="EPUB chapters">
+        {% for chapter in reader.chapters %}
+        <a href="#chapter-{{ chapter.index }}" data-reader-chapter-link="{{ chapter.index }}">{{ chapter.index + 1 }}. {{ chapter.title }}</a>
+        {% endfor %}
+      </nav>
+    </aside>
+
+    <main class="book-reader__content" aria-label="EPUB text">
+      {% for chapter in reader.chapters %}
+      <section id="chapter-{{ chapter.index }}" class="book-reader__chapter" data-reader-chapter="{{ chapter.index }}" tabindex="-1">
+        <span class="eyebrow">Chapter {{ chapter.index + 1 }}</span>
+        <h2 dir="auto">{{ chapter.title }}</h2>
+        {% for paragraph in chapter.paragraphs %}
+        <p dir="auto">{{ paragraph }}</p>
+        {% endfor %}
+      </section>
+      {% endfor %}
+    </main>
+  </div>
+</article>
+{% endblock %}

@@ -102,6 +102,12 @@ class Settings:
     notion_token: str
     notion_database_id: str
     notion_data_source_id: str
+    book_notion_database_id: str
+    book_notion_data_source_id: str
+    notion_tv_show_database_id: str
+    notion_tv_show_data_source_id: str
+    notion_tv_episode_database_id: str
+    notion_tv_episode_data_source_id: str
     notion_sync_ttl_seconds: int
     youtube_delete_enabled: bool
     youtube_sync_enabled: bool
@@ -231,6 +237,42 @@ class Settings:
             or os.getenv("DRAGON_NOTION_DATA_SOURCE_ID", "")
             or os.getenv("NOTION_DATA_SOURCE_ID", "")
         ).strip()
+        book_notion_database_id = str(
+            override_map.get("BOOK_NOTION_DATABASE_ID")
+            or override_map.get("DRAGON_BOOK_NOTION_DATABASE_ID")
+            or override_map.get("NOTION_BOOKS_DATABASE_ID")
+            or os.getenv("DRAGON_BOOK_NOTION_DATABASE_ID", "")
+            or os.getenv("BOOK_NOTION_DATABASE_ID", "")
+            or os.getenv("NOTION_BOOKS_DATABASE_ID", "")
+        ).strip()
+        book_notion_data_source_id = str(
+            override_map.get("BOOK_NOTION_DATA_SOURCE_ID")
+            or override_map.get("DRAGON_BOOK_NOTION_DATA_SOURCE_ID")
+            or override_map.get("NOTION_BOOKS_DATA_SOURCE_ID")
+            or os.getenv("DRAGON_BOOK_NOTION_DATA_SOURCE_ID", "")
+            or os.getenv("BOOK_NOTION_DATA_SOURCE_ID", "")
+            or os.getenv("NOTION_BOOKS_DATA_SOURCE_ID", "")
+        ).strip()
+        notion_tv_show_database_id = str(
+            override_map.get("NOTION_TV_SHOW_DATABASE_ID")
+            or override_map.get("DRAGON_NOTION_TV_SHOW_DATABASE_ID")
+            or os.getenv("DRAGON_NOTION_TV_SHOW_DATABASE_ID", "")
+        ).strip()
+        notion_tv_show_data_source_id = str(
+            override_map.get("NOTION_TV_SHOW_DATA_SOURCE_ID")
+            or override_map.get("DRAGON_NOTION_TV_SHOW_DATA_SOURCE_ID")
+            or os.getenv("DRAGON_NOTION_TV_SHOW_DATA_SOURCE_ID", "")
+        ).strip()
+        notion_tv_episode_database_id = str(
+            override_map.get("NOTION_TV_EPISODE_DATABASE_ID")
+            or override_map.get("DRAGON_NOTION_TV_EPISODE_DATABASE_ID")
+            or os.getenv("DRAGON_NOTION_TV_EPISODE_DATABASE_ID", "")
+        ).strip()
+        notion_tv_episode_data_source_id = str(
+            override_map.get("NOTION_TV_EPISODE_DATA_SOURCE_ID")
+            or override_map.get("DRAGON_NOTION_TV_EPISODE_DATA_SOURCE_ID")
+            or os.getenv("DRAGON_NOTION_TV_EPISODE_DATA_SOURCE_ID", "")
+        ).strip()
         subdl_api_key = str(
             override_map.get("SUBDL_API_KEY")
             or override_map.get("DRAGON_SUBDL_API_KEY")
@@ -300,7 +342,12 @@ class Settings:
                 bool(
                     not is_testing
                     and notion_token
-                    and (notion_database_id or notion_data_source_id)
+                    and (
+                        notion_database_id
+                        or notion_data_source_id
+                        or book_notion_database_id
+                        or book_notion_data_source_id
+                    )
                 ),
             ),
             notion_writeback_enabled=feature(
@@ -314,6 +361,12 @@ class Settings:
             notion_token=notion_token,
             notion_database_id=notion_database_id,
             notion_data_source_id=notion_data_source_id,
+            book_notion_database_id=book_notion_database_id,
+            book_notion_data_source_id=book_notion_data_source_id,
+            notion_tv_show_database_id=notion_tv_show_database_id,
+            notion_tv_show_data_source_id=notion_tv_show_data_source_id,
+            notion_tv_episode_database_id=notion_tv_episode_database_id,
+            notion_tv_episode_data_source_id=notion_tv_episode_data_source_id,
             notion_sync_ttl_seconds=positive_integer(
                 "NOTION_SYNC_TTL_SECONDS", 120, maximum=86400
             ),
@@ -365,6 +418,12 @@ class Settings:
             "DRAGON_NOTION_TOKEN": self.notion_token,
             "DRAGON_NOTION_DATABASE_ID": self.notion_database_id,
             "DRAGON_NOTION_DATA_SOURCE_ID": self.notion_data_source_id,
+            "DRAGON_BOOK_NOTION_DATABASE_ID": self.book_notion_database_id,
+            "DRAGON_BOOK_NOTION_DATA_SOURCE_ID": self.book_notion_data_source_id,
+            "DRAGON_NOTION_TV_SHOW_DATABASE_ID": self.notion_tv_show_database_id,
+            "DRAGON_NOTION_TV_SHOW_DATA_SOURCE_ID": self.notion_tv_show_data_source_id,
+            "DRAGON_NOTION_TV_EPISODE_DATABASE_ID": self.notion_tv_episode_database_id,
+            "DRAGON_NOTION_TV_EPISODE_DATA_SOURCE_ID": self.notion_tv_episode_data_source_id,
             "DRAGON_NOTION_SYNC_TTL_SECONDS": self.notion_sync_ttl_seconds,
             "DRAGON_YOUTUBE_DELETE_ENABLED": self.youtube_delete_enabled,
             "DRAGON_YOUTUBE_SYNC_ENABLED": self.youtube_sync_enabled,
@@ -389,6 +448,12 @@ class Settings:
             "notion_token",
             "notion_database_id",
             "notion_data_source_id",
+            "book_notion_database_id",
+            "book_notion_data_source_id",
+            "notion_tv_show_database_id",
+            "notion_tv_show_data_source_id",
+            "notion_tv_episode_database_id",
+            "notion_tv_episode_data_source_id",
             "wyzie_api_key",
             "subdl_api_key",
         }

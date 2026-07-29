@@ -46,6 +46,7 @@ def article_detail(article: Article) -> dict:
         "url": article.url,
         "content_text": content_text,
         "content_paragraphs": content_paragraphs,
+        "content_blocks": list(article.content_blocks or []),
         "content_kind": "video" if is_video else "article",
         "content_label": "Video summary" if is_video else "Full article",
         "language": "ar" if item["direction"] == "rtl" else "en",
@@ -55,6 +56,11 @@ def article_detail(article: Article) -> dict:
 
 
 def article_content_is_readable(article: Article) -> bool:
+    if any(
+        isinstance(block, dict) and block.get("kind") != "text"
+        for block in article.content_blocks or []
+    ):
+        return True
     paragraphs = article_paragraphs(article.content_text, title=article.title)
     return any(len(paragraph) >= 80 for paragraph in paragraphs)
 
@@ -65,6 +71,13 @@ class ReadingService:
         from app.reading.repositories import ReadingRepository
 
         articles = ReadingRepository.list(status="reading", limit=limit)
+        return [article_item(article) for article in articles]
+
+    @staticmethod
+    def latest_news_mix(limit: int = 24) -> list[dict]:
+        from app.reading.repositories import ReadingRepository
+
+        articles = ReadingRepository.list(limit=limit)
         return [article_item(article) for article in articles]
 
     @staticmethod
@@ -79,8 +92,11 @@ class ReadingService:
         try:
             result = extractor.extract(article.url)
             content = normalize_article_text(result.get("content_text"))
+            content_blocks = [
+                block for block in (result.get("content_blocks") or []) if isinstance(block, dict)
+            ]
             content = "\n\n".join(article_paragraphs(content, title=article.title))
-            if not content:
+            if not content and not any(block.get("kind") != "text" for block in content_blocks):
                 raise ValueError("Extractor returned no readable text.")
         except Exception as exc:
             article.fulltext_state = "failed"
@@ -88,6 +104,7 @@ class ReadingService:
             db.session.commit()
             raise ValueError("Full-text extraction failed safely.") from exc
         article.content_text = content[:1_000_000]
+        article.content_blocks = content_blocks
         article.fulltext_state = "cached"
         article.fulltext_error = ""
         if article.status == "unread":

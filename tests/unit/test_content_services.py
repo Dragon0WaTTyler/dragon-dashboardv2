@@ -4,8 +4,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.books.models import Book
+from app.books.notion_sync import BookNotionSyncClient, _is_book_schema
+from app.books.repositories import BookRepository
 from app.books.services import BookService, book_item
 from app.extensions import db
+from app.shared.models import SnapshotRecord
 from app.movies.models import Movie, MovieProgress
 from app.reading.models import Article, ReadingSource
 from app.reading.services import (
@@ -160,7 +163,18 @@ def test_today_live_rotation_changes_movie_hourly_and_youtube_every_five_minutes
             )
             for index in range(12)
         ]
-        db.session.add_all([*movies, *videos, *favorite_videos])
+        source = ReadingSource(name="Today reads", feed_url="https://reads.example.test/rss")
+        articles = [
+            Article(
+                source=source,
+                external_id=f"today-article-{index}",
+                title=f"Today article {index}",
+                url=f"https://reads.example.test/{index}",
+                status="reading",
+            )
+            for index in range(12)
+        ]
+        db.session.add_all([*movies, *videos, *favorite_videos, source, *articles])
         db.session.commit()
         moment = datetime(2026, 7, 15, 10, 1, tzinfo=UTC)
 
@@ -173,12 +187,45 @@ def test_today_live_rotation_changes_movie_hourly_and_youtube_every_five_minutes
         next_video_ids = {item["id"] for item in next_mix["latest_youtube"]}
         first_favorite_ids = {item["id"] for item in first["pockettube_favorite"]}
         next_favorite_ids = {item["id"] for item in next_mix["pockettube_favorite"]}
+        first_article_ids = {item["id"] for item in first["news_mix"]}
+        next_article_ids = {item["id"] for item in next_mix["news_mix"]}
         assert len(first_video_ids) == len(next_video_ids) == 4
         assert len(first_favorite_ids) == len(next_favorite_ids) == 4
+        assert len(first_article_ids) == len(next_article_ids) == 4
         assert first_video_ids.isdisjoint(next_video_ids)
         assert first_favorite_ids.isdisjoint(next_favorite_ids)
+        assert first_article_ids != next_article_ids
         assert first["rotation"]["movie_interval_seconds"] == 3600
         assert first["rotation"]["youtube_interval_seconds"] == 300
+        assert first["rotation"]["reading_interval_seconds"] == 300
+
+
+def test_today_live_rotation_uses_latest_news_section_articles(app):
+    with app.app_context():
+        source = ReadingSource(name="Today reads", feed_url="https://reads.example.test/rss")
+        base = datetime(2026, 7, 15, 8, 0, tzinfo=UTC)
+        articles = [
+            Article(
+                source=source,
+                external_id=f"news-article-{index}",
+                title=f"News article {index}",
+                url=f"https://reads.example.test/news/{index}",
+                status="unread",
+                published_at=base + timedelta(minutes=index),
+            )
+            for index in range(30)
+        ]
+        db.session.add_all([source, *articles])
+        db.session.commit()
+
+        live = TodayService.live_rotation(datetime(2026, 7, 15, 10, 1, tzinfo=UTC))
+        news_mix_titles = {item["title"] for item in live["news_mix"]}
+
+        latest_titles = {f"News article {index}" for index in range(6, 30)}
+        older_titles = {f"News article {index}" for index in range(6)}
+        assert len(news_mix_titles) == 4
+        assert news_mix_titles <= latest_titles
+        assert news_mix_titles.isdisjoint(older_titles)
 
 
 def test_today_workspace_surfaces_active_movie_or_series(app):
@@ -196,6 +243,8 @@ def test_today_workspace_surfaces_active_movie_or_series(app):
         db.session.add(
             MovieProgress(
                 movie_id=movie.id,
+                season=1,
+                episode=5,
                 current_seconds=1200,
                 duration_seconds=2400,
                 completed=False,
@@ -208,6 +257,130 @@ def test_today_workspace_surfaces_active_movie_or_series(app):
         assert workspace["watching_now"]["title"] == "Active Series"
         assert workspace["watching_now"]["media_type"] == "tv"
         assert workspace["watching_now"]["progress"]["percent"] == 50
+        assert workspace["watching_now"]["watch_target"] == {
+            "season": 1,
+            "episode": 5,
+            "from_completed_episode": False,
+        }
+
+
+def test_today_workspace_advances_completed_episode_target(app):
+    with app.app_context():
+        movie = Movie(
+            title="Active Series",
+            normalized_title="active series",
+            year=2026,
+            media_type="tv",
+            status="watching",
+            poster_url="https://images.example.test/active.jpg",
+        )
+        db.session.add(movie)
+        db.session.flush()
+        db.session.add(
+            MovieProgress(
+                movie_id=movie.id,
+                season=1,
+                episode=5,
+                current_seconds=2400,
+                duration_seconds=2400,
+                completed=True,
+            )
+        )
+        db.session.commit()
+
+        workspace = TodayService.workspace()
+
+        assert workspace["continue_watching"] == []
+        assert workspace["watching_now"]["title"] == "Active Series"
+        assert workspace["watching_now"]["watch_target"] == {
+            "season": 1,
+            "episode": 6,
+            "from_completed_episode": True,
+        }
+
+
+def test_today_workspace_prefers_latest_episode_progress_over_legacy_progress(app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            year=1999,
+            media_type="tv",
+            status="watching",
+            poster_url="https://images.example.test/sopranos.jpg",
+        )
+        db.session.add(movie)
+        db.session.flush()
+        db.session.add_all(
+            [
+                MovieProgress(
+                    movie_id=movie.id,
+                    current_seconds=2700,
+                    duration_seconds=3600,
+                    completed=False,
+                    updated_at=datetime(2026, 7, 19, 7, 0, tzinfo=UTC),
+                ),
+                MovieProgress(
+                    movie_id=movie.id,
+                    season=1,
+                    episode=6,
+                    current_seconds=34,
+                    duration_seconds=3000,
+                    completed=False,
+                    updated_at=datetime(2026, 7, 19, 7, 5, tzinfo=UTC),
+                ),
+            ]
+        )
+        db.session.commit()
+
+        workspace = TodayService.workspace()
+
+        assert workspace["watching_now"]["progress"]["season"] == 1
+        assert workspace["watching_now"]["progress"]["episode"] == 6
+        assert workspace["watching_now"]["progress"]["percent"] == 1
+        assert workspace["watching_now"]["watch_target"] == {
+            "season": 1,
+            "episode": 6,
+            "from_completed_episode": False,
+        }
+
+
+def test_today_workspace_exposes_multiple_reading_books_for_switcher(app):
+    with app.app_context():
+        older = Book(
+            title="Older Reading Book",
+            normalized_title="older reading book",
+            authors=["First Author"],
+            status="reading",
+            current_page=45,
+            page_count=300,
+            updated_at=datetime(2026, 7, 19, 7, 0, tzinfo=UTC),
+        )
+        newer = Book(
+            title="Newer Reading Book",
+            normalized_title="newer reading book",
+            authors=["Second Author"],
+            status="reading",
+            current_page=120,
+            page_count=400,
+            updated_at=datetime(2026, 7, 20, 7, 0, tzinfo=UTC),
+        )
+        wishlist = Book(
+            title="Wishlist Book",
+            normalized_title="wishlist book",
+            status="wishlist",
+        )
+        db.session.add_all([older, newer, wishlist])
+        db.session.commit()
+
+        workspace = TodayService.workspace()
+
+        assert [book["title"] for book in workspace["current_books"]] == [
+            "Newer Reading Book",
+            "Older Reading Book",
+        ]
+        assert workspace["current_book"]["title"] == "Newer Reading Book"
+        assert workspace["current_books"][0]["progress_percent"] == 30
 
 
 def test_today_workspace_falls_back_to_watching_status(app):
@@ -292,6 +465,248 @@ def test_book_progress_range_is_validated(app):
             BookService.save_progress(book, status="reading", current_page=201)
 
 
+def test_book_progress_normalizes_legacy_wishlist_status(app):
+    with app.app_context():
+        book = Book(title="Future Shelf", normalized_title="future shelf", page_count=200)
+        db.session.add(book)
+        db.session.commit()
+
+        BookService.save_progress(book, status="want_to_read", current_page=0)
+
+        assert book.status == "wishlist"
+
+
+def test_current_book_syncs_notion_progress_before_projection(app):
+    class Client:
+        configured = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def list_books(self):
+            self.calls += 1
+            return [
+                {
+                    "notion_page_id": "book-page-1",
+                    "title": "الف شمس ساطعة",
+                    "cover_url": "https://images.example.test/notion-cover.jpg",
+                    "status": "Reading",
+                    "page_count": 109,
+                    "progress_percent": 15,
+                }
+            ]
+
+    with app.app_context():
+        book = Book(
+            title="الف شمس ساطعة",
+            normalized_title="الف شمس ساطعة",
+            authors=["خالد حسيني"],
+            status="reading",
+            current_page=0,
+            page_count=0,
+            external_ids={"notion_page_id": "book-page-1"},
+        )
+        db.session.add(book)
+        db.session.commit()
+        client = Client()
+        app.extensions["dragon_book_notion_sync_client"] = client
+
+        current = BookService.current_book()
+
+        assert client.calls == 1
+        assert current is not None
+        assert current["title"] == "الف شمس ساطعة"
+        assert current["cover_url"] == "https://images.example.test/notion-cover.jpg"
+        assert current["current_page"] == 16
+        assert current["page_count"] == 109
+        assert current["progress_percent"] == 15
+
+        synced = db.session.get(Book, book.id)
+        assert synced is not None
+        assert synced.cover_url == "https://images.example.test/notion-cover.jpg"
+        assert synced.current_page == 16
+        assert synced.page_count == 109
+        assert synced.external_ids["notion_page_id"] == "book-page-1"
+        assert synced.metadata_state["notion_cover_url"] == (
+            "https://images.example.test/notion-cover.jpg"
+        )
+
+        snapshot = db.session.scalar(
+            db.select(SnapshotRecord).where(SnapshotRecord.domain == "books")
+        )
+        assert snapshot is not None
+        assert snapshot.state == "fresh"
+
+
+def test_current_book_uses_cached_notion_snapshot_with_naive_timestamp(
+    app, monkeypatch
+):
+    class Client:
+        configured = True
+
+        def list_books(self):
+            raise AssertionError("Fresh cached snapshots should skip Notion calls.")
+
+    with app.app_context():
+        book = Book(
+            title="Cached Shelf",
+            normalized_title="cached shelf",
+            status="reading",
+            current_page=12,
+            page_count=120,
+        )
+        db.session.add(book)
+        db.session.add(
+            SnapshotRecord(
+                domain="books",
+                schema_version="books-notion-progress-v1",
+                relative_path="notion://books",
+                checksum="cached",
+                state="fresh",
+                message="Cached.",
+                generated_at=datetime(2026, 7, 26, 14, 0),
+                last_success_at=datetime(2026, 7, 26, 14, 0),
+                updated_at=datetime(2026, 7, 26, 14, 0),
+            )
+        )
+        db.session.commit()
+        app.extensions["dragon_book_notion_sync_client"] = Client()
+        monkeypatch.setattr(
+            "app.books.notion_sync.utc_now",
+            lambda: datetime(2026, 7, 26, 14, 1, tzinfo=UTC),
+        )
+
+        current = BookService.current_book()
+
+        assert current is not None
+        assert current["title"] == "Cached Shelf"
+
+
+def test_book_search_force_syncs_and_creates_new_notion_book(app, monkeypatch):
+    class Client:
+        configured = True
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def list_books(self):
+            self.calls += 1
+            return [
+                {
+                    "notion_page_id": "new-book-page",
+                    "notion_url": "https://notion.example.test/new-book-page",
+                    "title": "Brand New Notion Book",
+                    "authors": ["Notion Author"],
+                    "cover_url": "https://images.example.test/new-book.jpg",
+                    "status": "Reading",
+                    "page_count": 240,
+                    "progress_percent": 25,
+                }
+            ]
+
+    with app.app_context():
+        db.session.add(
+            SnapshotRecord(
+                domain="books",
+                schema_version="books-notion-progress-v1",
+                relative_path="notion://books",
+                checksum="cached",
+                state="fresh",
+                message="Cached.",
+                generated_at=datetime(2026, 7, 26, 14, 0),
+                last_success_at=datetime(2026, 7, 26, 14, 0),
+                updated_at=datetime(2026, 7, 26, 14, 0),
+            )
+        )
+        db.session.commit()
+        client = Client()
+        app.extensions["dragon_book_notion_sync_client"] = client
+        monkeypatch.setattr(
+            "app.books.notion_sync.utc_now",
+            lambda: datetime(2026, 7, 26, 14, 1, tzinfo=UTC),
+        )
+
+        results = BookRepository.list(q="Brand New Notion Book")
+
+        assert client.calls == 1
+        assert [book.title for book in results] == ["Brand New Notion Book"]
+        created = results[0]
+        assert created.authors == ["Notion Author"]
+        assert created.cover_url == "https://images.example.test/new-book.jpg"
+        assert created.status == "reading"
+        assert created.page_count == 240
+        assert created.current_page == 60
+        assert created.source == "Notion"
+        assert created.external_ids["notion_page_id"] == "new-book-page"
+        assert created.metadata_state["notion_cover_url"] == (
+            "https://images.example.test/new-book.jpg"
+        )
+        assert created.metadata_state["notion_progress_percent"] == 25
+
+
+def test_book_notion_client_reads_cover_from_files_property():
+    client = BookNotionSyncClient(token="token", data_source_id="source")
+    client._schema_cache = {
+        "Name": {"type": "title"},
+        "Authors": {"type": "rich_text"},
+        "cover": {"type": "files"},
+    }
+
+    item = client._page_to_book(
+        {
+            "id": "page-1",
+            "url": "https://notion.example.test/page-1",
+            "properties": {
+                "Name": {
+                    "type": "title",
+                    "title": [{"plain_text": "عبث الأقدار"}],
+                },
+                "Authors": {
+                    "type": "rich_text",
+                    "rich_text": [{"plain_text": "نجيب محفوظ"}],
+                },
+                "cover": {
+                    "type": "files",
+                    "files": [
+                        {
+                            "name": "cover.jpg",
+                            "type": "external",
+                            "external": {
+                                "url": "https://images.example.test/abath-cover.jpg"
+                            },
+                        }
+                    ],
+                },
+            },
+        }
+    )
+
+    assert item["title"] == "عبث الأقدار"
+    assert item["authors"] == ["نجيب محفوظ"]
+    assert item["cover_url"] == "https://images.example.test/abath-cover.jpg"
+
+
+def test_book_notion_schema_guard_rejects_movie_database_shape():
+    assert _is_book_schema(
+        {
+            "Name": {"type": "title"},
+            "Author": {"type": "multi_select"},
+            "Pages": {"type": "number"},
+            "Pages Read": {"type": "number"},
+        }
+    )
+    assert not _is_book_schema(
+        {
+            "Name": {"type": "title"},
+            "Media Type": {"type": "select"},
+            "TMDB ID": {"type": "number"},
+            "Director": {"type": "rich_text"},
+            "Season": {"type": "number"},
+            "Episode": {"type": "number"},
+        }
+    )
+
+
 def test_book_quote_is_linked_and_validated(app):
     with app.app_context():
         book = Book(title="Quoted", normalized_title="quoted", page_count=100)
@@ -355,6 +770,16 @@ def test_article_projection_removes_chrome_and_labels_video_summaries():
         "This is the useful source summary with enough context to remain readable."
     ]
     assert article_content_is_readable(article) is False
+    media_article = Article(
+        title="A media report",
+        url="https://example.test/news/media",
+        content_text="Short text",
+        content_blocks=[
+            {"kind": "text", "text": "Short text"},
+            {"kind": "image", "src": "https://example.test/media.jpg"},
+        ],
+    )
+    assert article_content_is_readable(media_article) is True
     assert article_paragraphs("الرئيسية\n\nسياسة\n\nرياضة", title="خبر") == [
         "الرئيسية",
         "سياسة",

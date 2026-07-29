@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 from xml.etree import ElementTree
 
@@ -86,6 +86,36 @@ def _is_boilerplate(value: str) -> bool:
     return normalized in BOILERPLATE_BLOCKS or normalized.startswith(BOILERPLATE_PREFIXES)
 
 
+def _public_url(value: str, base_url: str, resolver: Callable[..., list[Any]]) -> str:
+    candidate = urljoin(base_url, str(value or "").strip())
+    if not candidate:
+        return ""
+    try:
+        return _validate_public_url(candidate, resolver)
+    except ValueError:
+        return ""
+
+
+def _youtube_embed_url(value: str) -> str:
+    parsed = urlsplit(value)
+    host = (parsed.hostname or "").casefold()
+    if host in {"youtube.com", "www.youtube.com", "youtube-nocookie.com", "www.youtube-nocookie.com"}:
+        path = parsed.path.strip("/")
+        if path.startswith("embed/"):
+            video_id = path.split("/", 1)[1].split("/", 1)[0]
+        elif path == "watch":
+            video_id = parse_qs(parsed.query).get("v", [""])[0]
+        else:
+            video_id = path.split("/", 1)[0]
+    elif host == "youtu.be":
+        video_id = parsed.path.strip("/").split("/", 1)[0]
+    else:
+        return ""
+    if not video_id:
+        return ""
+    return f"https://www.youtube-nocookie.com/embed/{video_id}"
+
+
 def _validate_public_url(url: str, resolver: Callable[..., list[Any]]) -> str:
     normalized = str(url or "").strip()
     parsed = urlsplit(normalized)
@@ -120,16 +150,70 @@ class _SafeRedirectHandler(HTTPRedirectHandler):
 
 
 class _ArticleTextParser(HTMLParser):
-    def __init__(self) -> None:
+    def __init__(self, *, base_url: str, resolver: Callable[..., list[Any]]) -> None:
         super().__init__(convert_charrefs=True)
+        self.base_url = base_url
+        self.resolver = resolver
         self._skip_depth = 0
         self._main_depth = 0
         self._article_depth = 0
         self._capture_tag = ""
         self._buffer: list[str] = []
-        self._all_blocks: list[str] = []
-        self._main_blocks: list[str] = []
-        self._article_blocks: list[str] = []
+        self._all_blocks: list[dict[str, str]] = []
+        self._main_blocks: list[dict[str, str]] = []
+        self._article_blocks: list[dict[str, str]] = []
+
+    def _should_capture_media(self) -> bool:
+        return bool(self._capture_tag or self._article_depth or self._main_depth or self._all_blocks)
+
+    def _append_block(self, block: dict[str, str]) -> None:
+        self._all_blocks.append(block)
+        if self._article_depth:
+            self._article_blocks.append(block)
+        elif self._main_depth:
+            self._main_blocks.append(block)
+
+    def _finalize_text_block(self) -> None:
+        block = " ".join("".join(self._buffer).split())
+        if (
+            block
+            and not _is_boilerplate(block)
+            and (not self._all_blocks or self._all_blocks[-1].get("text") != block)
+        ):
+            self._append_block({"kind": "text", "text": block})
+
+    def _capture_img(self, attrs) -> None:
+        if not self._should_capture_media():
+            return
+        attributes = dict(attrs)
+        src = _public_url(
+            str(attributes.get("src") or attributes.get("data-src") or ""),
+            self.base_url,
+            self.resolver,
+        )
+        if not src:
+            return
+        block: dict[str, str] = {"kind": "image", "src": src}
+        alt = str(attributes.get("alt") or attributes.get("title") or "").strip()
+        if alt:
+            block["alt"] = alt
+        self._append_block(block)
+
+    def _capture_iframe(self, attrs) -> None:
+        if not self._should_capture_media():
+            return
+        attributes = dict(attrs)
+        src = _public_url(str(attributes.get("src") or ""), self.base_url, self.resolver)
+        if not src:
+            return
+        embed_url = _youtube_embed_url(src)
+        if not embed_url:
+            return
+        block: dict[str, str] = {"kind": "youtube", "src": embed_url}
+        title = str(attributes.get("title") or "").strip()
+        if title:
+            block["title"] = title
+        self._append_block(block)
 
     def handle_starttag(self, tag: str, attrs) -> None:
         tag = tag.lower()
@@ -156,6 +240,10 @@ class _ArticleTextParser(HTMLParser):
             self._buffer = []
         elif tag == "br" and self._capture_tag:
             self._buffer.append(" ")
+        elif tag == "img":
+            self._capture_img(attrs)
+        elif tag == "iframe":
+            self._capture_iframe(attrs)
 
     def handle_startendtag(self, tag: str, attrs) -> None:
         if not self._skip_depth:
@@ -167,17 +255,7 @@ class _ArticleTextParser(HTMLParser):
             self._skip_depth -= 1
             return
         if self._capture_tag == tag:
-            block = " ".join("".join(self._buffer).split())
-            if (
-                block
-                and not _is_boilerplate(block)
-                and (not self._all_blocks or self._all_blocks[-1] != block)
-            ):
-                self._all_blocks.append(block)
-                if self._article_depth:
-                    self._article_blocks.append(block)
-                elif self._main_depth:
-                    self._main_blocks.append(block)
+            self._finalize_text_block()
             self._capture_tag = ""
             self._buffer = []
         if tag == "article" and self._article_depth:
@@ -189,10 +267,25 @@ class _ArticleTextParser(HTMLParser):
         if not self._skip_depth and self._capture_tag:
             self._buffer.append(data)
 
+    def _joined_text(self, blocks: list[dict[str, str]]) -> str:
+        return "\n\n".join(block["text"] for block in blocks if block.get("kind") == "text")
+
+    def _has_media(self, blocks: list[dict[str, str]]) -> bool:
+        return any(block.get("kind") != "text" for block in blocks)
+
+    def content_blocks(self) -> list[dict[str, str]]:
+        article = self._article_blocks
+        main = self._main_blocks
+        if self._has_media(article) or len(self._joined_text(article)) >= 80:
+            return article
+        if self._has_media(main) or len(self._joined_text(main)) >= 160:
+            return main
+        return self._all_blocks
+
     def readable_text(self) -> str:
-        article = "\n\n".join(self._article_blocks)
-        main = "\n\n".join(self._main_blocks)
-        fallback = "\n\n".join(self._all_blocks)
+        article = self._joined_text(self._article_blocks)
+        main = self._joined_text(self._main_blocks)
+        fallback = self._joined_text(self._all_blocks)
         if len(article) >= 80:
             return article
         if len(main) >= 160:
@@ -387,7 +480,7 @@ class ArticleExtractor:
         self.resolver = resolver
         self.opener = opener or build_opener(_SafeRedirectHandler(resolver))
 
-    def extract(self, url: str) -> dict[str, str]:
+    def extract(self, url: str) -> dict[str, Any]:
         safe_url = _validate_public_url(url, self.resolver)
         request = Request(  # noqa: S310 - validated HTTP(S) public URL only.
             safe_url,
@@ -413,13 +506,18 @@ class ArticleExtractor:
         except Exception as exc:
             raise ValueError("Article source could not be loaded.") from exc
 
-        parser = _ArticleTextParser()
+        parser = _ArticleTextParser(base_url=final_url, resolver=self.resolver)
         try:
             parser.feed(payload.decode(charset, errors="replace"))
             parser.close()
         except (LookupError, UnicodeError) as exc:
             raise ValueError("Article text encoding is unsupported.") from exc
         content_text = parser.readable_text().strip()
-        if len(content_text) < 80:
+        content_blocks = parser.content_blocks()
+        if len(content_text) < 80 and not any(block.get("kind") != "text" for block in content_blocks):
             raise ValueError("No readable article body was found.")
-        return {"content_text": content_text, "canonical_url": final_url}
+        return {
+            "content_text": content_text,
+            "content_blocks": content_blocks,
+            "canonical_url": final_url,
+        }

@@ -100,7 +100,7 @@ def open_article(article_id: str):
     article = ReadingRepository.get(article_id)
     if article is None:
         abort(404)
-    if article.content_text and article_content_is_readable(article):
+    if article.fulltext_state == "cached" and article_content_is_readable(article):
         return redirect(url_for("reading.detail", article_id=article.id))
     extractor = current_app.extensions.get("dragon_article_extractor")
     if extractor is None:

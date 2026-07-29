@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def _is_api_request() -> bool:
-    return request.path.startswith("/api/v1/")
+    return "/api/" in request.path
 
 
 def register_error_handlers(app: Flask) -> None:

@@ -3,7 +3,7 @@ import time
 import pytest
 
 from app.extensions import db
-from app.movies.models import Movie
+from app.movies.models import Movie, MovieProgress
 from app.playback.models import PlaybackSource
 
 pytestmark = pytest.mark.browser
@@ -73,7 +73,16 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
         lambda route: route.fulfill(
             status=200,
             content_type="text/vtt",
-            body="WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nمرحبا\n",
+            body=(
+                "WEBVTT\n\n"
+                "00:00:01.000 --> 00:00:03.000\n"
+                "لتكوني في تي سي بي\n"
+                "واي يوغرت\n"
+                "عند وصول المدير\n"
+                "\n"
+                "00:00:04.000 --> 00:00:05.000\n"
+                "حسنا\n"
+            ),
         ),
     )
     page.route(
@@ -144,15 +153,147 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     assert page.locator("[data-player-netflix-controls]").count() == 1
     assert page.locator("[data-player-caption-toggle]").count() == 1
     assert page.locator("[data-player-timeline]").count() == 1
+    page.locator("[data-player-video]").evaluate(
+        "video => { video.currentTime = 1.5; video.dispatchEvent(new Event('timeupdate')); }"
+    )
+    page.wait_for_function(
+        "() => document.querySelector('[data-movie-player]')?.dataset.captionLanguage === 'ar'"
+    )
+    assert page.locator("[data-player-caption-text]").evaluate("node => node.dir") == "rtl"
+    assert page.locator("[data-player-caption-text]").evaluate(
+        "node => getComputedStyle(node).textAlign"
+    ) == "center"
+    assert page.locator("[data-player-caption-text]").evaluate(
+        "node => node.childElementCount"
+    ) == 2
+    normalized_caption = page.locator("[data-player-caption-text]").evaluate(
+        "node => Array.from(node.children).map((child) => child.textContent).join(' ')"
+        ".replace(/[\\u200E\\u200F\\u2066-\\u2069]/g, '')"
+        ".replace(/\\u00a0/g, ' ')"
+    )
+    assert "لتكوني في تي سي بي واي يوغرت عند وصول المدير" in normalized_caption
     page.locator("[data-player-caption-toggle]").click()
     page.locator("[data-player-subtitle-panel]").wait_for(state="visible")
-    assert page.locator("[data-player-subtitle-list]").get_by_text("Arabic · Arabic release").count() == 1
-    assert page.locator("[data-player-subtitle-list]").get_by_text("English · English release").count() == 1
-    page.locator("[data-player-subtitle-list] button").filter(has_text="English · English release").click()
+    subtitle_list = page.locator("[data-player-subtitle-list]")
+    assert subtitle_list.get_by_text("Arabic · Arabic release").count() == 1
+    assert subtitle_list.get_by_text("English · English release").count() == 1
+    page.get_by_role("button", name="Customize appearance").click()
+    page.locator("[data-player-subtitle-size]").evaluate(
+        "node => { node.value = '44'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+    )
+    page.locator("[data-player-video]").evaluate(
+        "video => { video.currentTime = 1.5; video.dispatchEvent(new Event('timeupdate')); }"
+    )
+    arabic_line_metrics = page.locator("[data-player-caption-text]").evaluate(
+        """node => Array.from(node.children).map((line) => ({
+          scrollWidth: line.scrollWidth,
+          clientWidth: line.clientWidth,
+          whiteSpace: getComputedStyle(line).whiteSpace,
+        }))"""
+    )
+    assert len(arabic_line_metrics) == 2
+    assert all(metric["whiteSpace"] == "nowrap" for metric in arabic_line_metrics)
+    assert all(metric["scrollWidth"] <= metric["clientWidth"] + 1 for metric in arabic_line_metrics)
+    page.locator("[data-player-subtitle-size]").evaluate(
+        "node => { node.value = '48'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+    )
+    medium_caption_size = page.locator("[data-player-caption-text]").evaluate(
+        "node => Number.parseFloat(getComputedStyle(node).fontSize)"
+    )
+    page.locator("[data-player-subtitle-size]").evaluate(
+        "node => { node.value = '65'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+    )
+    assert page.locator("[data-player-caption-text]").evaluate(
+        "node => Number.parseFloat(getComputedStyle(node).fontSize)"
+    ) == pytest.approx(65, abs=0.1)
+    assert page.locator("[data-player-caption-text]").evaluate(
+        "node => node.childElementCount"
+    ) == 2
+    assert page.locator("[data-player-subtitle-size-label]").inner_text() == "65px"
+    large_line_metrics = page.locator("[data-player-caption-text]").evaluate(
+        """node => Array.from(node.children).map((line) => ({
+          scrollWidth: line.scrollWidth,
+          clientWidth: line.clientWidth,
+        }))"""
+    )
+    assert all(metric["scrollWidth"] <= metric["clientWidth"] + 1 for metric in large_line_metrics)
+    caption_safe_area = page.locator("[data-player-captions]").evaluate(
+        """node => {
+          const shell = node.closest('[data-player-shell]');
+          return {
+            captionBottom: node.getBoundingClientRect().bottom,
+            shellBottom: shell.getBoundingClientRect().bottom,
+          };
+        }"""
+    )
+    assert caption_safe_area["shellBottom"] - caption_safe_area["captionBottom"] >= 95
+    page.locator("[data-player-subtitle-size]").evaluate(
+        "node => { node.value = '96'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+    )
+    large_caption_size = page.locator("[data-player-caption-text]").evaluate(
+        "node => Number.parseFloat(getComputedStyle(node).fontSize)"
+    )
+    assert large_caption_size == pytest.approx(96, abs=0.1)
+    assert large_caption_size > medium_caption_size + 4
+    assert page.locator("[data-player-caption-text]").evaluate(
+        "node => node.childElementCount"
+    ) == 2
+    maximum_size_line_metrics = page.locator("[data-player-caption-text]").evaluate(
+        """node => Array.from(node.children).map((line) => ({
+          scrollWidth: line.scrollWidth,
+          clientWidth: line.clientWidth,
+        }))"""
+    )
+    assert all(
+        metric["scrollWidth"] <= metric["clientWidth"] + 1
+        for metric in maximum_size_line_metrics
+    )
+    long_caption_size = page.locator("[data-player-caption-text]").evaluate(
+        "node => getComputedStyle(node).fontSize"
+    )
+    page.locator("[data-player-video]").evaluate(
+        "video => { video.currentTime = 3.5; video.dispatchEvent(new Event('timeupdate')); }"
+    )
+    assert page.locator("[data-player-captions]").is_hidden()
+    page.locator("[data-player-video]").evaluate(
+        "video => { video.currentTime = 4.5; video.dispatchEvent(new Event('timeupdate')); }"
+    )
+    short_caption_size = page.locator("[data-player-caption-text]").evaluate(
+        "node => getComputedStyle(node).fontSize"
+    )
+    assert short_caption_size == long_caption_size
+    page.get_by_role("button", name="Back to subtitles").click()
+    subtitle_list.locator("button").filter(has_text="English · English release").click()
     page.wait_for_function(
         "() => document.querySelector('[data-subtitle-status]')?.textContent"
         ".includes('English · English release is selected')"
     )
+    page.get_by_role("button", name="Customize appearance").click()
+    page.locator("[data-player-subtitle-preset]").select_option("Minimal")
+    page.locator("[data-player-subtitle-background]").select_option("Off")
+    page.locator("[data-player-subtitle-position]").evaluate(
+        "node => { node.value = '40'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+    )
+    assert page.locator("[data-player-subtitle-size]").get_attribute("max") == "96"
+    page.locator("[data-player-subtitle-size]").evaluate(
+        "node => { node.value = '84'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+    )
+    page.locator("[data-player-subtitle-shadow]").evaluate(
+        "node => { node.value = '35'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
+    )
+    page.locator("[data-player-subtitle-font]").select_option("Cairo")
+    caption_background = page.locator("[data-movie-player]").evaluate(
+        "node => node.dataset.captionBackground"
+    )
+    assert caption_background == "off"
+    stored_style = page.evaluate(
+        "() => JSON.parse(localStorage.getItem('dragon:subtitle-style:v2:en'))"
+    )
+    assert stored_style["background"] == "off"
+    assert stored_style["size"] == 84
+    assert stored_style["position"] == 40
+    assert stored_style["shadow"] == 35
+    assert stored_style["font"] == "cairo"
     assert page.locator("[data-player-video]").is_visible()
     assert not page.locator("[data-player-frame]").is_visible()
 
@@ -187,6 +328,146 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
         "clientWidth: document.documentElement.clientWidth})"
     )
     assert metrics["scrollWidth"] == metrics["clientWidth"]
+
+
+def test_movie_player_offers_resume_from_saved_progress(page, live_app, app):
+    with app.app_context():
+        movie = Movie(
+            title="Resume Film",
+            normalized_title="resume film",
+            runtime_minutes=100,
+        )
+        db.session.add(movie)
+        db.session.flush()
+        db.session.add(
+            PlaybackSource(
+                movie_id=movie.id,
+                kind="magnet",
+                label="FHD magnet",
+                locator="magnet:?xt=urn:btih:3123456789abcdef0123456789abcdef01234567",
+            )
+        )
+        db.session.add(
+            MovieProgress(
+                movie_id=movie.id,
+                current_seconds=2530,
+                duration_seconds=6000,
+                completed=False,
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_MAGNETS_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=False,
+    )
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}")
+    page.get_by_role("button", name="Resume from 42:10").wait_for()
+
+
+def test_movie_player_refreshes_resume_point_after_saving_progress(page, live_app, app):
+    with app.app_context():
+        movie = Movie(
+            title="Resume Refresh",
+            normalized_title="resume refresh",
+            runtime_minutes=100,
+        )
+        db.session.add(movie)
+        db.session.flush()
+        db.session.add(
+            PlaybackSource(
+                movie_id=movie.id,
+                kind="magnet",
+                label="FHD magnet",
+                locator="magnet:?xt=urn:btih:4123456789abcdef0123456789abcdef01234567",
+            )
+        )
+        db.session.add(
+            MovieProgress(
+                movie_id=movie.id,
+                current_seconds=929,
+                duration_seconds=6000,
+                completed=False,
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_MAGNETS_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=False,
+    )
+    local_requests = []
+
+    def handle_local(route):
+        local_requests.append(route.request.post_data_json)
+        route.fulfill(
+            status=202,
+            json={
+                "ok": True,
+                "session": {
+                    "id": "play_resume_refresh",
+                    "state": "metadata",
+                    "message": "Reading torrent metadata…",
+                    "buffer_percent": 0,
+                },
+                "status_url": "/playback/runtime/play_resume_refresh",
+                "stream_url": None,
+                "stop_url": "/playback/runtime/play_resume_refresh/stop",
+            },
+        )
+
+    page.route("**/playback/movie/*/local", handle_local)
+    page.route(
+        "**/playback/runtime/play_resume_refresh",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "session": {
+                    "state": "ready",
+                    "message": "Local stream is ready.",
+                    "file_name": "resume.mp4",
+                    "stream_url": "http://127.0.0.1:54321/dragon-stream/test/hash/resume.mp4",
+                    "buffer_percent": 12,
+                    "file_progress": 0.1,
+                    "downloaded_bytes": 1048576,
+                    "cache_hit": True,
+                    "peers": 3,
+                    "download_speed": 1048576,
+                    "complete": False,
+                },
+            }
+        ),
+    )
+    page.route(
+        "http://127.0.0.1:54321/dragon-stream/**",
+        lambda route: route.fulfill(status=206, content_type="video/mp4", body=b""),
+    )
+    page.route(
+        "**/playback/runtime/play_resume_refresh/stop",
+        lambda route: route.fulfill(json={"ok": True}),
+    )
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}")
+    page.get_by_role("button", name="Resume from 15:29").wait_for()
+    page.get_by_role("button", name="Resume from 15:29").click()
+    page.locator("[data-movie-player][data-playback-state]").wait_for()
+    assert local_requests[0]["resumeSeconds"] == 929
+
+    page.locator("[data-player-video]").evaluate(
+        "video => { video.dispatchEvent(new Event('loadedmetadata')); video.currentTime = 2583; video.dispatchEvent(new Event('timeupdate')); video.dispatchEvent(new Event('pause')); }"
+    )
+    page.get_by_role("button", name="Stop local stream").click()
+    page.get_by_role("button", name="Resume from 43:03").wait_for()
+    page.get_by_role("button", name="Resume from 43:03").click()
+    page.wait_for_timeout(200)
+    assert local_requests[1]["resumeSeconds"] == 2583
 
 
 def test_failed_subtitle_tracks_stay_visible_and_off_is_explicit(page, live_app, app):
@@ -285,7 +566,8 @@ def test_failed_subtitle_tracks_stay_visible_and_off_is_explicit(page, live_app,
     page.goto(f"{live_app}/movies/{movie_id}")
     page.get_by_role("button", name="Start local player").click()
     page.wait_for_function(
-        "() => document.querySelector('[data-subtitle-status]')?.textContent.includes('limit reached')"
+        "() => document.querySelector('[data-subtitle-status]')?.textContent"
+        ".includes('limit reached')"
     )
     page.locator("[data-player-caption-toggle]").click()
     options = page.locator("[data-player-subtitle-option]")
@@ -377,7 +659,11 @@ def test_failed_subtitle_auto_tries_next_available_track(page, live_app, app):
             status=202,
             json={
                 "ok": True,
-                "session": {"id": "play_subtitle_fallback", "state": "metadata", "buffer_percent": 0},
+                "session": {
+                    "id": "play_subtitle_fallback",
+                    "state": "metadata",
+                    "buffer_percent": 0,
+                },
                 "status_url": "/playback/runtime/play_subtitle_fallback",
                 "stream_url": None,
                 "stop_url": "/playback/runtime/play_subtitle_fallback/stop",
@@ -418,7 +704,8 @@ def test_failed_subtitle_auto_tries_next_available_track(page, live_app, app):
     page.goto(f"{live_app}/movies/{movie_id}")
     page.get_by_role("button", name="Start local player").click()
     page.wait_for_function(
-        "() => document.querySelector('[data-subtitle-status]')?.textContent.includes('Working release is selected')"
+        "() => document.querySelector('[data-subtitle-status]')?.textContent"
+        ".includes('Working release is selected')"
     )
     page.locator("[data-player-caption-toggle]").click()
     options = page.locator("[data-player-subtitle-option]")
@@ -436,6 +723,33 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
             normalized_title="the sopranos",
             media_type="tv",
             external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_total_seasons": 1,
+                "tv_total_episodes": 2,
+                "tv_seasons": [
+                    {"season_number": 1, "name": "Season 1", "episode_count": 2, "poster_url": ""}
+                ],
+                "tv_episodes": {
+                    "1": [
+                        {
+                            "season_number": 1,
+                            "episode_number": 1,
+                            "name": "Pilot",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        },
+                        {
+                            "season_number": 1,
+                            "episode_number": 2,
+                            "name": "46 Long",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        },
+                    ]
+                },
+            },
         )
         db.session.add(movie)
         db.session.flush()
@@ -445,8 +759,21 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
                 kind="magnet",
                 label="S01 season pack Jackett magnet",
                 locator="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
-                metadata_json={"season_pack": True, "season": 1, "release_mode": "season_pack"},
+                season=1,
+                episode=2,
+                source_role="season_pack_fallback",
+                metadata_json={"season_pack": True, "season": 1, "episode": 2, "release_mode": "season_pack"},
                 selected=True,
+            )
+        )
+        db.session.add(
+            MovieProgress(
+                movie=movie,
+                season=1,
+                episode=1,
+                current_seconds=1800,
+                duration_seconds=3600,
+                completed=False,
             )
         )
         db.session.commit()
@@ -458,18 +785,6 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
         DRAGON_VIDSRC_ENABLED=False,
         DRAGON_SUBTITLES_ENABLED=True,
         DRAGON_SUBDL_API_KEY="private-key",
-    )
-    page.route(
-        "**/movies/api/tv/1399/seasons/1/episodes",
-        lambda route: route.fulfill(
-            json={
-                "ok": True,
-                "items": [
-                    {"episode_number": 1, "name": "Pilot"},
-                    {"episode_number": 2, "name": "46 Long"},
-                ],
-            }
-        ),
     )
     def handle_subtitles(route):
         if "/track/" in route.request.url:
@@ -496,6 +811,26 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
         )
 
     page.route("**/playback/movie/*/subtitles**", handle_subtitles)
+    page.route(
+        "**/movies/api/tv/1399/seasons/1/episodes",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [
+                    {
+                        "episode_number": 1,
+                        "name": "Pilot",
+                        "runtime_minutes": 60,
+                    },
+                    {
+                        "episode_number": 2,
+                        "name": "46 Long",
+                        "runtime_minutes": 60,
+                    },
+                ],
+            }
+        ),
+    )
 
     def handle_local(route):
         captured.update(route.request.post_data_json)
@@ -547,24 +882,29 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     )
 
     sign_in(page, live_app)
-    page.goto(f"{live_app}/movies/{movie_id}")
-    page.locator("[data-player-pack-browser]").wait_for()
-    assert "Choose an episode from this pack" not in page.content()
-    assert "Season 1 pack" not in page.content()
-    assert "SEASON PACK" not in page.content()
-    page.locator("[data-player-pack-episode] option[value='2']").wait_for(state="attached")
-    page.locator("[data-player-pack-episode]").select_option("2")
-    page.get_by_role("button", name="Play selected episode from pack").click()
+    page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/2#episode-player")
+    pack_browser = page.locator("[data-player-pack-browser]")
+    pack_browser.wait_for()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-pack-episode]')?.options.length > 1"
+    )
+    assert pack_browser.count() == 1
+    assert pack_browser.is_visible()
+    assert page.locator("[data-player-pack-episode]").input_value() == "2"
+    page.locator("[data-player-launch]").wait_for()
+    page.locator("[data-player-launch]").click()
     page.locator("[data-movie-player][data-playback-state]").wait_for()
-    assert captured == {"source_id": captured["source_id"], "season": 1, "episode": 2}
+    assert captured == {
+        "source_id": captured["source_id"],
+        "season": 1,
+        "episode": 2,
+        "episodeTitle": "46 Long",
+    }
     page.wait_for_function(
         "() => document.querySelector('[data-subtitle-status]')?.textContent"
         ".includes('Arabic · Season 1 Arabic is selected')"
     )
-    assert any(
-        "season=1" in url and "episode=2" in url and "episode_title=46+Long" in url
-        for url in subtitle_queries
-    )
+    assert any("season=1" in url and "episode=2" in url for url in subtitle_queries)
 
 
 def test_switching_from_season_pack_to_regular_local_hides_pack_browser(page, live_app, app):
@@ -574,6 +914,25 @@ def test_switching_from_season_pack_to_regular_local_hides_pack_browser(page, li
             normalized_title="the sopranos",
             media_type="tv",
             external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_total_seasons": 1,
+                "tv_total_episodes": 1,
+                "tv_seasons": [
+                    {"season_number": 1, "name": "Season 1", "episode_count": 1, "poster_url": ""}
+                ],
+                "tv_episodes": {
+                    "1": [
+                        {
+                            "season_number": 1,
+                            "episode_number": 1,
+                            "name": "Pilot",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        }
+                    ]
+                },
+            },
         )
         db.session.add(movie)
         db.session.flush()
@@ -584,7 +943,10 @@ def test_switching_from_season_pack_to_regular_local_hides_pack_browser(page, li
                     kind="magnet",
                     label="S01 season pack Jackett magnet",
                     locator="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
-                    metadata_json={"season_pack": True, "season": 1, "release_mode": "season_pack"},
+                    season=1,
+                    episode=1,
+                    source_role="season_pack_fallback",
+                    metadata_json={"season_pack": True, "season": 1, "episode": 1, "release_mode": "season_pack"},
                     selected=True,
                 ),
                 PlaybackSource(
@@ -592,6 +954,9 @@ def test_switching_from_season_pack_to_regular_local_hides_pack_browser(page, li
                     kind="magnet",
                     label="FHD magnet",
                     locator="magnet:?xt=urn:btih:89abcdef012345670123456789abcdef01234567",
+                    season=1,
+                    episode=1,
+                    source_role="exact_episode",
                 ),
             ]
         )
@@ -606,23 +971,176 @@ def test_switching_from_season_pack_to_regular_local_hides_pack_browser(page, li
         DRAGON_SUBDL_API_KEY="private-key",
     )
 
-    def handle_episodes(route):
-        time.sleep(0.2)
-        route.fulfill(
-            json={
-                "ok": True,
-                "items": [
-                    {"episode_number": 1, "name": "Pilot"},
-                    {"episode_number": 2, "name": "46 Long"},
-                ],
-            }
-        )
-
-    page.route("**/movies/api/tv/1399/seasons/1/episodes", handle_episodes)
-
     sign_in(page, live_app)
-    page.goto(f"{live_app}/movies/{movie_id}")
+    page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/1")
     page.get_by_label("Player source").select_option(label="Local · FHD")
     page.wait_for_timeout(400)
     assert page.locator("[data-player-pack-browser]").is_hidden()
     assert page.locator("[data-subtitle-status]").is_visible()
+
+
+def test_switching_pack_episode_stops_current_local_session_before_restart(page, live_app, app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_total_seasons": 1,
+                "tv_total_episodes": 3,
+                "tv_seasons": [
+                    {"season_number": 1, "name": "Season 1", "episode_count": 3, "poster_url": ""}
+                ],
+                "tv_episodes": {
+                    "1": [
+                        {
+                            "season_number": 1,
+                            "episode_number": 1,
+                            "name": "Pilot",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        },
+                        {
+                            "season_number": 1,
+                            "episode_number": 2,
+                            "name": "46 Long",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        },
+                        {
+                            "season_number": 1,
+                            "episode_number": 3,
+                            "name": "Denial, Anger, Acceptance",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 60,
+                        },
+                    ]
+                },
+            },
+        )
+        db.session.add(movie)
+        db.session.flush()
+        db.session.add(
+            PlaybackSource(
+                movie_id=movie.id,
+                kind="magnet",
+                label="S01 season pack Jackett magnet",
+                locator="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+                season=1,
+                episode=2,
+                source_role="season_pack_fallback",
+                metadata_json={"season_pack": True, "season": 1, "episode": 2, "release_mode": "season_pack"},
+                selected=True,
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_MAGNETS_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=False,
+        DRAGON_SUBTITLES_ENABLED=False,
+    )
+    local_requests = []
+    stop_calls = []
+    page.route(
+        "**/movies/api/tv/1399/seasons/1/episodes",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [
+                    {"episode_number": 1, "name": "Pilot", "runtime_minutes": 60},
+                    {"episode_number": 2, "name": "46 Long", "runtime_minutes": 60},
+                    {
+                        "episode_number": 3,
+                        "name": "Denial, Anger, Acceptance",
+                        "runtime_minutes": 60,
+                    },
+                ],
+            }
+        ),
+    )
+
+    def handle_local(route):
+        local_requests.append(route.request.post_data_json)
+        route.fulfill(
+            status=202,
+            json={
+                "ok": True,
+                "session": {
+                    "id": "play_pack",
+                    "state": "metadata",
+                    "message": "Reading torrent metadata…",
+                    "buffer_percent": 0,
+                },
+                "status_url": "/playback/runtime/play_pack",
+                "stream_url": None,
+                "stop_url": "/playback/runtime/play_pack/stop",
+            },
+        )
+
+    page.route("**/playback/movie/*/local", handle_local)
+    page.route(
+        "**/playback/runtime/play_pack",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "session": {
+                    "state": "ready",
+                    "message": "Local stream is ready.",
+                    "file_name": "The.Sopranos.S01E02.mp4",
+                    "stream_url": "http://127.0.0.1:54321/dragon-stream/test/hash/episode.mp4",
+                    "buffer_percent": 12,
+                    "file_progress": 0.1,
+                    "downloaded_bytes": 1048576,
+                    "cache_hit": True,
+                    "peers": 3,
+                    "download_speed": 1048576,
+                    "complete": False,
+                },
+            }
+        ),
+    )
+    page.route(
+        "http://127.0.0.1:54321/dragon-stream/**",
+        lambda route: route.fulfill(status=206, content_type="video/mp4", body=b""),
+    )
+
+    def handle_stop(route):
+        stop_calls.append(route.request.url)
+        route.fulfill(json={"ok": True})
+
+    page.route("**/playback/runtime/play_pack/stop", handle_stop)
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/2#episode-player")
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-pack-episode]')?.options.length > 2"
+    )
+    page.locator("[data-player-launch]").click()
+    page.locator("[data-movie-player][data-playback-state]").wait_for()
+    assert local_requests[0] == {
+        "source_id": local_requests[0]["source_id"],
+        "season": 1,
+        "episode": 2,
+        "episodeTitle": "46 Long",
+    }
+
+    page.locator("[data-player-pack-episode]").select_option("3")
+    page.wait_for_function("() => !document.querySelector('[data-player-launch]')?.hidden")
+    assert page.locator("[data-player-video]").is_hidden()
+    assert stop_calls
+    page.locator("[data-player-launch]").click()
+    page.wait_for_timeout(200)
+    assert local_requests[1] == {
+        "source_id": local_requests[1]["source_id"],
+        "season": 1,
+        "episode": 3,
+        "episodeTitle": "Denial, Anger, Acceptance",
+    }
+    assert "resumeSeconds" not in local_requests[1]

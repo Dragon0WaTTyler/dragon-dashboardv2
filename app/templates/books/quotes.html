@@ -1,0 +1,160 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+{% block title %}Quotes · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block content %}
+<nav class="segmented books-sections" aria-label="Books sections">
+  {% for item in library_sections %}
+  <a href="{{ item.href }}"{% if item.active %} aria-current="page"{% endif %}>{{ item.label }}</a>
+  {% endfor %}
+</nav>
+<a class="back-link" href="{{ url_for('books.index') }}">← Books</a>
+<article class="kindle-clippings knowledge-stream-page knowledge-stream-page--quotes">
+  <header class="kindle-clippings__header">
+    <div>
+      <span class="eyebrow">Knowledge library</span>
+      <h1>Quotes</h1>
+      <p>Local notebook quotes stay separate from synced Kindle highlights. This page gathers the lines you saved manually inside Dragon and keeps them easy to browse again.</p>
+    </div>
+    <div class="kindle-clippings__actions">
+      {{ badge(quotes.filtered_count ~ ' shown', 'accent') }}
+      {{ badge(quotes.book_count ~ ' books', 'success' if quotes.book_count else 'neutral') }}
+      {{ badge(quotes.count ~ ' total') }}
+      <a class="button button--quiet" href="{{ url_for('books.highlights') }}">Highlights</a>
+      <a class="button button--quiet" href="{{ url_for('books.index') }}">Library</a>
+    </div>
+  </header>
+
+  <section class="diagnostics-metrics kindle-clippings__metrics" aria-label="Quotes counts">
+    <div>
+      <span>Quotes</span>
+      <strong>{{ quotes.count }}</strong>
+      <small>Saved local notebook rows</small>
+    </div>
+    <div>
+      <span>Shown</span>
+      <strong>{{ quotes.filtered_count }}</strong>
+      <small>After local filters</small>
+    </div>
+    <div>
+      <span>Books</span>
+      <strong>{{ quotes.book_count }}</strong>
+      <small>Books with local quotes</small>
+    </div>
+    <div>
+      <span>Source</span>
+      <strong>Local</strong>
+      <small>Saved from book detail pages</small>
+    </div>
+    <div>
+      <span>Sync</span>
+      <strong>Manual</strong>
+      <small>Separate from Book Quotes sync</small>
+    </div>
+    <div>
+      <span>Search</span>
+      <strong>Text</strong>
+      <small>Quote, note, author, page</small>
+    </div>
+  </section>
+
+  <section class="knowledge-stream-intro" aria-label="Quotes guide">
+    <div class="knowledge-stream-intro__lead">
+      <span class="eyebrow">Local notebook</span>
+      <h2>Keep the lines you saved inside Dragon close to the books they came from</h2>
+      <p>This page is the personal notebook side of the library: fully local, easy to filter, and clearly separate from the synced Kindle highlight stream.</p>
+    </div>
+    <div class="knowledge-stream-intro__cards">
+      <div class="knowledge-stream-intro__card">
+        <strong>Saved in Dragon</strong>
+        <small>These rows come from the book detail page and stay local to your personal library runtime.</small>
+      </div>
+      <div class="knowledge-stream-intro__card">
+        <strong>Different from sync</strong>
+        <small>Manual quotes and notes stay independent from <code>Book Quotes</code> refreshes and review queues.</small>
+      </div>
+    </div>
+  </section>
+
+  <section class="knowledge-panel" aria-labelledby="quotes-search-title">
+    <div class="section-heading section-heading--action">
+      <div><span class="eyebrow">Search</span><h2 id="quotes-search-title">Find saved quotes</h2><p class="knowledge-panel__summary">Search your local notebook by quote text, note text, or narrow the list to one book.</p></div>
+      <div class="candidate-heading-actions">
+        {{ badge('Notebook only') }}
+        {% if quotes.query %}{{ badge('Query: ' ~ quotes.query) }}{% endif %}
+      </div>
+    </div>
+    <div class="knowledge-stream-filter-layout">
+      <div class="knowledge-stream-filter-layout__copy">
+        <p>Use this notebook when you want the lines you chose yourself, without mixing them into the Kindle sync stream.</p>
+      </div>
+      <form class="compact-filters compact-filters--wide knowledge-stream-filters" method="get" action="{{ url_for('books.quotes') }}">
+        <label class="field">
+          <span>Search</span>
+          <input type="search" name="q" value="{{ quotes.query }}" autocomplete="off">
+        </label>
+        <label class="field">
+          <span>Book</span>
+          <select name="book_id">
+            <option value="">All books</option>
+            {% for option in quotes.book_options %}
+            <option value="{{ option.id }}"{% if quotes.book_id == option.id %} selected{% endif %}>{{ option.title }}{% if option.authors %} · {{ option.authors }}{% endif %} · {{ option.count }}</option>
+            {% endfor %}
+          </select>
+        </label>
+        <div class="filter-actions">
+          <button class="button button--primary" type="submit">Apply</button>
+          <a class="button button--quiet" href="{{ url_for('books.quotes') }}">Reset</a>
+        </div>
+      </form>
+    </div>
+  </section>
+
+  <section class="knowledge-panel" aria-labelledby="quotes-list-title">
+    <div class="section-heading section-heading--action">
+      <div><span class="eyebrow">Library view</span><h2 id="quotes-list-title">Saved notebook quotes</h2><p class="knowledge-panel__summary">Each row keeps the quote, any saved note, and the book it belongs to without leaving the local notebook.</p></div>
+      <div class="candidate-heading-actions">
+        {{ badge('Read-only list') }}
+      </div>
+    </div>
+    {% if quotes.rows %}
+    <div class="book-quotes-stream">
+      {% for row in quotes.rows %}
+      <article class="book-quote-card" id="quote-{{ row.id }}">
+        <div class="book-quote-card__meta">
+          <span class="eyebrow" dir="auto">{{ row.book_authors }}</span>
+          <h3><a href="{{ url_for('books.detail', book_id=row.book_id) }}">{{ row.book_title }}</a></h3>
+          <div class="book-card__badges">
+            {% if row.page %}{{ badge('Page ' ~ row.page) }}{% endif %}
+            {% if row.note %}{{ badge('Note') }}{% endif %}
+          </div>
+        </div>
+        <blockquote class="book-quote-card__quote" dir="{{ row.direction }}">
+          <p>{{ row.text }}</p>
+          {% if row.note %}
+          <cite dir="auto">{{ row.note }}</cite>
+          {% endif %}
+        </blockquote>
+        <div class="book-quote-card__footer">
+          <small>
+            {% if row.created_at %}Saved {{ row.created_at }}{% else %}Saved locally{% endif %}
+          </small>
+          <div class="book-highlight-card__actions">
+            <a class="button button--quiet" href="{{ url_for('books.detail', book_id=row.book_id) }}">Open book</a>
+          </div>
+        </div>
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="book-detail__empty">
+      {% if quotes.count %}
+      No saved quotes in this filter yet.
+      {% else %}
+      No local quotes yet. Open a book detail page to save the first line you want to keep.
+      {% endif %}
+    </div>
+    {% endif %}
+  </section>
+</article>
+{% endblock %}

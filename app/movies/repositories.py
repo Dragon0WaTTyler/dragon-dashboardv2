@@ -21,7 +21,9 @@ class MovieRepository:
     @staticmethod
     def get(movie_id: str) -> Movie | None:
         return db.session.scalar(
-            db.select(Movie).options(selectinload(Movie.progress)).where(Movie.id == movie_id)
+            db.select(Movie)
+            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
+            .where(Movie.id == movie_id)
         )
 
     @staticmethod
@@ -32,7 +34,10 @@ class MovieRepository:
         offset: int,
         library_ids: list[str] | None = None,
     ) -> tuple[list[Movie], int]:
-        query = db.select(Movie).options(selectinload(Movie.progress))
+        query = db.select(Movie).options(
+            selectinload(Movie.progress),
+            selectinload(Movie.progress_entries),
+        )
         count_query = db.select(func.count()).select_from(Movie)
         conditions = []
         if library_ids is not None:

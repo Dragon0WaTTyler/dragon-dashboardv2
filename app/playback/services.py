@@ -11,6 +11,57 @@ from app.playback.models import MagnetCandidate, PlaybackSource
 MAGNET_HASH_PATTERN = re.compile(r"^(?:[A-Fa-f0-9]{40,64}|[A-Za-z2-7]{32})$")
 
 
+def _optional_int(value) -> int | None:
+    try:
+        return int(value) if value not in {None, ""} else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _tv_source_scope(source: PlaybackSource) -> tuple[int | None, int | None, str, dict, bool]:
+    metadata = dict(source.metadata_json or {})
+    season = _optional_int(source.season)
+    if season is None:
+        season = _optional_int(metadata.get("season"))
+    episode = _optional_int(source.episode)
+    if episode is None:
+        episode = _optional_int(metadata.get("episode"))
+    source_role = str(source.source_role or metadata.get("source_role") or "")
+    season_pack = bool(
+        metadata.get("season_pack")
+        or source_role == "season_pack_fallback"
+        or str(metadata.get("release_mode") or "") == "season_pack"
+    )
+    if not source_role:
+        if season_pack:
+            source_role = "season_pack_fallback"
+        elif episode is not None:
+            source_role = "exact_episode"
+    return season, episode, source_role, metadata, season_pack
+
+
+def _tv_source_matches_episode(source: PlaybackSource, *, season: int, episode: int) -> bool:
+    source_season, source_episode, _source_role, _metadata, season_pack = _tv_source_scope(source)
+    if source_season != season:
+        return False
+    if source_episode == episode:
+        return True
+    return bool(season_pack and source_episode is None)
+
+
+def _tv_episode_sources(movie_id: str, *, season: int, episode: int) -> list[PlaybackSource]:
+    rows = list(
+        db.session.scalars(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.kind == "magnet",
+                PlaybackSource.status == "available",
+            )
+        )
+    )
+    return [row for row in rows if _tv_source_matches_episode(row, season=season, episode=episode)]
+
+
 def source_item(source: PlaybackSource) -> dict:
     return {
         "id": source.id,
@@ -19,6 +70,9 @@ def source_item(source: PlaybackSource) -> dict:
         "label": source.label,
         "status": source.status,
         "selected": source.selected,
+        "season": source.season,
+        "episode": source.episode,
+        "source_role": source.source_role,
         "metadata": source.metadata_json,
     }
 
@@ -70,6 +124,42 @@ class PlaybackService:
                     "season": metadata.get("season"),
                     "episode": metadata.get("episode"),
                     "release_mode": str(metadata.get("release_mode") or ""),
+                }
+            )
+        return unique
+
+    @staticmethod
+    def tv_episode_player_sources(movie_id: str, *, season: int, episode: int) -> list[dict]:
+        rows = _tv_episode_sources(movie_id, season=season, episode=episode)
+        sources = sorted(
+            rows,
+            key=lambda source: (
+                0 if _tv_source_scope(source)[2] == "exact_episode" else 1,
+                0 if source.selected else 1,
+                str(source.label or "").casefold(),
+            ),
+        )
+        unique: list[dict] = []
+        seen_locators: set[str] = set()
+        for source in sources:
+            if source.locator in seen_locators:
+                continue
+            seen_locators.add(source.locator)
+            source_season, source_episode, source_role, metadata, season_pack = _tv_source_scope(source)
+            label = re.sub(r"\s+magnet$", "", source.label, flags=re.IGNORECASE).strip()
+            if season_pack and "season pack" not in label.casefold():
+                label = f"{label} season pack"
+            unique.append(
+                {
+                    "id": source.id,
+                    "label": label,
+                    "kind": source.kind,
+                    "selected": source.selected,
+                    "season_pack": season_pack,
+                    "season": source_season,
+                    "episode": source_episode,
+                    "release_mode": str(metadata.get("release_mode") or ""),
+                    "source_role": source_role,
                 }
             )
         return unique
@@ -139,6 +229,19 @@ class PlaybackService:
             "sources": [source_item(source) for source in sources],
             "magnets": [magnet_item(candidate) for candidate in magnets],
         }
+
+    @staticmethod
+    def tv_episode_sources(movie_id: str, *, season: int, episode: int) -> dict[str, PlaybackSource | None]:
+        sources = _tv_episode_sources(movie_id, season=season, episode=episode)
+        exact = next(
+            (source for source in sources if _tv_source_scope(source)[2] == "exact_episode"),
+            None,
+        )
+        fallback = next(
+            (source for source in sources if _tv_source_scope(source)[4]),
+            None,
+        )
+        return {"exact": exact, "fallback": fallback}
 
     @staticmethod
     def add_local_file(*, movie_id: str, path_value: str, label: str = "") -> PlaybackSource:

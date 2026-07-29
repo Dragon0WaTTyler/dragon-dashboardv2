@@ -22,6 +22,42 @@
   font-display: swap;
 }
 
+@font-face {
+  font-family: "Noto Sans Arabic";
+  src: url("../fonts/noto-sans-arabic-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: "Cairo";
+  src: url("../fonts/cairo-arabic-variable.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: "Tajawal";
+  src: url("../fonts/tajawal-arabic-400.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FEFC;
+}
+
+@font-face {
+  font-family: "Tajawal";
+  src: url("../fonts/tajawal-arabic-700.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  unicode-range: U+0600-06FF, U+0750-077F, U+0870-08FF, U+200C-200E, U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FEFC;
+}
+
 :root {
   --color-bg: #080808;
   --color-surface: #101010;
@@ -44,6 +80,7 @@
   --color-shadow: rgb(45 0 8 / 46%);
   --font-interface: "IBM Plex Sans", "Segoe UI", sans-serif;
   --font-technical: "IBM Plex Mono", "Cascadia Mono", monospace;
+  --font-arabic-clear: "Noto Sans Arabic", "Cairo", "Tajawal", "Segoe UI", Tahoma, sans-serif;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;

@@ -124,6 +124,8 @@ class PlaybackSession:
     peers: int = 0
     download_speed: int = 0
     stream_url: str = ""
+    head_ready: bool = False
+    tail_ready: bool = False
     startup_timings: dict[str, int | None] = field(default_factory=dict)
     runtime_started: bool = False
     stopped: bool = False
@@ -347,6 +349,8 @@ class MagnetPlaybackManager:
         session.peers = max(0, int(result.get("peers") or 0))
         session.download_speed = max(0, int(result.get("downloadSpeed") or 0))
         session.stream_url = str(result.get("streamUrl") or "")
+        session.head_ready = bool(result.get("headReady"))
+        session.tail_ready = bool(result.get("tailReady"))
         timings = result.get("timings")
         if isinstance(timings, dict):
             for key, value in timings.items():
@@ -356,14 +360,18 @@ class MagnetPlaybackManager:
             session.state = "failed"
             session.message = error
         elif session.stream_url and session.file_name and session.total_bytes:
-            session.state = "ready"
             stream_kind = _stream_kind(session.file_name)
-            if stream_kind == "transcode":
-                session.message = "Stream ready; local transcoding is required for this file."
-            elif session.peers:
-                session.message = "Stream ready; the browser is buffering directly from peers."
+            if stream_kind == "transcode" and not session.head_ready:
+                session.state = "buffering"
+                session.message = "Preparing the first playable chunk for local transcoding…"
             else:
-                session.message = "Stream ready; waiting for torrent peers or cached pieces."
+                session.state = "ready"
+                if stream_kind == "transcode":
+                    session.message = "Stream ready; local transcoding is required for this file."
+                elif session.peers:
+                    session.message = "Stream ready; the browser is buffering directly from peers."
+                else:
+                    session.message = "Stream ready; waiting for torrent peers or cached pieces."
         else:
             session.state = "metadata"
             session.message = "Selecting the best video file from this torrent…"
@@ -407,6 +415,8 @@ class MagnetPlaybackManager:
             "peers": session.peers,
             "download_speed": session.download_speed,
             "cache_hit": session.cache_hit,
+            "head_ready": session.head_ready,
+            "tail_ready": session.tail_ready,
             "startup_timings": dict(session.startup_timings),
             "complete": session.complete,
         }

@@ -1,8 +1,8 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=netflix-player-11">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=netflix-player-11" defer></script>{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=subtitle-v2-6">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=release-labels-1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=subtitle-v2-6" defer></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
@@ -18,7 +18,7 @@
     </header>
     {% if movie.overview %}<p class="movie-detail__overview">{{ movie.overview }}</p>{% endif %}
     <dl class="definition-grid">
-      <div><dt>Score</dt><dd>{{ '%.1f / 5'|format(movie.personal_score) if movie.personal_score is not none else 'Not rated' }}</dd></div>
+      <div><dt>Score</dt><dd>{% if movie.personal_score is not none %}{% if movie.personal_score_label %}{{ movie.personal_score_label }} · {% endif %}{{ '%.1f / 5'|format(movie.personal_score) }}{% else %}Not rated{% endif %}</dd></div>
       <div><dt>Runtime</dt><dd>{{ movie.runtime_minutes ~ ' min' if movie.runtime_minutes else 'Unknown' }}</dd></div>
       <div><dt>Genres</dt><dd>{{ movie.genres|map(attribute='name')|join(', ') if movie.genres else 'Unknown' }}</dd></div>
       <div><dt>Source</dt><dd>{{ movie.source }}</dd></div>
@@ -26,7 +26,7 @@
   </div>
   {% if vidsrc_enabled or player_sources %}
   {% set has_selected_player_source = player_sources|selectattr('selected')|list|length > 0 %}
-  <section id="movie-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-media-type="{{ movie.media_type }}" data-tmdb-id="{{ movie.external_ids.tmdb_id or '' }}" data-runtime-seconds="{{ (movie.runtime_minutes * 60) if movie.runtime_minutes else '' }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if movie.media_type == 'tv' and movie.external_ids.tmdb_id else '' }}" data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}">
+  <section id="movie-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-media-type="{{ movie.media_type }}" data-tmdb-id="{{ movie.external_ids.tmdb_id or '' }}" data-runtime-seconds="{{ (movie.runtime_minutes * 60) if movie.runtime_minutes else '' }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if movie.media_type == 'tv' and movie.external_ids.tmdb_id else '' }}" data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}" data-progress-endpoint="{{ url_for('api_v1.update_movie_progress', movie_id=movie.id) }}">
     <div class="movie-player__heading">
       <div><span class="eyebrow">Playback deck</span><h2 id="movie-player-title">Watch {{ movie.title }}</h2></div>
       <span class="badge badge--accent" data-player-badge>{{ 'Local' if has_selected_player_source else ('VidSrc' if vidsrc_enabled else 'Local') }}</span>
@@ -123,13 +123,45 @@
           </div>
           <div class="movie-player__subtitle-screen" data-player-subtitle-screen="appearance" hidden>
             <button class="movie-player__subtitle-back" type="button" data-player-subtitle-back>Back to subtitles</button>
+            <label class="movie-player__subtitle-select">
+              <span>Preset</span>
+              <select data-player-subtitle-preset>
+                <option value="netflix">Netflix</option>
+                <option value="youtube">YouTube</option>
+                <option value="arabic-clear">Arabic Clear</option>
+                <option value="high-contrast">High Contrast</option>
+                <option value="minimal">Minimal</option>
+                <option value="custom">Custom</option>
+              </select>
+            </label>
             <label class="movie-player__subtitle-control">
               <span><strong>Font size</strong><b data-player-subtitle-size-label>30px</b></span>
-              <input type="range" min="20" max="48" step="1" value="30" data-player-subtitle-size>
+              <input type="range" min="20" max="96" step="1" value="30" data-player-subtitle-size>
+            </label>
+            <label class="movie-player__subtitle-control">
+              <span><strong>Position</strong><b data-player-subtitle-position-label>12%</b></span>
+              <input type="range" min="8" max="62" step="1" value="12" data-player-subtitle-position>
+            </label>
+            <label class="movie-player__subtitle-select">
+              <span>Background</span>
+              <select data-player-subtitle-background>
+                <option value="shadow">Soft Shadow</option>
+                <option value="off">Off</option>
+                <option value="box">Box</option>
+                <option value="blur">Blur Box</option>
+              </select>
+            </label>
+            <label class="movie-player__subtitle-control">
+              <span><strong>Background opacity</strong><b data-player-subtitle-opacity-label>35%</b></span>
+              <input type="range" min="0" max="90" step="5" value="35" data-player-subtitle-opacity>
             </label>
             <label class="movie-player__subtitle-control">
               <span><strong>Background blur</strong><b data-player-subtitle-blur-label>0%</b></span>
               <input type="range" min="0" max="24" step="1" value="0" data-player-subtitle-blur>
+            </label>
+            <label class="movie-player__subtitle-control">
+              <span><strong>Text shadow</strong><b data-player-subtitle-shadow-label>80%</b></span>
+              <input type="range" min="0" max="100" step="5" value="80" data-player-subtitle-shadow>
             </label>
             <label class="movie-player__subtitle-control">
               <span><strong>Latency</strong><b data-player-subtitle-offset-label>0.0s</b></span>
@@ -138,9 +170,11 @@
             <label class="movie-player__subtitle-select">
               <span>Font</span>
               <select data-player-subtitle-font>
+                <option value="noto-arabic">Noto Sans Arabic</option>
+                <option value="cairo">Cairo</option>
+                <option value="tajawal">Tajawal</option>
                 <option value="plex">IBM Plex Sans</option>
                 <option value="inter">Inter</option>
-                <option value="serif">Merriweather</option>
                 <option value="mono">IBM Plex Mono</option>
               </select>
             </label>
@@ -213,7 +247,7 @@
         </form>
         <form method="post" action="{{ url_for('movies.update_score', movie_id=movie.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <label class="field"><span>Personal score (0–5)</span><input name="score" type="number" min="0" max="5" step="0.5" value="{{ movie.personal_score if movie.personal_score is not none else '' }}"></label>
+          <label class="field"><span>Personal score</span><select name="score"><option value="">No rating</option>{% for option in score_options %}<option value="{{ option.label }}"{% if movie.personal_score_label == option.label %} selected{% endif %}>{{ '%.1f'|format(option.value) }} · {{ option.label }}</option>{% endfor %}</select></label>
           <button class="button button--secondary" type="submit">Save score</button>
         </form>
       </div>

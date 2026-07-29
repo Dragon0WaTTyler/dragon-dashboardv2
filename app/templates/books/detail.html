@@ -1,7 +1,15 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
+{% macro metadata_value(value) -%}
+  {%- if value is iterable and value is not string -%}
+    {{ value|join(', ') }}
+  {%- else -%}
+    {{ value }}
+  {%- endif -%}
+{%- endmacro %}
 {% block title %}{{ book.title }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/book-audio.js') }}" defer></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('books.index') }}">← Back to Books</a>
 <article class="book-detail{% if book.direction == 'rtl' %} book-detail--rtl{% endif %}" dir="{{ book.direction }}">
@@ -20,6 +28,9 @@
       <h1 id="book-title" dir="auto">{{ book.title }}</h1>
       <div class="book-detail__badges">
         {{ badge(book.status|replace('_',' ')|title, 'accent' if book.status == 'reading' else '') }}
+        {{ badge(book.metadata_status|replace('_',' ')|title, 'warning' if book.needs_review else '') }}
+        {% if book.preferred_format %}{{ badge('Preferred ' ~ book.preferred_format, 'accent') }}{% endif %}
+        {% if book.audiobook_count %}{{ badge(book.audiobook_count ~ ' audiobook' ~ ('s' if book.audiobook_count != 1 else '')) }}{% endif %}
         {% if book.published_year %}{{ badge(book.published_year) }}{% endif %}
       </div>
       {% if book.description %}<p class="book-detail__description" dir="auto">{{ book.description }}</p>{% endif %}
@@ -32,44 +43,498 @@
   </section>
 
   <div class="book-detail__layout">
-    <aside class="book-detail__controls" aria-labelledby="progress-title">
-      <span class="eyebrow">Progress</span>
-      <h2 id="progress-title">Keep your place</h2>
-      <form class="book-progress-form" method="post" action="{{ url_for('books.progress', book_id=book.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label class="field"><span>Status</span><select name="status">{% for value in ['want_to_read','reading','paused','finished'] %}<option value="{{ value }}"{% if book.status == value %} selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
-        <label class="field"><span>Current page</span><input type="number" name="current_page" min="0"{% if book.page_count %} max="{{ book.page_count }}"{% endif %} value="{{ book.current_page }}"></label>
-        <button class="button button--primary button--full" type="submit">Save progress</button>
-      </form>
+    <aside class="book-detail__controls" aria-labelledby="state-title">
+      <div class="book-detail__rail">
+        <section class="book-detail__rail-group" aria-labelledby="state-title">
+          <span class="eyebrow">My State</span>
+          <h2 id="state-title">Reading context</h2>
+          <dl class="book-state">
+            <div><dt>Status</dt><dd>{{ book.status|replace('_',' ')|title }}</dd></div>
+            <div><dt>Progress</dt><dd>{{ book.progress_percent }}% · {{ book.current_page }} / {{ book.page_count or '—' }}</dd></div>
+            <div><dt>Rating</dt><dd>{{ '%.1f / 5'|format(book.personal_score) if book.personal_score is not none else 'Not rated' }}</dd></div>
+            <div><dt>Favorite</dt><dd>{{ 'Yes' if book.favorite else 'No' }}</dd></div>
+            <div><dt>Collections</dt><dd dir="auto">{{ book.collections|join(', ') if book.collections else 'None yet' }}</dd></div>
+            {% if book.personal_tags %}<div><dt>Tags</dt><dd dir="auto">{{ book.personal_tags|join(', ') }}</dd></div>{% endif %}
+            <div><dt>Notes</dt><dd class="book-state__notes" dir="auto">{{ book.personal_notes if book.personal_notes else 'No personal note yet.' }}</dd></div>
+          </dl>
+        </section>
+
+        <section class="book-detail__rail-group" aria-labelledby="progress-title">
+          <span class="eyebrow">Progress</span>
+          <h3 id="progress-title">Keep your place</h3>
+          <form class="book-progress-form" method="post" action="{{ url_for('books.progress', book_id=book.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span>Status</span><select name="status">{% for value in ['wishlist','reading','paused','finished','dropped','reference'] %}<option value="{{ value }}"{% if book.status == value %} selected{% endif %}>{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
+            <label class="field"><span>Current page</span><input type="number" name="current_page" min="0"{% if book.page_count %} max="{{ book.page_count }}"{% endif %} value="{{ book.current_page }}"></label>
+            <button class="button button--primary button--full" type="submit">Save progress</button>
+          </form>
+        </section>
+
+        <section class="book-detail__rail-group" aria-labelledby="identity-title">
+          <span class="eyebrow">Edition</span>
+          <h3 id="identity-title">Primary record</h3>
+          <dl class="book-identity">
+            <div><dt>Dragon Book ID</dt><dd>{{ book.dragon_book_id }}</dd></div>
+            {% if book.edition_language %}<div><dt>Edition language</dt><dd>{{ book.edition_language }}</dd></div>{% endif %}
+            {% if book.original_language %}<div><dt>Original language</dt><dd>{{ book.original_language }}</dd></div>{% endif %}
+            {% if book.translator %}<div><dt>Translator</dt><dd>{{ book.translator }}</dd></div>{% endif %}
+            {% if book.publisher %}<div><dt>Publisher</dt><dd>{{ book.publisher }}</dd></div>{% endif %}
+            {% if book.isbn_13 or book.isbn_10 %}<div><dt>ISBN</dt><dd>{{ book.isbn_13 or book.isbn_10 }}</dd></div>{% endif %}
+          </dl>
+        </section>
+      </div>
     </aside>
 
-    {% if dragon_feature('books', 'quotes') %}<section class="book-detail__quotes" aria-labelledby="quotes-title">
+    <main class="book-detail__main">
+      <section class="knowledge-panel" aria-labelledby="read-title">
+        <div class="section-heading section-heading--action">
+          <div><span class="eyebrow">Read</span><h2 id="read-title">Text assets</h2></div>
+          <div class="candidate-heading-actions">
+            {% if book.preferred_format %}{{ badge('Best available: ' ~ book.preferred_format, 'accent') }}{% else %}{{ badge('No local asset') }}{% endif %}
+            {% if book.kindle_export_ready %}<a class="button button--quiet" href="{{ url_for('books.kindle_export', book_id=book.id) }}">Kindle export</a>{% endif %}
+          </div>
+        </div>
+        <section class="knowledge-subsection" aria-labelledby="read-inventory-title">
+          <div class="knowledge-subsection__header">
+            <div><span class="eyebrow">Inventory</span><h3 id="read-inventory-title">Current copies</h3></div>
+            {{ badge(book.text_assets|length ~ ' tracked') }}
+          </div>
+          <div class="format-ladder" aria-label="Text format priority">
+            {% for slot in book.format_slots %}
+            <div class="format-ladder__slot{% if slot.available %} is-available{% endif %}">
+              <span>{{ loop.index }}</span>
+              <strong>{{ slot.format }}</strong>
+              <small>{{ 'Available' if slot.available else 'Missing' }}</small>
+            </div>
+            {% endfor %}
+          </div>
+          {% if book.text_assets %}
+          <div class="knowledge-rows text-asset-rows">
+            {% for asset in book.text_assets %}
+            <div class="knowledge-row">
+              <strong>{{ asset.format }}</strong>
+              <span>{{ asset.filename or asset.source_type|title }}</span>
+              <small>{{ asset.verification_status|replace('_',' ')|title }} · {{ asset.availability_status|replace('_',' ')|title }}{% if asset.file_size %} · {{ asset.file_size_label }}{% endif %}</small>
+              <div class="candidate-actions">
+                {% if asset.source_type == 'local' and asset.availability_status != 'rejected' %}
+                <a class="button button--quiet" href="{% if asset.opens_reader %}{{ url_for('books.text_asset_reader', book_id=book.id, asset_id=asset.id) }}{% else %}{{ url_for('books.text_asset_stream', book_id=book.id, asset_id=asset.id) }}{% endif %}"{% if asset.opens_in_browser %} target="_blank" rel="noreferrer"{% endif %}>{{ asset.runtime_label }}</a>
+                {% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="book-detail__empty">Read assets are ready for local registration. KFX, AZW3, EPUB, and PDF will always stay in that order.</p>
+          {% endif %}
+        </section>
+
+        <section class="knowledge-subsection" aria-labelledby="read-register-title">
+          <div class="knowledge-subsection__header">
+            <div><span class="eyebrow">Local assets</span><h3 id="read-register-title">Register a file</h3></div>
+          </div>
+          <form class="asset-register-form" method="post" action="{{ url_for('books.asset_preview', book_id=book.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field asset-register-form__path"><span>Local file path</span><input name="local_path" autocomplete="off" placeholder="C:\Books\title.epub" required></label>
+            <label class="field"><span>Edition</span><select name="edition_id"><option value="">Primary edition</option>{% for edition in book.editions %}<option value="{{ edition.id }}">{{ edition.title }}{% if edition.language %} · {{ edition.language }}{% endif %}</option>{% endfor %}</select></label>
+            <button class="button button--secondary" type="submit">Preview asset</button>
+          </form>
+          {% if book.local_text_asset_preview %}
+          <div class="asset-preview" aria-label="Local asset preview">
+            <div class="asset-preview__summary">
+              <strong>{{ book.local_text_asset_preview.format }}</strong>
+              <span dir="auto">{{ book.local_text_asset_preview.filename }}</span>
+              {{ badge('Duplicate' if book.local_text_asset_preview.duplicate_asset_id else book.local_text_asset_preview.verification_status|replace('_',' ')|title, 'warning' if book.local_text_asset_preview.duplicate_asset_id or book.local_text_asset_preview.verification_status != 'verified' else 'success') }}
+            </div>
+            <dl class="asset-preview__facts">
+              <div><dt>Target edition</dt><dd dir="auto">{{ book.local_text_asset_preview.target_edition_title }}</dd></div>
+              <div><dt>Size</dt><dd>{{ book.local_text_asset_preview.file_size_label }}</dd></div>
+              <div><dt>Signature</dt><dd>{{ book.local_text_asset_preview.signature_status|replace('_',' ')|title }}</dd></div>
+              <div><dt>SHA-256</dt><dd><code>{{ book.local_text_asset_preview.file_hash }}</code></dd></div>
+            </dl>
+            {% if book.local_text_asset_preview.warnings %}
+            <ul class="asset-preview__warnings">
+              {% for warning in book.local_text_asset_preview.warnings %}
+              <li>{{ warning }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if not book.local_text_asset_preview.duplicate_asset_id %}
+            <form method="post" action="{{ url_for('books.asset_register', book_id=book.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button button--primary" type="submit">Register asset</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
+        </section>
+
+        <section class="knowledge-subsection availability-review" aria-label="Availability candidates" aria-labelledby="availability-review-title">
+          <div class="knowledge-subsection__header">
+            <div><span class="eyebrow">Availability</span><h3 id="availability-review-title">Candidate review</h3></div>
+            <div class="candidate-heading-actions">
+              {{ badge(book.availability_candidates|length ~ ' candidates') }}
+              <form method="post" action="{{ url_for('books.search_jackett_availability_candidates', book_id=book.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <button class="button button--quiet" type="submit">Search Jackett</button>
+              </form>
+            </div>
+          </div>
+          {% if book.availability_candidates %}
+          <div class="knowledge-rows availability-rows">
+            {% for candidate in book.availability_candidates %}
+            <div class="knowledge-row">
+              <strong>{{ candidate.format_guess or 'Unknown' }}</strong>
+              <span dir="auto">{{ candidate.title }}</span>
+              <small>{{ candidate.provider|title }} · {{ candidate.match_confidence|replace('_',' ')|title }} · {{ candidate.language_guess or 'Unknown language' }}{% if candidate.size_bytes %} · {{ candidate.size_label }}{% endif %} · {{ candidate.review_state|replace('_',' ')|title }}</small>
+              <div class="candidate-actions">
+                {{ badge(candidate.review_state|replace('_',' ')|title, candidate.review_tone) }}
+                {% if candidate.review_state == 'review_required' %}
+                <form method="post" action="{{ url_for('books.confirm_availability_candidate', book_id=book.id, candidate_id=candidate.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button button--quiet" type="submit">Confirm</button>
+                </form>
+                <form method="post" action="{{ url_for('books.reject_availability_candidate', book_id=book.id, candidate_id=candidate.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button button--quiet" type="submit">Reject</button>
+                </form>
+                {% endif %}
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="book-detail__empty">Telegram and Jackett results will land here as review-only candidates.</p>
+          {% endif %}
+          <div class="knowledge-subsection__forms">
+            <form class="candidate-paste-form" method="post" action="{{ url_for('books.parse_availability_candidate', book_id=book.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label class="field"><span>Provider</span><select name="provider"><option value="telegram">Telegram</option><option value="jackett">Jackett</option><option value="local">Local note</option></select></label>
+              <label class="field candidate-paste-form__text"><span>Paste result</span><textarea name="raw_text" rows="3" required></textarea></label>
+              <button class="button button--secondary" type="submit">Parse candidate</button>
+            </form>
+            <form class="candidate-form" method="post" action="{{ url_for('books.add_availability_candidate', book_id=book.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label class="field"><span>Provider</span><select name="provider"><option value="telegram">Telegram</option><option value="jackett">Jackett</option><option value="local">Local note</option></select></label>
+              <label class="field candidate-form__title"><span>Candidate title</span><input name="title" autocomplete="off" required></label>
+              <label class="field"><span>Format</span><select name="format_guess">{% for slot in book.format_slots %}<option value="{{ slot.format }}">{{ slot.format }}</option>{% endfor %}</select></label>
+              <label class="field"><span>Language</span><input name="language_guess" autocomplete="off"></label>
+              <label class="field candidate-form__reference"><span>Source reference</span><input name="source_reference" autocomplete="off"></label>
+              <button class="button button--secondary" type="submit">Save candidate</button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <section class="knowledge-panel" aria-labelledby="listen-title">
+        <div class="section-heading section-heading--action">
+          <div><span class="eyebrow">Listen</span><h2 id="listen-title">Audiobook editions</h2></div>
+          {{ badge(book.audiobooks|length ~ ' editions') }}
+        </div>
+        <section class="knowledge-subsection" aria-labelledby="listen-editions-title">
+          <div class="knowledge-subsection__header">
+            <div><span class="eyebrow">Tracked editions</span><h3 id="listen-editions-title">Available listens</h3></div>
+          </div>
+          {% if book.audiobooks %}
+          <div class="knowledge-rows">
+            {% for audiobook in book.audiobooks %}
+            <div class="knowledge-row">
+              <strong>{{ audiobook.language or 'Unknown language' }}</strong>
+              <span>{{ audiobook.narrator or audiobook.title }}</span>
+              <small>{{ audiobook.verification_status|replace('_',' ')|title }} · {{ audiobook.abridgement_type|replace('_',' ')|title }} · {{ audiobook.production_type|replace('_',' ')|title }}{% if audiobook.duration_label %} · {{ audiobook.duration_label }}{% endif %}{% if audiobook.chapter_count %} · {{ audiobook.chapter_count }} chapters{% endif %}{% if audiobook.asset_count %} · {{ audiobook.asset_count }} asset{{ 's' if audiobook.asset_count != 1 else '' }}{% endif %}</small>
+              <div class="candidate-actions">
+                {{ badge(audiobook.verification_status|replace('_',' ')|title, audiobook.review_tone) }}
+                {% if audiobook.verification_status == 'needs_review' and not audiobook.asset_count %}
+                <form method="post" action="{{ url_for('books.confirm_audiobook_candidate', book_id=book.id, audiobook_id=audiobook.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button button--quiet" type="submit">Confirm</button>
+                </form>
+                <form method="post" action="{{ url_for('books.reject_audiobook_candidate', book_id=book.id, audiobook_id=audiobook.id) }}">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <button class="button button--quiet" type="submit">Reject</button>
+                </form>
+                {% endif %}
+              </div>
+            </div>
+            {% for asset in audiobook.assets %}
+            <div class="knowledge-row knowledge-row--asset">
+              <strong>{{ asset.format }}</strong>
+              <span>{{ asset.filename or asset.source_type|title }}</span>
+              <small>{{ asset.availability_status|replace('_',' ')|title }}{% if asset.file_size %} · {{ asset.file_size_label }}{% endif %}</small>
+            </div>
+            {% if asset.source_type == 'local' and asset.availability_status != 'rejected' %}
+            <div class="audio-player" data-book-audio-player data-progress-url="{{ url_for('books.audiobook_progress', book_id=book.id, audiobook_id=audiobook.id) }}">
+              <div class="audio-player__meta">
+                <strong>{{ asset.filename or audiobook.title }}</strong>
+                <span>{% if audiobook.progress.position_seconds %}Resume {{ audiobook.progress.position_label }}{% else %}Ready to play{% endif %}</span>
+              </div>
+              <audio controls preload="metadata" src="{{ url_for('books.audiobook_asset_stream', book_id=book.id, asset_id=asset.id) }}" data-position="{{ audiobook.progress.position_seconds }}" data-duration="{{ audiobook.progress.duration_seconds }}" data-speed="{{ audiobook.progress.playback_speed }}"></audio>
+              <label class="field audio-player__speed"><span>Speed</span><select data-audio-speed><option value="0.75">0.75x</option><option value="1">1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></label>
+            </div>
+            {% endif %}
+            {% endfor %}
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="book-detail__empty">Audiobook editions are tracked separately from text formats.</p>
+          {% endif %}
+        </section>
+
+        <section class="knowledge-subsection" aria-labelledby="listen-candidate-title">
+          <div class="knowledge-subsection__header">
+            <div><span class="eyebrow">Audiobook match</span><h3 id="listen-candidate-title">Track an edition</h3></div>
+          </div>
+          <form class="audiobook-candidate-form" method="post" action="{{ url_for('books.add_audiobook_candidate', book_id=book.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field audiobook-candidate-form__title"><span>Candidate title</span><input name="title" autocomplete="off" value="{{ book.title }}" required></label>
+            <label class="field"><span>Language</span><input name="language" autocomplete="off" value="{{ book.edition_language }}"></label>
+            <label class="field"><span>Narrator</span><input name="narrator" autocomplete="off"></label>
+            <label class="field"><span>Publisher</span><input name="publisher" autocomplete="off"></label>
+            <label class="field"><span>Year</span><input type="number" name="release_year" min="0" max="9999"></label>
+            <label class="field"><span>Minutes</span><input type="number" name="duration_minutes" min="0"></label>
+            <label class="field"><span>Chapters</span><input type="number" name="chapter_count" min="0"></label>
+            <label class="field"><span>Abridgement</span><select name="abridgement_type"><option value="unknown">Unknown</option><option value="unabridged">Unabridged</option><option value="abridged">Abridged</option></select></label>
+            <label class="field"><span>Production</span><select name="production_type"><option value="single_narrator">Single narrator</option><option value="multi_narrator">Multi narrator</option><option value="dramatized">Dramatized</option></select></label>
+            <button class="button button--secondary" type="submit">Save audio candidate</button>
+          </form>
+        </section>
+
+        <section class="knowledge-subsection" aria-labelledby="listen-register-title">
+          <div class="knowledge-subsection__header">
+            <div><span class="eyebrow">Local assets</span><h3 id="listen-register-title">Register audio</h3></div>
+          </div>
+          <form class="asset-register-form" method="post" action="{{ url_for('books.audiobook_asset_preview', book_id=book.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field asset-register-form__path"><span>Audio file path</span><input name="local_path" autocomplete="off" placeholder="C:\Audiobooks\title.m4b" required></label>
+            <label class="field"><span>Audiobook</span><select name="audiobook_id"><option value="">Primary audiobook</option>{% for audiobook in book.audiobooks %}<option value="{{ audiobook.id }}">{{ audiobook.title }}{% if audiobook.narrator %} · {{ audiobook.narrator }}{% endif %}</option>{% endfor %}</select></label>
+            <button class="button button--secondary" type="submit">Preview audio</button>
+          </form>
+          {% if book.local_audio_asset_preview %}
+          <div class="asset-preview" aria-label="Audiobook asset preview">
+            <div class="asset-preview__summary">
+              <strong>{{ book.local_audio_asset_preview.format }}</strong>
+              <span dir="auto">{{ book.local_audio_asset_preview.filename }}</span>
+              {{ badge('Duplicate' if book.local_audio_asset_preview.duplicate_asset_id else book.local_audio_asset_preview.signature_status|replace('_',' ')|title, 'warning' if book.local_audio_asset_preview.duplicate_asset_id or book.local_audio_asset_preview.warnings else 'success') }}
+            </div>
+            <dl class="asset-preview__facts">
+              <div><dt>Target audiobook</dt><dd dir="auto">{{ book.local_audio_asset_preview.target_audiobook_title }}</dd></div>
+              <div><dt>Size</dt><dd>{{ book.local_audio_asset_preview.file_size_label }}</dd></div>
+              <div><dt>Signature</dt><dd>{{ book.local_audio_asset_preview.signature_status|replace('_',' ')|title }}</dd></div>
+              <div><dt>SHA-256</dt><dd><code>{{ book.local_audio_asset_preview.file_hash }}</code></dd></div>
+            </dl>
+            {% if book.local_audio_asset_preview.warnings %}
+            <ul class="asset-preview__warnings">
+              {% for warning in book.local_audio_asset_preview.warnings %}
+              <li>{{ warning }}</li>
+              {% endfor %}
+            </ul>
+            {% endif %}
+            {% if not book.local_audio_asset_preview.duplicate_asset_id %}
+            <form method="post" action="{{ url_for('books.audiobook_asset_register', book_id=book.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button button--primary" type="submit">Register audio</button>
+            </form>
+            {% endif %}
+          </div>
+          {% endif %}
+        </section>
+      </section>
+
+      <section class="knowledge-panel" aria-labelledby="metadata-title">
+        <div class="section-heading section-heading--action">
+          <div><span class="eyebrow">Metadata</span><h2 id="metadata-title">Identity and edition</h2></div>
+          <div class="metadata-actions">
+            {{ badge(book.metadata_confidence|replace('_',' ')|title if book.metadata_confidence else 'Unscored') }}
+            <form method="post" action="{{ url_for('books.metadata_preview', book_id=book.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button button--secondary" type="submit">Preview metadata</button>
+            </form>
+            {% if book.metadata_preview %}
+            <form method="post" action="{{ url_for('books.metadata_apply', book_id=book.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <button class="button button--primary" type="submit">Apply fill only</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+        {% if book.metadata_preview %}
+        <div class="metadata-preview" aria-label="Metadata preview">
+          <div class="metadata-preview__summary">
+            <strong dir="auto">{{ book.metadata_preview.candidate.title or book.title }}</strong>
+            <span>{{ book.metadata_preview.candidate.source }} · {{ book.metadata_preview.confidence|replace('_',' ')|title }} · {{ book.metadata_preview.fill|length }} fill · {{ book.metadata_preview.conflicts|length }} conflict{{ 's' if book.metadata_preview.conflicts|length != 1 else '' }}</span>
+          </div>
+          {% if book.metadata_preview.fill %}
+          <dl class="metadata-diff">
+            <span class="eyebrow">Will fill</span>
+            {% for field, value in book.metadata_preview.fill.items() %}
+            <div>
+              <dt>{{ field|replace('_',' ')|title }}</dt>
+              <dd dir="auto">{{ metadata_value(value) }}</dd>
+            </div>
+            {% endfor %}
+          </dl>
+          {% endif %}
+          {% if book.metadata_preview.conflicts %}
+          <dl class="metadata-diff metadata-diff--conflicts">
+            <span class="eyebrow">Needs review</span>
+            {% for field, change in book.metadata_preview.conflicts.items() %}
+            <div>
+              <dt>{{ field|replace('_',' ')|title }}</dt>
+              <dd dir="auto"><span>Current: {{ metadata_value(change.current) }}</span><span>Candidate: {{ metadata_value(change.candidate) }}</span></dd>
+            </div>
+            {% endfor %}
+          </dl>
+          {% endif %}
+        </div>
+        {% endif %}
+        <dl class="metadata-grid">
+          {% if book.original_title %}<div><dt>Original title</dt><dd dir="auto">{{ book.original_title }}</dd></div>{% endif %}
+          {% if book.original_language %}<div><dt>Original language</dt><dd>{{ book.original_language }}</dd></div>{% endif %}
+          {% if book.series_name %}<div><dt>Series</dt><dd>{{ book.series_name }}{% if book.series_position %} #{{ book.series_position }}{% endif %}</dd></div>{% endif %}
+          {% if book.subjects %}<div><dt>Subjects</dt><dd>{{ book.subjects|join(', ') }}</dd></div>{% endif %}
+          {% if book.genres %}<div><dt>Genres</dt><dd>{{ book.genres|join(', ') }}</dd></div>{% endif %}
+          <div><dt>Work model</dt><dd>{{ book.editions|length }} edition{{ 's' if book.editions|length != 1 else '' }} · {{ book.availability_candidates|length }} candidate{{ 's' if book.availability_candidates|length != 1 else '' }}</dd></div>
+        </dl>
+        <div class="kindle-aliases" aria-label="Kindle title aliases">
+          <div class="section-heading section-heading--action">
+            <div><span class="eyebrow">Kindle</span><h3>Title aliases</h3></div>
+            {{ badge(book.kindle_title_aliases|length ~ ' aliases') }}
+          </div>
+          {% if book.kindle_title_aliases %}
+          <div class="knowledge-rows kindle-alias-rows">
+            {% for alias in book.kindle_title_aliases %}
+            <div class="knowledge-row">
+              <strong dir="auto">{{ alias }}</strong>
+              <span>Manual alias</span>
+              <small>Match key</small>
+              <form method="post" action="{{ url_for('books.remove_kindle_alias', book_id=book.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="alias" value="{{ alias }}">
+                <button class="button button--quiet" type="submit">Remove</button>
+              </form>
+            </div>
+            {% endfor %}
+          </div>
+          {% else %}
+          <p class="book-detail__empty">No Kindle title aliases yet.</p>
+          {% endif %}
+          <form class="kindle-alias-form" method="post" action="{{ url_for('books.add_kindle_alias', book_id=book.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span>Kindle title alias</span><input name="alias" autocomplete="off" required></label>
+            <button class="button button--secondary" type="submit">Add alias</button>
+          </form>
+        </div>
+      </section>
+
+    {% if dragon_feature('books', 'quotes') %}
+    <section class="book-detail__quotes knowledge-panel" aria-labelledby="highlights-title">
+      <div class="section-heading section-heading--action">
+        <div><span class="eyebrow">Knowledge</span><h2 id="highlights-title">Highlights</h2></div>
+      </div>
+      <section class="knowledge-subsection" aria-labelledby="highlights-stream-title">
+        <div class="knowledge-subsection__header">
+          <div><span class="eyebrow">Book Quotes</span><h3 id="highlights-stream-title">Synced lines</h3></div>
+          {% set quotes_status = book.book_quotes_status|default({}) %}
+          <div class="candidate-heading-actions">
+            {{ badge(book.external_highlights|length ~ ' linked') }}
+            {% if quotes_status.refreshed_at %}{{ badge('Refreshed ' ~ quotes_status.refreshed_at) }}{% endif %}
+            <a class="button button--quiet" href="{{ url_for('books.highlights', book_id=book.id) }}">Library view</a>
+            {% if quotes_status.needs_review or quotes_status.ambiguous %}
+            <a class="button button--quiet" href="{{ url_for('knowledge_settings.book_quotes_review', state='review') }}">Review queue</a>
+            {% endif %}
+            <a class="button button--quiet" href="{{ url_for('knowledge_settings.diagnostics') }}">Diagnostics</a>
+          </div>
+        </div>
+        <p class="knowledge-subsection__summary">
+          {% if quotes_status.last_error %}
+          Book Quotes refresh needs review before synced highlights can settle here.
+          {% elif quotes_status.refreshed_at %}
+          Linked from the latest local Book Quotes snapshot.
+          {% else %}
+          Waiting for the first Book Quotes refresh.
+          {% endif %}
+        </p>
+        {% if book.external_highlights %}
+        <div class="quote-list quote-list--highlights">
+          {% for highlight in book.external_highlights %}
+          <article class="quote-entry quote-entry--highlight" dir="{{ highlight.direction }}">
+            <div class="quote-entry__meta">
+              <span class="eyebrow">Synced highlight</span>
+              <small dir="auto">{{ highlight.source }} · {{ highlight.kind|replace('_',' ')|title }}</small>
+            </div>
+            <blockquote dir="{{ highlight.direction }}">
+              <p>{{ highlight.text }}</p>
+            </blockquote>
+            <footer class="quote-entry__footer">
+              {% if highlight.page %}<span>Page {{ highlight.page }}</span>{% endif %}
+              {% if highlight.location %}<span>Location {{ highlight.location }}</span>{% endif %}
+              {% if highlight.created_at %}<span>{{ highlight.created_at }}</span>{% endif %}
+            </footer>
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="book-detail__empty">
+          {% if quotes_status.last_error %}
+          Book Quotes refresh needs review on diagnostics before synced highlights can appear here.
+          {% elif quotes_status.refreshed_at %}
+          No refreshed Book Quotes highlights matched this book yet.
+          {% else %}
+          Refresh Book Quotes from diagnostics after a Kindle sync to surface matched highlights here.
+          {% endif %}
+        </p>
+        {% endif %}
+      </section>
+    </section>
+
+    <section class="book-detail__quotes knowledge-panel" aria-labelledby="quotes-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Notebook</span><h2 id="quotes-title">Quotes</h2></div>
-        {{ badge(book.quotes|length ~ ' saved') }}
       </div>
-      {% if book.quotes %}
-      <div class="quote-list">
-        {% for quote in book.quotes %}
-        <blockquote dir="{{ quote.direction }}">
-          <p>{{ quote.text }}</p>
-          {% if quote.note %}<cite dir="auto">{{ quote.note }}</cite>{% endif %}
-          {% if quote.page %}<footer>Page {{ quote.page }}</footer>{% endif %}
-        </blockquote>
-        {% endfor %}
-      </div>
-      {% else %}
-      <p class="book-detail__empty">No linked quotes yet. Save a line you want to return to.</p>
-      {% endif %}
+      <section class="knowledge-subsection" aria-labelledby="quotes-saved-title">
+        <div class="knowledge-subsection__header">
+          <div><span class="eyebrow">Notebook</span><h3 id="quotes-saved-title">Saved lines</h3></div>
+          <div class="candidate-heading-actions">
+            {{ badge(book.quotes|length ~ ' saved') }}
+            <a class="button button--quiet" href="{{ url_for('books.quotes', book_id=book.id) }}">Library view</a>
+          </div>
+        </div>
+        {% if book.quotes %}
+        <div class="quote-list quote-list--quotes">
+          {% for quote in book.quotes %}
+          <article class="quote-entry quote-entry--note" dir="{{ quote.direction }}">
+            <div class="quote-entry__meta">
+              <span class="eyebrow">Manual quote</span>
+              {% if quote.note %}<small dir="auto">{{ quote.note }}</small>{% endif %}
+            </div>
+            <blockquote dir="{{ quote.direction }}">
+              <p>{{ quote.text }}</p>
+            </blockquote>
+            {% if quote.page %}
+            <footer class="quote-entry__footer">
+              <span>Page {{ quote.page }}</span>
+            </footer>
+            {% endif %}
+          </article>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="book-detail__empty">No linked quotes yet. Save a line you want to return to.</p>
+        {% endif %}
+      </section>
 
-      <form class="book-quote-form" method="post" action="{{ url_for('books.add_quote', book_id=book.id) }}">
-        <div class="section-heading"><span class="eyebrow">New note</span><h3>Add a quote</h3></div>
-        <label class="field book-quote-form__text"><span>Quote</span><textarea name="text" rows="4" dir="auto" required></textarea></label>
-        <label class="field"><span>Page</span><input type="number" name="page" min="1"{% if book.page_count %} max="{{ book.page_count }}"{% endif %}></label>
-        <label class="field"><span>Note (optional)</span><input name="note" dir="auto"></label>
-        <button class="button button--secondary" type="submit">Add quote</button>
-      </form>
+      <section class="knowledge-subsection" aria-labelledby="quotes-capture-title">
+        <div class="knowledge-subsection__header">
+          <div><span class="eyebrow">Capture</span><h3 id="quotes-capture-title">Add a quote</h3></div>
+        </div>
+        <form class="book-quote-form" method="post" action="{{ url_for('books.add_quote', book_id=book.id) }}">
+          <label class="field book-quote-form__text"><span>Quote</span><textarea name="text" rows="4" dir="auto" required></textarea></label>
+          <label class="field"><span>Page</span><input type="number" name="page" min="1"{% if book.page_count %} max="{{ book.page_count }}"{% endif %}></label>
+          <label class="field"><span>Note (optional)</span><input name="note" dir="auto"></label>
+          <button class="button button--secondary" type="submit">Add quote</button>
+        </form>
+      </section>
     </section>{% endif %}
+    </main>
   </div>
 </article>
 {% endblock %}

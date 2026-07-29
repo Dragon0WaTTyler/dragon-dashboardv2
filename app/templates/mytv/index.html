@@ -43,12 +43,12 @@
   <span id="healthCount"></span>
 </section>
 
-<nav class="tv-tabs" aria-label="My TV views">
-  <button class="tv-tab" type="button" data-view="watch" aria-selected="true">Watch</button>
-  <button class="tv-tab" type="button" data-view="manage" aria-selected="false">Manage</button>
+<nav class="tv-tabs" aria-label="My TV views" role="tablist">
+  <button class="tv-tab" id="tv-tab-watch" type="button" role="tab" data-view="watch" aria-selected="true" aria-controls="tv-panel-watch" tabindex="0">Watch</button>
+  <button class="tv-tab" id="tv-tab-manage" type="button" role="tab" data-view="manage" aria-selected="false" aria-controls="tv-panel-manage" tabindex="-1">Manage</button>
 </nav>
 
-<section class="tv-panel" data-panel="watch">
+<section class="tv-panel" id="tv-panel-watch" role="tabpanel" aria-labelledby="tv-tab-watch" data-panel="watch">
   <div class="tv-watch-layout">
     <section class="tv-player-shell" aria-labelledby="nowPlayingTitle">
       <div class="tv-player-frame" id="playerFrame">
@@ -103,7 +103,7 @@
   </section>
 </section>
 
-<section class="tv-panel" data-panel="manage" hidden>
+<section class="tv-panel" id="tv-panel-manage" role="tabpanel" aria-labelledby="tv-tab-manage" data-panel="manage" hidden>
   <section class="tv-source-summary" aria-labelledby="sourcesHeading">
     <div>
       <span class="eyebrow">Automatic source</span>

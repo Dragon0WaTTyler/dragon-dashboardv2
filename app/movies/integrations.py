@@ -7,6 +7,8 @@ from urllib.parse import urljoin
 
 import requests
 
+from app.movies.scoring import notion_score_options, score_option_for_input
+
 
 class MediaIntegrationError(RuntimeError):
     """A credential-safe failure from an external movie integration."""
@@ -397,9 +399,7 @@ class JackettReleaseProvider:
         general = [item for item in ranked if item[0] > 0 and item[1] == "general"]
         if mode == "season_pack":
             ranked = season_pack
-        elif mode == "exact_episode":
-            ranked = exact
-        elif exact:
+        elif mode == "exact_episode" or exact:
             ranked = exact
         elif season_pack:
             ranked = season_pack + general
@@ -407,11 +407,17 @@ class JackettReleaseProvider:
             ranked = [item for item in ranked if item[0] > -250]
         results = []
         for score, match_kind, row in ranked[: max(1, min(int(limit), 100))]:
+            profile = _release_profile(row)
             results.append(
                 {
                     **row,
                     "match_kind": match_kind,
                     "match_score": int(score),
+                    "quality_label": profile["quality_label"],
+                    "codec_label": profile["codec_label"],
+                    "playback_label": profile["playback_label"],
+                    "subtitle_label": profile["subtitle_label"],
+                    "release_tags": profile["tags"],
                 }
             )
         return results
@@ -421,6 +427,7 @@ class JackettReleaseProvider:
     ) -> tuple[float, str]:
         title = _normalize_title(row.get("title"))
         score = float(row.get("seeders") or 0) * 12
+        score += _release_profile(row)["score_adjustment"]
         match_kind = "general"
         title_strength = 0
         for variant in match_context.get("title_variants") or []:
@@ -503,7 +510,7 @@ class JackettReleaseProvider:
 
 class NotionMovieProvider:
     VERSION = "2025-09-03"
-    REQUIRED_PROPERTIES = {
+    MOVIE_REQUIRED_PROPERTIES = {
         "TMDB ID": {"number": {}},
         "Media Type": {"select": {}},
         "Season": {"number": {}},
@@ -513,6 +520,37 @@ class NotionMovieProvider:
         "Watched": {"checkbox": {}},
         "Date Watched": {"date": {}},
     }
+    TV_SHOW_REQUIRED_PROPERTIES = {
+        "TMDB ID": {"number": {}},
+        "Media Type": {"select": {}},
+        "Overview": {"rich_text": {}},
+        "Poster URL": {"url": {}},
+        "Year": {"number": {}},
+        "Total Seasons": {"number": {}},
+        "Total Episodes": {"number": {}},
+        "Completed Seasons": {"number": {}},
+        "Watched Episodes": {"number": {}},
+        "Next Episode": {"rich_text": {}},
+        "Status": {"select": {}},
+        "Last Synced": {"date": {}},
+    }
+    TV_EPISODE_REQUIRED_PROPERTIES = {
+        "Show": {"relation": {}},
+        "Show TMDB ID": {"number": {}},
+        "Show Title": {"rich_text": {}},
+        "Season": {"number": {}},
+        "Episode": {"number": {}},
+        "Episode Title": {"rich_text": {}},
+        "Still URL": {"url": {}},
+        "Runtime": {"number": {}},
+        "Watched": {"checkbox": {}},
+        "Progress Percent": {"number": {}},
+        "Exact Magnet": {"rich_text": {}},
+        "Fallback Season Pack Magnet": {"rich_text": {}},
+        "Release Title": {"rich_text": {}},
+        "Release Mode": {"select": {}},
+        "Last Synced": {"date": {}},
+    }
 
     def __init__(
         self,
@@ -520,70 +558,209 @@ class NotionMovieProvider:
         token: str,
         database_id: str = "",
         data_source_id: str = "",
+        tv_show_database_id: str = "",
+        tv_show_data_source_id: str = "",
+        tv_episode_database_id: str = "",
+        tv_episode_data_source_id: str = "",
         session: requests.Session | None = None,
         timeout_seconds: float = 20,
     ) -> None:
         self.token = token.strip()
         self.database_id = database_id.strip().replace("-", "")
-        self._data_source_id = data_source_id.strip().replace("-", "")
+        self._movie_data_source_id = data_source_id.strip().replace("-", "")
+        self.tv_show_database_id = tv_show_database_id.strip().replace("-", "")
+        self._tv_show_data_source_id = tv_show_data_source_id.strip().replace("-", "")
+        self.tv_episode_database_id = tv_episode_database_id.strip().replace("-", "")
+        self._tv_episode_data_source_id = tv_episode_data_source_id.strip().replace("-", "")
         self.session = session or requests.Session()
         self.timeout_seconds = timeout_seconds
-        self._schema: dict[str, dict] | None = None
+        self._schema_cache: dict[str, dict[str, dict]] = {}
 
     @property
     def configured(self) -> bool:
-        return bool(self.token and (self.database_id or self._data_source_id))
+        return bool(
+            self.token
+            and (
+                self.movie_configured
+                or (self.tv_show_configured and self.tv_episode_configured)
+            )
+        )
 
     @property
-    def data_source_id(self) -> str:
-        if self._data_source_id:
-            return self._data_source_id
-        payload = self._request("GET", f"/databases/{self.database_id}")
+    def movie_configured(self) -> bool:
+        return bool(self.database_id or self._movie_data_source_id)
+
+    @property
+    def tv_show_configured(self) -> bool:
+        return bool(self.tv_show_database_id or self._tv_show_data_source_id)
+
+    @property
+    def tv_episode_configured(self) -> bool:
+        return bool(self.tv_episode_database_id or self._tv_episode_data_source_id)
+
+    def _resolve_data_source_id(self, *, database_id: str, explicit_id: str) -> str:
+        if explicit_id:
+            return explicit_id
+        if not database_id:
+            raise MediaIntegrationError("The Notion database has no accessible data source.")
+        payload = self._request("GET", f"/databases/{database_id}")
         sources = payload.get("data_sources") or []
         if not sources:
             raise MediaIntegrationError("The Notion database has no accessible data source.")
-        self._data_source_id = str(sources[0]["id"])
-        return self._data_source_id
+        return str(sources[0]["id"])
 
-    def schema(self, *, refresh: bool = False) -> dict[str, dict]:
-        if self._schema is None or refresh:
-            payload = self._request("GET", f"/data_sources/{self.data_source_id}")
-            self._schema = dict(payload.get("properties") or {})
-        return self._schema
+    @property
+    def data_source_id(self) -> str:
+        self._movie_data_source_id = self._resolve_data_source_id(
+            database_id=self.database_id,
+            explicit_id=self._movie_data_source_id,
+        )
+        return self._movie_data_source_id
 
-    def ensure_writeback_schema(self) -> None:
-        schema = self.schema()
+    @property
+    def tv_show_data_source_id(self) -> str:
+        self._tv_show_data_source_id = self._resolve_data_source_id(
+            database_id=self.tv_show_database_id,
+            explicit_id=self._tv_show_data_source_id,
+        )
+        return self._tv_show_data_source_id
+
+    @property
+    def tv_episode_data_source_id(self) -> str:
+        self._tv_episode_data_source_id = self._resolve_data_source_id(
+            database_id=self.tv_episode_database_id,
+            explicit_id=self._tv_episode_data_source_id,
+        )
+        return self._tv_episode_data_source_id
+
+    def _kind_data_source_id(self, kind: str) -> str:
+        if kind == "movie":
+            return self.data_source_id
+        if kind == "tv_show":
+            return self.tv_show_data_source_id
+        if kind == "tv_episode":
+            return self.tv_episode_data_source_id
+        raise MediaIntegrationError("Unsupported Notion schema kind.")
+
+    def schema(self, *, kind: str = "movie", refresh: bool = False) -> dict[str, dict]:
+        if refresh or kind not in self._schema_cache:
+            payload = self._request("GET", f"/data_sources/{self._kind_data_source_id(kind)}")
+            self._schema_cache[kind] = dict(payload.get("properties") or {})
+        return self._schema_cache[kind]
+
+    def _required_properties(self, kind: str) -> dict[str, dict]:
+        if kind == "movie":
+            return self.MOVIE_REQUIRED_PROPERTIES
+        if kind == "tv_show":
+            return self.TV_SHOW_REQUIRED_PROPERTIES
+        if kind == "tv_episode":
+            return {
+                **self.TV_EPISODE_REQUIRED_PROPERTIES,
+                "Show": {
+                    "relation": {
+                        "data_source_id": self.tv_show_data_source_id,
+                        "type": "single_property",
+                        "single_property": {},
+                    }
+                },
+            }
+        raise MediaIntegrationError("Unsupported Notion schema kind.")
+
+    def ensure_writeback_schema(self, *, kind: str = "movie") -> None:
+        schema = self.schema(kind=kind)
         missing = {
             name: definition
-            for name, definition in self.REQUIRED_PROPERTIES.items()
+            for name, definition in self._required_properties(kind).items()
             if name not in schema
         }
         if not missing:
             return
         self._request(
             "PATCH",
-            f"/data_sources/{self.data_source_id}",
+            f"/data_sources/{self._kind_data_source_id(kind)}",
             json={"properties": missing},
         )
-        self.schema(refresh=True)
+        self.schema(kind=kind, refresh=True)
 
-    def list_items(self) -> list[dict]:
-        if not self.configured:
-            raise MediaIntegrationError("Notion is not configured.")
+    def movie_score_option_labels(self) -> list[str]:
+        definition = self.schema(kind="movie").get("Score /5") or {}
+        if definition.get("type") != "select":
+            return []
+        return [
+            str(option.get("name") or "").strip()
+            for option in (definition.get("select") or {}).get("options") or []
+            if str(option.get("name") or "").strip()
+        ]
+
+    def _list_pages(self, data_source_id: str) -> list[dict]:
         pages = []
         cursor = None
         while True:
             body: dict[str, Any] = {"page_size": 100}
             if cursor:
                 body["start_cursor"] = cursor
-            payload = self._request(
-                "POST", f"/data_sources/{self.data_source_id}/query", json=body
-            )
+            payload = self._request("POST", f"/data_sources/{data_source_id}/query", json=body)
             pages.extend(payload.get("results") or [])
             cursor = payload.get("next_cursor")
             if not payload.get("has_more") or not cursor:
                 break
-        return [self._page_item(page) for page in pages if not page.get("in_trash")]
+        return [page for page in pages if not page.get("in_trash")]
+
+    def list_items(self) -> list[dict]:
+        if not self.configured:
+            raise MediaIntegrationError("Notion is not configured.")
+        items: list[dict] = []
+        legacy_tv_items: list[dict] = []
+        tv_tmdb_ids: set[int] = set()
+
+        if self.movie_configured:
+            for page in self._list_pages(self.data_source_id):
+                item = self._movie_page_item(page)
+                if item["media_type"] == "tv":
+                    legacy_tv_items.append(item)
+                else:
+                    items.append(item)
+
+        if self.tv_show_configured and self.tv_episode_configured:
+            show_pages = [self._tv_show_page_item(page) for page in self._list_pages(self.tv_show_data_source_id)]
+            episode_pages = [
+                self._tv_episode_page_item(page) for page in self._list_pages(self.tv_episode_data_source_id)
+            ]
+            episodes_by_show: dict[int, list[dict]] = {}
+            for episode in episode_pages:
+                show_tmdb_id = int(episode.get("show_tmdb_id") or 0)
+                if show_tmdb_id < 1:
+                    continue
+                episodes_by_show.setdefault(show_tmdb_id, []).append(episode)
+
+            for show in show_pages:
+                tmdb_id = int(show.get("tmdb_id") or 0)
+                tv_tmdb_ids.add(tmdb_id)
+                episode_items = sorted(
+                    episodes_by_show.get(tmdb_id, []),
+                    key=lambda item: (int(item.get("season") or 0), int(item.get("episode") or 0)),
+                )
+                seasons = self._season_summaries(show, episode_items)
+                items.append(
+                    {
+                        **show,
+                        "episode_items": episode_items,
+                        "seasons": seasons,
+                        "tv_total_seasons": len(seasons) or int(show.get("tv_total_seasons") or 0),
+                        "tv_total_episodes": len(episode_items) or int(show.get("tv_total_episodes") or 0),
+                        "tv_show_notion_page_id": show["notion_page_id"],
+                        "tv_show_notion_url": show["notion_url"],
+                    }
+                )
+
+        for item in legacy_tv_items:
+            tmdb_id = int(item.get("tmdb_id") or 0)
+            if tmdb_id and tmdb_id in tv_tmdb_ids:
+                continue
+            item["legacy_notion_page_id"] = item["notion_page_id"]
+            items.append(item)
+
+        return sorted(items, key=lambda item: (str(item.get("title") or "").casefold(), item.get("year") or 0))
 
     def upsert_media(
         self,
@@ -593,9 +770,24 @@ class NotionMovieProvider:
         release_title: str = "",
         season: int | None = None,
         episode: int | None = None,
+        release_mode: str = "episode",
         status: str = "watching",
     ) -> dict:
-        self.ensure_writeback_schema()
+        if (
+            str(media.get("media_type") or "") == "tv"
+            and self.tv_show_configured
+            and self.tv_episode_configured
+        ):
+            return self._upsert_tv_media(
+                media,
+                magnet_uri=magnet_uri,
+                release_title=release_title,
+                season=season,
+                episode=episode,
+                release_mode=release_mode,
+                status=status,
+            )
+        self.ensure_writeback_schema(kind="movie")
         tmdb_id = int(media["tmdb_id"])
         library_items = self.list_items()
         existing = next(
@@ -644,10 +836,158 @@ class NotionMovieProvider:
                     "properties": properties,
                 },
             )
-        return self._page_item(payload)
+        return self._movie_page_item(payload)
+
+    def _upsert_tv_media(
+        self,
+        media: dict,
+        *,
+        magnet_uri: str,
+        release_title: str,
+        season: int | None,
+        episode: int | None,
+        release_mode: str,
+        status: str,
+    ) -> dict:
+        self.ensure_writeback_schema(kind="tv_show")
+        self.ensure_writeback_schema(kind="tv_episode")
+        show_page = self._upsert_tv_show_page(media, status=status)
+        existing_episodes = self._existing_tv_episode_rows(int(media["tmdb_id"]))
+        created_rows: list[dict] = []
+        for season_key, rows in dict(media.get("episodes_by_season") or {}).items():
+            season_number = int(str(season_key))
+            for row in rows or []:
+                created_rows.append(
+                    self._upsert_tv_episode_page(
+                        media,
+                        show_page_id=show_page["notion_page_id"],
+                        episode_data={**row, "season_number": row.get("season_number", season_number)},
+                        existing=existing_episodes.get(
+                            (
+                                int(row.get("season_number") or season_number),
+                                int(row.get("episode_number") or 0),
+                            )
+                        ),
+                    )
+                )
+
+        selected_episode_page = None
+        if season and episode:
+            selected_episode_page = next(
+                (
+                    row
+                    for row in created_rows
+                    if int(row.get("season") or 0) == int(season)
+                    and int(row.get("episode") or 0) == int(episode)
+                ),
+                existing_episodes.get((int(season), int(episode))),
+            )
+            if selected_episode_page:
+                values = {
+                    "Release Title": release_title,
+                    "Release Mode": "Season pack fallback" if release_mode == "season_pack" else "Exact episode",
+                }
+                if magnet_uri:
+                    if release_mode == "season_pack":
+                        values["Fallback Season Pack Magnet"] = magnet_uri
+                    else:
+                        values["Exact Magnet"] = magnet_uri
+                self._request(
+                    "PATCH",
+                    f"/pages/{selected_episode_page['notion_page_id']}",
+                    json={"properties": self._properties(values, kind="tv_episode")},
+                )
+
+        refreshed_show = self._existing_tv_show(int(media["tmdb_id"])) or show_page
+        refreshed_episodes = sorted(
+            self._existing_tv_episode_rows(int(media["tmdb_id"])).values(),
+            key=lambda item: (int(item.get("season") or 0), int(item.get("episode") or 0)),
+        )
+        seasons = self._season_summaries(refreshed_show, refreshed_episodes)
+        return {
+            **refreshed_show,
+            "episode_items": refreshed_episodes,
+            "seasons": seasons,
+            "tv_total_seasons": len(seasons) or int(refreshed_show.get("tv_total_seasons") or 0),
+            "tv_total_episodes": len(refreshed_episodes) or int(refreshed_show.get("tv_total_episodes") or 0),
+            "tv_show_notion_page_id": refreshed_show["notion_page_id"],
+            "tv_show_notion_url": refreshed_show["notion_url"],
+            "selected_episode_page_id": str((selected_episode_page or {}).get("notion_page_id") or ""),
+        }
+
+    def _existing_tv_show(self, tmdb_id: int) -> dict | None:
+        if not (self.tv_show_configured and self.tv_episode_configured):
+            return None
+        for page in self._list_pages(self.tv_show_data_source_id):
+            item = self._tv_show_page_item(page)
+            if int(item.get("tmdb_id") or 0) == int(tmdb_id):
+                return item
+        return None
+
+    def _existing_tv_episode_rows(self, tmdb_id: int) -> dict[tuple[int, int], dict]:
+        rows: dict[tuple[int, int], dict] = {}
+        if not (self.tv_show_configured and self.tv_episode_configured):
+            return rows
+        for page in self._list_pages(self.tv_episode_data_source_id):
+            item = self._tv_episode_page_item(page)
+            if int(item.get("show_tmdb_id") or 0) != int(tmdb_id):
+                continue
+            rows[(int(item.get("season") or 0), int(item.get("episode") or 0))] = item
+        return rows
+
+    def _upsert_tv_show_page(self, media: dict, *, status: str) -> dict:
+        existing = self._existing_tv_show(int(media["tmdb_id"]))
+        properties = self._tv_show_properties(media, status=status)
+        if existing:
+            payload = self._request(
+                "PATCH",
+                f"/pages/{existing['notion_page_id']}",
+                json={"properties": properties},
+            )
+        else:
+            payload = self._request(
+                "POST",
+                "/pages",
+                json={
+                    "parent": {"type": "data_source_id", "data_source_id": self.tv_show_data_source_id},
+                    "properties": properties,
+                },
+            )
+        return self._tv_show_page_item(payload)
+
+    def _upsert_tv_episode_page(
+        self,
+        media: dict,
+        *,
+        show_page_id: str,
+        episode_data: dict,
+        existing: dict | None,
+    ) -> dict:
+        properties = self._tv_episode_properties(
+            media,
+            show_page_id=show_page_id,
+            episode_data=episode_data,
+            existing=existing,
+        )
+        if existing:
+            payload = self._request(
+                "PATCH",
+                f"/pages/{existing['notion_page_id']}",
+                json={"properties": properties},
+            )
+        else:
+            payload = self._request(
+                "POST",
+                "/pages",
+                json={
+                    "parent": {"type": "data_source_id", "data_source_id": self.tv_episode_data_source_id},
+                    "properties": properties,
+                },
+            )
+        return self._tv_episode_page_item(payload)
 
     def mark_watched(self, notion_page_id: str, *, started: bool = False) -> None:
-        self.ensure_writeback_schema()
+        self.ensure_writeback_schema(kind="movie")
         now = datetime.now(UTC).isoformat()
         values = (
             {"watching history": now, "Status": "Not finished"}
@@ -659,7 +999,16 @@ class NotionMovieProvider:
                 "Status": "Finished",
             }
         )
-        properties = self._properties(values)
+        properties = self._properties(values, kind="movie")
+        if properties:
+            self._request(
+                "PATCH",
+                f"/pages/{notion_page_id.replace('-', '')}",
+                json={"properties": properties},
+            )
+
+    def set_score(self, notion_page_id: str, score_label: str | None) -> None:
+        properties = self._properties({"Score /5": score_label}, kind="movie")
         if properties:
             self._request(
                 "PATCH",
@@ -706,20 +1055,78 @@ class NotionMovieProvider:
             values["Magnet Link Used"] = magnet_uri
         if release_title:
             values["Release Title"] = release_title
-        return self._properties(values)
+        return self._properties(values, kind="movie")
 
-    def _properties(self, values: dict[str, Any]) -> dict:
-        schema = self.schema()
+    def _tv_show_properties(self, media: dict, *, status: str) -> dict:
+        seasons = [item for item in list(media.get("seasons") or []) if int(item.get("season_number") or 0) > 0]
+        total_episodes = sum(int(item.get("episode_count") or 0) for item in seasons)
+        values = {
+            "Name": media.get("title"),
+            "TMDB ID": media.get("tmdb_id"),
+            "Media Type": "Series",
+            "Overview": media.get("overview"),
+            "Poster URL": media.get("poster_url"),
+            "Year": media.get("year"),
+            "Total Seasons": len(seasons),
+            "Total Episodes": total_episodes,
+            "Completed Seasons": media.get("completed_seasons_count"),
+            "Watched Episodes": media.get("watched_episodes_count"),
+            "Next Episode": media.get("next_episode_label"),
+            "Status": {
+                "want_to_watch": "Want to watch",
+                "watching": "Watching",
+                "finished": "Finished",
+                "watched": "Watched",
+            }.get(status, "Watching"),
+            "Last Synced": datetime.now(UTC).date().isoformat(),
+        }
+        return self._properties(values, kind="tv_show")
+
+    def _tv_episode_properties(
+        self,
+        media: dict,
+        *,
+        show_page_id: str,
+        episode_data: dict,
+        existing: dict | None,
+    ) -> dict:
+        season_number = int(episode_data.get("season_number") or 0)
+        episode_number = int(episode_data.get("episode_number") or 0)
+        values = {
+            "Name": f"{media.get('title')} S{season_number:02d}E{episode_number:02d}",
+            "Show": {"page_ids": [show_page_id]},
+            "Show TMDB ID": media.get("tmdb_id"),
+            "Show Title": media.get("title"),
+            "Season": season_number,
+            "Episode": episode_number,
+            "Episode Title": episode_data.get("name"),
+            "Still URL": episode_data.get("still_url"),
+            "Runtime": episode_data.get("runtime_minutes") or episode_data.get("runtime"),
+            "Watched": bool((existing or {}).get("watched")),
+            "Progress Percent": (existing or {}).get("progress_percent"),
+            "Exact Magnet": (existing or {}).get("exact_magnet"),
+            "Fallback Season Pack Magnet": (existing or {}).get("fallback_magnet"),
+            "Release Title": (existing or {}).get("release_title"),
+            "Release Mode": (existing or {}).get("release_mode"),
+            "Last Synced": datetime.now(UTC).date().isoformat(),
+        }
+        return self._properties(values, kind="tv_episode")
+
+    def _properties(self, values: dict[str, Any], *, kind: str) -> dict:
+        schema = self.schema(kind=kind)
         properties = {}
         for name, value in values.items():
             definition = schema.get(name)
             if not definition:
                 continue
-            encoded = (
-                self._relation_property(definition, value)
-                if definition.get("type") == "relation"
-                else _encode_notion_property(definition.get("type"), value)
-            )
+            if definition.get("type") == "relation" and isinstance(value, dict) and value.get("page_ids"):
+                encoded = {"relation": [{"id": page_id} for page_id in value["page_ids"]]}
+            else:
+                encoded = (
+                    self._relation_property(definition, value)
+                    if definition.get("type") == "relation"
+                    else _encode_notion_property(definition.get("type"), value)
+                )
             if encoded is not None:
                 properties[name] = encoded
         return properties
@@ -791,7 +1198,7 @@ class NotionMovieProvider:
         )
         return str(created.get("id") or "")
 
-    def _page_item(self, page: dict) -> dict:
+    def _movie_page_item(self, page: dict) -> dict:
         properties = page.get("properties") or {}
         category = str(_decode_notion_property(properties.get("category")) or "")
         media_type_value = str(
@@ -803,7 +1210,11 @@ class NotionMovieProvider:
             or any(token in category.casefold() for token in ("tv", "series", "anime"))
             else "movie"
         )
-        score = _select_number(_decode_notion_property(properties.get("Score /5")))
+        raw_score = _decode_notion_property(properties.get("Score /5"))
+        score_option = score_option_for_input(
+            raw_score,
+            labels=self.movie_score_option_labels() or [option.label for option in notion_score_options()],
+        )
         status = _notion_status(_decode_notion_property(properties.get("Status")))
         watched = bool(_decode_notion_property(properties.get("Watched")))
         if watched:
@@ -831,7 +1242,8 @@ class NotionMovieProvider:
                 _decode_notion_property(properties.get("source")) or "Notion"
             ),
             "status": status,
-            "personal_score": score,
+            "personal_score": score_option.value if score_option else _select_number(raw_score),
+            "personal_score_label": score_option.label if score_option else None,
             "genres": _named_values(
                 _decode_notion_property(properties.get("Genres"))
             ),
@@ -863,6 +1275,120 @@ class NotionMovieProvider:
                 if value
             ],
         }
+
+    def _tv_show_page_item(self, page: dict) -> dict:
+        properties = page.get("properties") or {}
+        return {
+            "notion_page_id": str(page.get("id") or ""),
+            "notion_url": page.get("url"),
+            "last_edited_time": page.get("last_edited_time"),
+            "title": str(_decode_notion_property(properties.get("Name")) or "Untitled"),
+            "year": _optional_int(_decode_notion_property(properties.get("Year"))),
+            "media_type": "tv",
+            "tmdb_id": _optional_int(_decode_notion_property(properties.get("TMDB ID"))),
+            "overview": str(_decode_notion_property(properties.get("Overview")) or ""),
+            "poster_url": str(_decode_notion_property(properties.get("Poster URL")) or ""),
+            "category": "TV Show",
+            "source": "Notion",
+            "status": _notion_status(_decode_notion_property(properties.get("Status"))),
+            "tv_total_seasons": _optional_int(_decode_notion_property(properties.get("Total Seasons"))) or 0,
+            "tv_total_episodes": _optional_int(_decode_notion_property(properties.get("Total Episodes"))) or 0,
+            "completed_seasons_count": _optional_int(_decode_notion_property(properties.get("Completed Seasons"))) or 0,
+            "watched_episodes_count": _optional_int(_decode_notion_property(properties.get("Watched Episodes"))) or 0,
+            "next_episode_label": str(_decode_notion_property(properties.get("Next Episode")) or ""),
+            "playback_sources": [],
+        }
+
+    def _tv_episode_page_item(self, page: dict) -> dict:
+        properties = page.get("properties") or {}
+        notion_page_id = str(page.get("id") or "")
+        season = _optional_int(_decode_notion_property(properties.get("Season")))
+        episode = _optional_int(_decode_notion_property(properties.get("Episode")))
+        exact_magnet = str(_decode_notion_property(properties.get("Exact Magnet")) or "").strip()
+        fallback_magnet = str(
+            _decode_notion_property(properties.get("Fallback Season Pack Magnet")) or ""
+        ).strip()
+        release_title = str(_decode_notion_property(properties.get("Release Title")) or "")
+        items = []
+        if exact_magnet:
+            items.append(
+                {
+                    "kind": "magnet",
+                    "label": f"S{int(season or 0):02d}E{int(episode or 0):02d} Jackett magnet",
+                    "locator": exact_magnet,
+                    "selected": True,
+                    "season": season,
+                    "episode": episode,
+                    "source_role": "exact_episode",
+                    "metadata": {
+                        "origin": "notion",
+                        "release_mode": "episode",
+                        "season": season,
+                        "episode": episode,
+                        "episode_notion_page_id": notion_page_id,
+                        "release_title": release_title,
+                    },
+                }
+            )
+        if fallback_magnet:
+            items.append(
+                {
+                    "kind": "magnet",
+                    "label": f"S{int(season or 0):02d} season pack Jackett magnet",
+                    "locator": fallback_magnet,
+                    "selected": not exact_magnet,
+                    "season": season,
+                    "episode": episode,
+                    "source_role": "season_pack_fallback",
+                    "metadata": {
+                        "origin": "notion",
+                        "release_mode": "season_pack",
+                        "season_pack": True,
+                        "season": season,
+                        "episode": episode,
+                        "episode_notion_page_id": notion_page_id,
+                        "release_title": release_title,
+                    },
+                }
+            )
+        return {
+            "notion_page_id": notion_page_id,
+            "notion_url": page.get("url"),
+            "last_edited_time": page.get("last_edited_time"),
+            "show_tmdb_id": _optional_int(_decode_notion_property(properties.get("Show TMDB ID"))),
+            "show_title": str(_decode_notion_property(properties.get("Show Title")) or ""),
+            "season": season,
+            "episode": episode,
+            "name": str(_decode_notion_property(properties.get("Episode Title")) or ""),
+            "still_url": str(_decode_notion_property(properties.get("Still URL")) or ""),
+            "runtime_minutes": _optional_int(_decode_notion_property(properties.get("Runtime"))),
+            "watched": bool(_decode_notion_property(properties.get("Watched"))),
+            "progress_percent": _optional_int(_decode_notion_property(properties.get("Progress Percent"))),
+            "exact_magnet": exact_magnet,
+            "fallback_magnet": fallback_magnet,
+            "release_title": release_title,
+            "release_mode": str(_decode_notion_property(properties.get("Release Mode")) or "").strip(),
+            "playback_sources": items,
+        }
+
+    def _season_summaries(self, show: dict, episode_items: list[dict]) -> list[dict]:
+        summary: dict[int, dict[str, Any]] = {}
+        for item in episode_items:
+            season = int(item.get("season") or 0)
+            if season < 1:
+                continue
+            bucket = summary.setdefault(
+                season,
+                {
+                    "season_number": season,
+                    "name": f"Season {season}",
+                    "episode_count": 0,
+                    "poster_url": show.get("poster_url") or "",
+                    "air_date": None,
+                },
+            )
+            bucket["episode_count"] += 1
+        return [summary[key] for key in sorted(summary)]
 
     def _request(self, method: str, path: str, **kwargs: Any) -> dict:
         if not self.configured:
@@ -997,6 +1523,82 @@ def _names_text(value: Any) -> str:
 
 def _normalize_title(value: Any) -> str:
     return " ".join(re.sub(r"[^\w]+", " ", str(value or "").casefold()).split())
+
+
+def _release_profile(row: dict[str, Any]) -> dict[str, Any]:
+    title = _normalize_title(row.get("title"))
+    size = _integer(row.get("size"))
+    score_adjustment = 0
+    tags: list[str] = []
+
+    if "2160p" in title or "4k" in title or "uhd" in title:
+        quality_label = "4K"
+        tags.append("4K")
+        score_adjustment += 20
+    elif "1080p" in title:
+        quality_label = "1080p"
+        tags.append("1080p")
+        score_adjustment += 45
+    elif "720p" in title:
+        quality_label = "720p"
+        tags.append("720p")
+        score_adjustment += 18
+    else:
+        quality_label = "Quality unknown"
+
+    if re.search(r"\b(?:cam|hdcam|telesync|ts|tc|hdts)\b", title):
+        tags.append("Poor capture")
+        score_adjustment -= 220
+    if any(token in title for token in ("bluray", "blu ray", "bdrip", "brrip", "remux")):
+        tags.append("BluRay")
+        score_adjustment += 40
+    elif any(token in title for token in ("web dl", "webdl", "webrip", "web rip")):
+        tags.append("WEB")
+        score_adjustment += 30
+
+    if any(token in title for token in ("x265", "h265", "h 265", "hevc", "10bit", "10 bit")):
+        codec_label = "HEVC"
+        playback_label = "Transcode likely"
+        tags.append("HEVC")
+        score_adjustment -= 45
+    elif any(token in title for token in ("x264", "h264", "h 264", "avc")):
+        codec_label = "H.264"
+        playback_label = "Browser friendly"
+        tags.append("H.264")
+        score_adjustment += 35
+    else:
+        codec_label = "Codec unknown"
+        playback_label = "May need transcode"
+
+    subtitle_tokens = ("multi subs", "multisubs", "subbed", "arabic", " ar ", "subs")
+    if any(token in title for token in subtitle_tokens):
+        subtitle_label = "Subtitle signal"
+        tags.append("Subs")
+        score_adjustment += 18
+    elif any(
+        token in title
+        for token in ("bluray", "blu ray", "web dl", "webdl", "webrip", "remux")
+    ):
+        subtitle_label = "Good subtitle fit"
+        score_adjustment += 12
+    else:
+        subtitle_label = "Subtitle fit unknown"
+
+    if quality_label == "1080p" and 900 * 1024**2 <= size <= 8 * 1024**3:
+        score_adjustment += 22
+    if quality_label == "720p" and 500 * 1024**2 <= size <= 4 * 1024**3:
+        score_adjustment += 12
+    if quality_label == "4K" and size and size < 3 * 1024**3:
+        score_adjustment -= 60
+
+    return {
+        "quality_label": quality_label,
+        "codec_label": codec_label,
+        "playback_label": playback_label,
+        "subtitle_label": subtitle_label,
+        "tags": _dedupe_strings(tags)[:5],
+        "score_adjustment": score_adjustment,
+    }
 
 
 def _title_variants(item: dict[str, Any]) -> list[str]:
