@@ -1208,8 +1208,8 @@
     return subtitleRequest;
   };
 
-  const stopLocal = async ({ silent = false } = {}) => {
-    await saveMovieProgress({ force: true });
+  const stopLocal = async ({ silent = false, persistProgress = true } = {}) => {
+    if (persistProgress) await saveMovieProgress({ force: true });
     clearPoll();
     clearVideoPaintCheck();
     window.clearTimeout(progressSaveTimer);
@@ -1848,7 +1848,9 @@
   });
   window.addEventListener("pagehide", () => {
     persistProgressBeforeHide();
-    stopLocal({ silent: true });
+    // Do not await another request before starting the shutdown fetch. During
+    // page unload, that delay can leave the WebTorrent session running.
+    void stopLocal({ silent: true, persistProgress: false });
   });
   void loadSavedProgress();
   syncSourceUi();

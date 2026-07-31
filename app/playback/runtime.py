@@ -21,6 +21,7 @@ from app.shared.ids import new_id
 
 TORRENT_METADATA_HOSTS = {"yts.bz", "yts.gg"}
 MAX_TORRENT_METADATA_BYTES = 2 * 1024 * 1024
+LEGACY_PLAYBACK_SESSION_DIRECTORY = re.compile(r"play_[0-9a-f]{32}$")
 INFO_HASH_PATTERN = re.compile(r"^[a-fA-F0-9]{40}$|^[A-Z2-7a-z2-7]{32}$")
 DIRECT_PLAYBACK_SUFFIXES = {".mp4", ".m4v", ".webm"}
 TRANSCODE_PLAYBACK_SUFFIXES = {".mkv", ".mov", ".avi", ".ts", ".m2ts", ".mpg", ".mpeg"}
@@ -462,12 +463,29 @@ class MagnetPlaybackManager:
                     "modified": modified,
                 }
             )
+        # Early versions stored each session directly under playback-cache as
+        # play_<uuid>.  These entries are no longer used by the runtime, but
+        # would otherwise be invisible to the retention and size policies.
+        for path in self.cache_root.iterdir():
+            if not path.is_dir() or not LEGACY_PLAYBACK_SESSION_DIRECTORY.fullmatch(path.name):
+                continue
+            entries.append(
+                {
+                    "key": path.name,
+                    "data_path": path,
+                    "metadata_path": None,
+                    "bytes": _tree_size(path),
+                    "modified": path.stat().st_mtime,
+                }
+            )
         return entries
 
     @staticmethod
     def _remove_entry(entry: dict[str, object]) -> None:
         shutil.rmtree(entry["data_path"], ignore_errors=True)  # type: ignore[arg-type]
-        Path(entry["metadata_path"]).unlink(missing_ok=True)  # type: ignore[arg-type]
+        metadata_path = entry["metadata_path"]
+        if metadata_path is not None:
+            Path(metadata_path).unlink(missing_ok=True)  # type: ignore[arg-type]
 
     def cleanup_cache(self, *, clear_all_inactive: bool = False) -> dict:
         active = self._active_cache_keys()

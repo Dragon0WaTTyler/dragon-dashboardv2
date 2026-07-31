@@ -211,3 +211,17 @@ def test_cache_cleanup_expires_inactive_entries_but_keeps_active(tmp_path):
     assert not expired.exists()
     assert active.exists()
     manager.stop(started["id"], user_id="user-1")
+
+
+def test_cache_cleanup_expires_legacy_session_directories(tmp_path):
+    manager, _client = manager_for(tmp_path, cache_ttl_hours=1)
+    legacy = manager.cache_root / "play_13fd64ee78b848dfaa18ceee54523cbc"
+    legacy.mkdir(parents=True)
+    (legacy / "movie.mp4").write_bytes(b"old")
+    old = (datetime.now(UTC) - timedelta(hours=2)).timestamp()
+    os.utime(legacy, (old, old))
+    os.utime(legacy / "movie.mp4", (old, old))
+
+    manager.cleanup_cache()
+
+    assert not legacy.exists()
