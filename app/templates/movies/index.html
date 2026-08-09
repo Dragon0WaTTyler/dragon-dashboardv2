@@ -12,11 +12,36 @@
   </div>
   {{ badge(total ~ ' titles', 'accent') }}
 </header>
+<section class="movie-now" aria-labelledby="continue-watching-title">
+  <div class="movie-now__heading">
+    <div><span class="eyebrow">Pick up instantly</span><h2 id="continue-watching-title">Continue watching</h2></div>
+    <a class="button button--quiet" href="{{ url_for('movies.watch_next') }}">See watch next</a>
+  </div>
+  {% if continue_watching %}
+  <div class="movie-now__grid">
+    {% for movie in continue_watching %}
+    <article class="movie-now__item">
+      <a class="movie-now__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">
+        {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="120" height="180">{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+      </a>
+      <div class="movie-now__body">
+        <span class="eyebrow">{{ movie.media_type|title }}{% if movie.progress.season %} · S{{ '%02d'|format(movie.progress.season) }}E{{ '%02d'|format(movie.progress.episode) }}{% endif %}</span>
+        <h3><a href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">{{ movie.title }}</a></h3>
+        <p>{% if movie.progress.remaining_seconds %}{{ (movie.progress.remaining_seconds / 60)|round|int }} min left{% else %}{{ movie.progress.percent }}% watched{% endif %}</p>
+        <progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>
+        <a class="button button--primary" href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">Resume</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="movie-now__empty">Nothing is paused right now. Pick something deliberate from Watch next.</p>
+  {% endif %}
+</section>
 <div class="movie-actions">
-  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index', status='want_to_watch') }}">Watch next</a><a href="{{ url_for('movies.index', status='watching') }}">Continue watching</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a><a href="{{ url_for('movies.index', status='watched', sort='recently_updated') }}">Recently watched</a></nav>
+  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.watch_next') }}">Watch next</a><a href="#continue-watching-title">Continue watching</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a><a href="{{ url_for('movies.index', status='watched', sort='recently_updated') }}">Recently watched</a></nav>
   <div class="movie-actions__controls">
     <button class="button button--secondary movie-actions__add" type="button" data-discovery-open aria-controls="movie-discovery-title" aria-label="Add a movie or series to Notion">+</button>
-    {% if dragon_feature('movies', 'recommendation') %}<button class="button button--primary movie-actions__recommend" type="button" data-recommendation-load aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}
   </div>
 </div>
 
@@ -66,33 +91,20 @@
 
 {% if library_sync_error %}<div class="notice notice--error" role="status">Notion could not refresh. Showing the last locally synced Notion items. {{ library_sync_error }}</div>{% endif %}
 
-{% if dragon_feature('movies', 'recommendation') %}
-<section
-  id="movie-recommendation"
-  class="movie-recommendation"
-  data-movie-recommendation
-  data-endpoint="{{ url_for('api_v1.movie_recommendations') }}"
-  data-details-prefix="{{ url_for('movies.index') }}"
-  data-category="{{ filters.category }}"
-  data-source="{{ filters.source }}"
-  aria-labelledby="movie-recommendation-title"
-  hidden
->
-  <div class="movie-recommendation__status" data-recommendation-status role="status" aria-live="polite">Finding a strong match from your watch-next library…</div>
-  <article class="movie-recommendation__card" data-recommendation-card hidden>
-    <a class="movie-recommendation__poster" data-recommendation-details data-media-frame href="{{ url_for('movies.index') }}">
-      <img data-recommendation-poster data-media-image alt="" width="360" height="540" hidden>
-      <span class="media-fallback" data-recommendation-fallback aria-hidden="true">D</span>
+{% if recommendation %}
+<section id="movie-recommendation" class="movie-recommendation" data-recommendation-card aria-labelledby="movie-recommendation-title">
+  <article class="movie-recommendation__card">
+    <a class="movie-recommendation__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=recommendation.id) }}">
+      {% if recommendation.poster_url %}<img data-media-image src="{{ recommendation.poster_url }}" alt="Poster for {{ recommendation.title }}" width="360" height="540">{% else %}<span class="media-fallback" aria-hidden="true">{{ recommendation.title[:1]|upper }}</span>{% endif %}
     </a>
     <div class="movie-recommendation__body">
-      <span class="eyebrow">Tonight's main pick · <span data-recommendation-confidence>Curated</span></span>
-      <h2 id="movie-recommendation-title"><a data-recommendation-title data-recommendation-details href="{{ url_for('movies.index') }}">Movie recommendation</a></h2>
-      <p class="movie-recommendation__meta" data-recommendation-meta></p>
-      <p class="movie-recommendation__reason" data-recommendation-reason></p>
-      <p class="movie-recommendation__detail" data-recommendation-detail hidden></p>
+      <span class="eyebrow">A quiet pick for tonight · {{ recommendation.recommendation_explanation.confidence }} confidence</span>
+      <h2 id="movie-recommendation-title"><a href="{{ url_for('movies.detail', movie_id=recommendation.id) }}">{{ recommendation.title }}</a></h2>
+      <p class="movie-recommendation__meta">{{ [recommendation.year, recommendation.category, recommendation.genres[:2]|join(' · ')]|select|join(' · ') }}</p>
+      <p class="movie-recommendation__reason">{{ recommendation.recommendation_reason }}</p>
       <div class="movie-recommendation__controls">
-        <a class="button button--primary" data-recommendation-details href="{{ url_for('movies.index') }}">View details</a>
-        <button class="button button--secondary" type="button" data-recommendation-next>Try another</button>
+        <a class="button button--primary" href="{{ url_for('movies.detail', movie_id=recommendation.id) }}">View details</a>
+        <button class="button button--secondary" type="button" data-recommendation-dismiss>Not now</button>
       </div>
     </div>
   </article>
@@ -115,6 +127,10 @@
         <label class="field"><span>Year to</span><input name="year_max" inputmode="numeric" value="{{ filters.year_max or '' }}"></label>
         <label class="field"><span>Score from</span><input name="score_min" inputmode="decimal" value="{{ filters.score_min if filters.score_min is not none else '' }}"></label>
         <label class="field"><span>Score to</span><input name="score_max" inputmode="decimal" value="{{ filters.score_max if filters.score_max is not none else '' }}"></label>
+        <div class="filter-more__mobile-actions">
+          <button class="button button--primary" type="submit">Apply filters</button>
+          <a class="button button--secondary" href="{{ url_for('movies.index') }}">Reset</a>
+        </div>
       </div>
     </details>
     <button class="button button--primary" type="submit">Apply</button>

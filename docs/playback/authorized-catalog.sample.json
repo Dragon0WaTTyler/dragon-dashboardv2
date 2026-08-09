@@ -1,0 +1,28 @@
+{
+  "source_name": "replace-with-your-authorized-catalog-name",
+  "rows": [
+    {
+      "tmdb_id": "REPLACE_WITH_EXACT_MOVIE_TMDB_ID",
+      "media_type": "movie",
+      "provider": "videotube",
+      "provider_asset_id": "REPLACE_WITH_AUTHORIZED_VIDEOTUBE_ASSET_ID",
+      "language": "",
+      "subtitle_languages": ["ar"],
+      "quality": "1080p"
+    },
+    {
+      "imdb_id": "REPLACE_WITH_EXACT_MOVIE_IMDB_ID",
+      "media_type": "movie",
+      "provider": "updown",
+      "provider_asset_id": "REPLACE_WITH_AUTHORIZED_UPDOWN_ASSET_ID"
+    },
+    {
+      "tmdb_id": "REPLACE_WITH_EXACT_TV_TMDB_ID",
+      "media_type": "tv",
+      "season": 1,
+      "episode": 1,
+      "provider": "ok",
+      "provider_asset_id": "REPLACE_WITH_AUTHORIZED_OK_ASSET_ID"
+    }
+  ]
+}

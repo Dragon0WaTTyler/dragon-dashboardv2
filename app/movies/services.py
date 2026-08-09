@@ -73,6 +73,7 @@ def progress_dict(progress: MovieProgress | None) -> dict[str, Any] | None:
         "duration_seconds": progress.duration_seconds,
         "percent": percent,
         "completed": progress.completed,
+        "remaining_seconds": max(0, progress.duration_seconds - progress.current_seconds),
         "updated_at": _utc_json(progress.updated_at),
     }
 
@@ -110,6 +111,7 @@ def movie_item(movie: Movie) -> dict[str, Any]:
         "title": movie.title,
         "media_type": movie.media_type,
         "year": movie.year,
+        "runtime_minutes": movie.runtime_minutes,
         "status": movie.status,
         "personal_score": movie.personal_score,
         "personal_score_label": score_option.label if score_option else None,
@@ -489,6 +491,12 @@ def tv_season_workspace(movie: Movie, *, season_number: int, selected_episode: i
         )
 
     season_progress = min(100, round(watched_count / len(episodes) * 100)) if episodes else 0
+    next_episode = None
+    if selected_episode:
+        next_episode = next(
+            (item for item in episodes if int(item["episode_number"]) > int(selected_episode)),
+            None,
+        )
     return {
         "show": movie_item(movie),
         "catalog": catalog,
@@ -502,6 +510,7 @@ def tv_season_workspace(movie: Movie, *, season_number: int, selected_episode: i
         "episodes": episodes,
         "selected_episode": selected,
         "selected_episode_number": selected_episode,
+        "next_episode": next_episode,
         "resume_target": (
             resume_target
             if resume_target and int(resume_target.get("season") or 0) == int(season_number)

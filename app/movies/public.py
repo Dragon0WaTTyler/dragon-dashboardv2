@@ -26,3 +26,17 @@ def save_playback_external_ids(movie_id: str, values: dict[str, str]) -> dict[st
     movie.external_ids = merged
     db.session.commit()
     return merged
+
+
+def tv_episode_exists(movie_id: str, *, season: int, episode: int) -> bool:
+    movie = MovieRepository.get(movie_id)
+    if movie is None or movie.media_type != "tv":
+        return False
+    episodes = dict(movie.metadata_state or {}).get("tv_episodes") or {}
+    for row in episodes.get(str(season)) or []:
+        try:
+            if int(row.get("episode_number") or 0) == episode:
+                return True
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return False

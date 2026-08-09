@@ -6,7 +6,7 @@ from sqlalchemy import String, cast, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
-from app.movies.models import Movie
+from app.movies.models import Movie, MovieProgress
 
 SORTS = {
     "title_asc": Movie.normalized_title.asc(),
@@ -77,6 +77,33 @@ class MovieRepository:
         order = SORTS.get(str(filters.get("sort") or ""), Movie.updated_at.desc())
         items = list(db.session.scalars(query.order_by(order).limit(limit).offset(offset)))
         return items, total
+
+    @staticmethod
+    def continue_watching(*, limit: int = 6, library_ids: list[str] | None = None) -> list[Movie]:
+        query = (
+            db.select(Movie)
+            .join(MovieProgress, MovieProgress.movie_id == Movie.id)
+            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
+            .where(MovieProgress.current_seconds > 0, MovieProgress.completed.is_(False))
+            .order_by(MovieProgress.updated_at.desc())
+            .limit(limit)
+        )
+        if library_ids is not None:
+            query = query.where(Movie.id.in_(library_ids))
+        return list(db.session.scalars(query).unique())
+
+    @staticmethod
+    def watch_next(*, limit: int = 24, library_ids: list[str] | None = None) -> list[Movie]:
+        query = (
+            db.select(Movie)
+            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
+            .where(Movie.status == "want_to_watch")
+            .order_by(Movie.personal_score.desc().nullslast(), Movie.runtime_minutes.asc().nullslast(), Movie.updated_at.desc())
+            .limit(limit)
+        )
+        if library_ids is not None:
+            query = query.where(Movie.id.in_(library_ids))
+        return list(db.session.scalars(query))
 
     @staticmethod
     def notion_library_ids() -> list[str]:

@@ -7,6 +7,17 @@
   const source = player.querySelector("[data-player-source]");
   const launch = player.querySelector("[data-player-launch]");
   const launchTitle = player.querySelector("[data-player-launch-title]");
+  const launchHint = player.querySelector("[data-player-launch-hint]");
+  const recovery = player.querySelector("[data-player-recovery]");
+  const recoveryMessage = player.querySelector("[data-player-recovery-message]");
+  const inlineRetry = player.querySelector("[data-player-retry-inline]");
+  const inlineFallback = player.querySelector("[data-player-fallback-inline]");
+  const findRelease = player.querySelector("[data-player-find-release]");
+  const externalToolbar = player.querySelector("[data-player-external-toolbar]");
+  const externalCaption = player.querySelector("[data-player-external-caption]");
+  const externalBack = player.querySelector("[data-player-external-back]");
+  const externalReload = player.querySelector("[data-player-external-reload]");
+  const externalOpen = player.querySelector("[data-player-external-open]");
   const badge = player.querySelector("[data-player-badge]");
   const frame = player.querySelector("[data-player-frame]");
   const mediaShell = player.querySelector("[data-player-shell]");
@@ -17,10 +28,23 @@
   const reload = player.querySelector("[data-player-reload]");
   const open = player.querySelector("[data-player-open]");
   const stop = player.querySelector("[data-player-stop]");
+  const retry = player.querySelector("[data-player-retry]");
+  const fallback = player.querySelector("[data-player-fallback]");
+  const markIntro = player.querySelector("[data-player-mark-intro]");
+  const markRecap = player.querySelector("[data-player-mark-recap]");
   const quickToggles = Array.from(player.querySelectorAll("[data-player-quick-toggle]"));
   const quickBack = player.querySelector("[data-player-quick-back]");
   const quickForward = player.querySelector("[data-player-quick-forward]");
+  const skipIntro = player.querySelector("[data-player-skip-intro]");
+  const skipRecap = player.querySelector("[data-player-skip-recap]");
+  const bookmark = player.querySelector("[data-player-bookmark]");
+  const bookmarksList = player.querySelector("[data-player-bookmarks]");
   const quickMute = player.querySelector("[data-player-quick-mute]");
+  const quickPip = player.querySelector("[data-player-quick-pip]");
+  const quickRate = player.querySelector("[data-player-quick-rate]");
+  const audioSelect = player.querySelector("[data-player-audio]");
+  const audioWrap = player.querySelector("[data-player-audio-wrap]");
+  const quickShortcuts = player.querySelector("[data-player-shortcuts]");
   const quickFullscreen = player.querySelector("[data-player-quick-fullscreen]");
   const playerBack = player.querySelector("[data-player-back]");
   const sourceReturn = player.querySelector("[data-player-source-return]");
@@ -31,7 +55,7 @@
   const volume = player.querySelector("[data-player-volume]");
   const timeLabel = player.querySelector("[data-player-time]");
   const captionToggle = player.querySelector("[data-player-caption-toggle]");
-  const netflixEpisode = player.querySelector("[data-player-netflix-episode]");
+  const dragonEpisode = player.querySelector("[data-player-dragon-episode]");
   const subtitleStatus = player.querySelector("[data-subtitle-status]");
   const subtitlePanel = player.querySelector("[data-player-subtitle-panel]");
   const subtitleClose = player.querySelector("[data-player-subtitle-close]");
@@ -64,6 +88,9 @@
   const packHeading = player.querySelector("[data-player-pack-heading]");
   const packEpisode = player.querySelector("[data-player-pack-episode]");
   const packStatus = player.querySelector("[data-player-pack-status]");
+  const nextEpisode = player.querySelector("[data-player-next]");
+  const nextCountdown = player.querySelector("[data-player-next-countdown]");
+  const nextCancel = player.querySelector("[data-player-next-cancel]");
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   const initialParams = new URLSearchParams(window.location.search);
   const subtitlePrefsLegacyKey = "dragon:subtitle-style:v1";
@@ -126,6 +153,8 @@
     },
   };
   let sourceUrl = "";
+  let sourceSandbox = "";
+  let resolvedSourceId = "";
   let localSession = null;
   let pollTimer = 0;
   let activeKind = "";
@@ -150,9 +179,87 @@
   let progressSaveTimer = 0;
   let lastProgressSentAt = 0;
   let progressRequestToken = 0;
+  let nextEpisodeTimer = 0;
+  const playerMarkersKey = `dragon:player-markers:v1:${player.dataset.mediaId || "unknown"}`;
+  let playerMarkers = { intro: null, recap: null, bookmarks: [] };
+  let subtitleOpener = null;
+  const playbackTransitions = {
+    idle: ["preparing", "stopped"],
+    preparing: ["buffering", "failed", "stopped"],
+    buffering: ["playing", "stalled", "failed", "stopped"],
+    playing: ["buffering", "stalled", "failed", "stopped"],
+    stalled: ["buffering", "failed", "stopped"],
+    failed: ["preparing", "stopped"],
+    stopped: ["preparing", "idle"],
+  };
   const effectiveCurrentTime = () => {
     const playbackOffset = Number(localSession?.playbackOffset || 0);
     return playbackOffset + Number(video.currentTime || 0);
+  };
+  const renderBookmarks = () => {
+    if (!bookmarksList) return;
+    const items = playerMarkers.bookmarks.slice(-5).reverse();
+    bookmarksList.hidden = !items.length;
+    bookmarksList.replaceChildren();
+    items.forEach((entry) => {
+      const item = document.createElement("div");
+      item.className = "movie-player__bookmark";
+      const jump = document.createElement("button");
+      jump.type = "button";
+      jump.textContent = `${formatTime(entry.seconds)}${entry.note ? ` · ${entry.note}` : ""}`;
+      jump.addEventListener("click", () => seekRelative(Number(entry.seconds || 0) - effectiveCurrentTime()));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "movie-player__bookmark-remove";
+      remove.setAttribute("aria-label", `Remove bookmark at ${formatTime(entry.seconds)}`);
+      remove.textContent = "×";
+      remove.addEventListener("click", () => {
+        playerMarkers.bookmarks = playerMarkers.bookmarks.filter((candidate) => candidate.createdAt !== entry.createdAt);
+        savePlayerMarkers();
+      });
+      item.append(jump, remove);
+      bookmarksList.append(item);
+    });
+  };
+  const loadPlayerMarkers = () => {
+    try {
+      const stored = JSON.parse(window.localStorage.getItem(playerMarkersKey) || "{}");
+      playerMarkers = {
+        intro: Number(stored.intro) || null,
+        recap: Number(stored.recap) || null,
+        bookmarks: Array.isArray(stored.bookmarks) ? stored.bookmarks.slice(-30) : [],
+      };
+    } catch (_error) {
+      playerMarkers = { intro: null, recap: null, bookmarks: [] };
+    }
+    skipIntro.hidden = !playerMarkers.intro;
+    skipRecap.hidden = !playerMarkers.recap;
+    renderBookmarks();
+  };
+  const savePlayerMarkers = () => {
+    window.localStorage.setItem(playerMarkersKey, JSON.stringify(playerMarkers));
+    loadPlayerMarkers();
+  };
+  const clearNextEpisode = () => {
+    window.clearInterval(nextEpisodeTimer);
+    nextEpisodeTimer = 0;
+    if (nextEpisode) nextEpisode.hidden = true;
+  };
+  const queueNextEpisode = () => {
+    const url = String(player.dataset.nextEpisodeUrl || "").trim();
+    if (!nextEpisode || !url) return;
+    clearNextEpisode();
+    let seconds = 10;
+    nextEpisode.hidden = false;
+    if (nextCountdown) nextCountdown.textContent = String(seconds);
+    nextEpisodeTimer = window.setInterval(() => {
+      seconds -= 1;
+      if (nextCountdown) nextCountdown.textContent = String(Math.max(0, seconds));
+      if (seconds <= 0) {
+        clearNextEpisode();
+        window.location.assign(url);
+      }
+    }, 1000);
   };
   const transcodePlaybackUrl = () => {
     if (!localSession?.transcodeUrl) return "";
@@ -164,8 +271,11 @@
     return url.toString();
   };
 
-  const selectedKind = () => source.selectedOptions[0]?.dataset.kind || "vidsrc";
+  const selectedKind = () => source.selectedOptions[0]?.dataset.kind || "embed";
   const selectedOption = () => source.selectedOptions[0] || null;
+  const selectedProvider = () => selectedOption()?.dataset.provider || "local";
+  const selectedProviderLabel = () => selectedOption()?.dataset.providerLabel || "Local";
+  const selectedEmbedEndpoint = () => selectedOption()?.dataset.embedEndpoint || "";
   const selectedSourceMeta = () => {
     const option = selectedOption();
     if (!option || option.dataset.kind !== "local") return null;
@@ -178,6 +288,11 @@
       episode,
       releaseMode: String(option.dataset.sourceReleaseMode || ""),
       label: option.textContent?.trim() || "Local source",
+      quality: String(option.dataset.sourceQuality || ""),
+      codec: String(option.dataset.sourceCodec || ""),
+      playback: String(option.dataset.sourcePlayback || ""),
+      size: String(option.dataset.sourceSize || ""),
+      hdr: option.dataset.sourceHdr === "true",
     };
   };
   const fillTemplate = (template, values = []) => {
@@ -192,14 +307,18 @@
     if (chromeStatus && message) chromeStatus.textContent = message;
   };
   const setPlayerState = (state, message = "") => {
+    const previous = player.dataset.playbackState || "idle";
+    if (!playbackTransitions[previous]?.includes(state) && previous !== state) {
+      player.dataset.playbackState = "idle";
+    }
     player.dataset.playbackState = state;
     if (activeKind === "local") {
       badge.textContent = `Local · ${state.charAt(0).toUpperCase()}${state.slice(1)}`;
     }
     if (message) setStatus(message);
   };
-  const setWatchMode = (_enabled) => {
-    player.classList.remove("is-watch-mode");
+  const setWatchMode = (enabled) => {
+    player.classList.toggle("is-watch-mode", Boolean(enabled));
   };
   const setSubtitleStatus = (message) => {
     if (!subtitleStatus) return;
@@ -222,8 +341,13 @@
   const sanitizeSubtitlePreferences = (raw, language = "default") => {
     const defaults = defaultSubtitlePreferences(language);
     const merged = { ...defaults, ...(raw && typeof raw === "object" ? raw : {}) };
-    const preset = merged.preset === "custom" || subtitlePresetValues[merged.preset]
-      ? merged.preset
+    const legacyPreset = merged.preset === "dragon-standard"
+      ? "netflix"
+      : merged.preset === "compact"
+        ? "youtube"
+        : merged.preset;
+    const preset = legacyPreset === "custom" || subtitlePresetValues[legacyPreset]
+      ? legacyPreset
       : defaults.preset;
     const font = ["noto-arabic", "cairo", "tajawal", "plex", "inter", "mono"].includes(merged.font)
       ? merged.font
@@ -294,12 +418,35 @@
   const setSubtitlePanelOpen = (open) => {
     subtitlePanelOpen = Boolean(open);
     if (!subtitlePanel) return;
+    if (subtitlePanelOpen && !subtitleOpener) subtitleOpener = document.activeElement;
     subtitlePanel.hidden = !subtitlePanelOpen;
     subtitlePanel.setAttribute("aria-hidden", subtitlePanelOpen ? "false" : "true");
     captionToggle?.setAttribute("aria-pressed", subtitlePanelOpen ? "true" : "false");
     if (subtitlePanelOpen) {
       mediaShell?.setAttribute("data-controls-visible", "true");
       setSubtitleScreen("list");
+      window.requestAnimationFrame(() => subtitleClose?.focus());
+    } else if (subtitleOpener instanceof HTMLElement) {
+      const opener = subtitleOpener;
+      subtitleOpener = null;
+      window.requestAnimationFrame(() => opener.focus());
+    }
+  };
+
+  const trapSubtitlePanelFocus = (event) => {
+    if (!subtitlePanelOpen || event.key !== "Tab" || !subtitlePanel) return;
+    const focusable = Array.from(subtitlePanel.querySelectorAll(
+      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled])",
+    )).filter((element) => !element.hidden);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable.at(-1);
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
     }
   };
   const updateSubtitlePreferenceLabels = () => {
@@ -354,6 +501,16 @@
       + Number(match[4]) / 1000
     );
   };
+  const cleanCaptionText = (value) => String(value || "")
+    .replace(/\\N/gu, "\n")
+    .replace(/\\h/gu, " ")
+    .replace(/\{\\[^}]*\}/gu, "")
+    .replace(/<br\s*\/?\s*>/giu, "\n")
+    .replace(/<\/?[^>]+>/gu, "")
+    .replace(/[\u200E\u200F\u2066-\u2069]/gu, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   const parseWebVttCues = (text) => {
     const lines = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
     const cues = [];
@@ -368,7 +525,7 @@
         cueLines.push(lines[index]);
         index += 1;
       }
-      const cueText = cueLines.join("\n").trim();
+      const cueText = cleanCaptionText(cueLines.join("\n"));
       if (cueText) {
         cues.push({
           startTime: parseTimestamp(startRaw),
@@ -416,8 +573,14 @@
     return querySeason === Number(season || 0) && queryEpisode ? queryEpisode : null;
   };
   const selectedEpisodeScope = () => {
-    if (player.dataset.mediaType !== "tv" || selectedKind() !== "local") {
+    if (player.dataset.mediaType !== "tv") {
       return { season: null, episode: null };
+    }
+    if (selectedKind() === "embed") {
+      return {
+        season: configuredSelectedSeason(),
+        episode: configuredSelectedEpisode(),
+      };
     }
     const meta = selectedSourceMeta();
     if (!meta) return { season: null, episode: null };
@@ -469,8 +632,8 @@
     if (timeLabel) {
       timeLabel.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
     }
-    if (netflixEpisode) {
-      netflixEpisode.textContent = activeSelection.season && activeSelection.episode
+    if (dragonEpisode) {
+      dragonEpisode.textContent = activeSelection.season && activeSelection.episode
         ? `S${String(activeSelection.season).padStart(2, "0")}E${String(activeSelection.episode).padStart(2, "0")}`
         : "";
     }
@@ -478,9 +641,13 @@
   const showControlsBriefly = () => {
     if (!mediaShell) return;
     mediaShell.dataset.controlsVisible = "true";
+    mediaShell.classList.add("is-controls-active");
     window.clearTimeout(controlsHideTimer);
     controlsHideTimer = window.setTimeout(() => {
-      if (!video.paused) mediaShell.dataset.controlsVisible = "false";
+      if (!video.paused) {
+        mediaShell.dataset.controlsVisible = "false";
+        mediaShell.classList.remove("is-controls-active");
+      }
     }, 2200);
   };
   const syncFullscreenChrome = () => {
@@ -503,6 +670,16 @@
     }
     if (volume && Number(volume.value) !== video.volume) volume.value = String(video.volume);
     syncTimeline();
+  };
+  const syncAudioTracks = () => {
+    const tracks = Array.from(video.audioTracks || []);
+    if (!audioSelect || !audioWrap) return;
+    audioSelect.replaceChildren();
+    tracks.forEach((track, index) => {
+      const option = new Option(track.label || track.language || `Audio ${index + 1}`, String(index), track.enabled);
+      audioSelect.add(option);
+    });
+    audioWrap.hidden = tracks.length < 2;
   };
   const currentSubtitleSelection = () => {
     const endpoint = player.dataset.subtitleEndpoint;
@@ -757,7 +934,7 @@
     ).width + 4;
   };
   const captionLines = (value, language) => {
-    const lines = String(value || "")
+    const lines = cleanCaptionText(value)
       .trim()
       .split("\n")
       .map((line) => line.trim())
@@ -1153,7 +1330,7 @@
       return;
     }
     subtitleEntries = items.map((item, index) => {
-      const label = `${item.language_name} · ${item.label}${item.hearing_impaired ? " · HI" : ""}`;
+      const label = `${item.language_name || "Subtitle"} · Track ${index + 1}${item.hearing_impaired ? " · HI" : ""}`;
       const entry = {
         item,
         label,
@@ -1240,17 +1417,27 @@
 
   const resetViewport = () => {
     clearVideoPaintCheck();
+    clearNextEpisode();
     setWatchMode(false);
     activeKind = "";
     sourceUrl = "";
+    sourceSandbox = "";
+    resolvedSourceId = "";
+    frame.removeAttribute("sandbox");
     frame.src = "about:blank";
     frame.hidden = true;
+    if (externalToolbar) externalToolbar.hidden = true;
     if (mediaShell) mediaShell.hidden = true;
     if (captionLayer) captionLayer.hidden = true;
     video.hidden = true;
+    video.controls = false;
     launch.hidden = false;
     launch.disabled = false;
+    if (recovery) recovery.hidden = true;
+    if (launchHint) launchHint.textContent = "Loads only after you press play.";
     controls.hidden = true;
+    if (retry) retry.hidden = true;
+    if (fallback) fallback.hidden = true;
     open.hidden = true;
     stop.hidden = true;
     setSubtitlePanelOpen(false);
@@ -1259,11 +1446,21 @@
   const syncSourceUi = () => {
     const kind = selectedKind();
     const meta = selectedSourceMeta();
-    badge.textContent = kind === "vidsrc" ? "VidSrc" : "Local";
-    launchTitle.textContent = kind === "vidsrc" ? "Play with VidSrc" : "Start local player";
-    if (kind === "vidsrc") {
+    badge.textContent = kind === "embed" ? selectedProviderLabel() : "Local";
+    launchTitle.textContent = kind === "embed" ? `Play with ${selectedProviderLabel()}` : "Start local player";
+    if (launchHint) launchHint.textContent = kind === "embed"
+      ? "Loads only after you press play."
+      : "The magnet starts only after you press play.";
+    if (kind === "embed") {
       hidePackBrowser();
       launch.disabled = false;
+      frame.title = `${selectedProviderLabel()} player`;
+      if (externalToolbar) {
+        externalToolbar.setAttribute("aria-label", `${selectedProviderLabel()} player options`);
+      }
+      if (externalCaption) {
+        externalCaption.textContent = `${selectedProviderLabel()} uses its own controls. Dragon timeline works with Local.`;
+      }
       setStatus("Ready. No external connection has been made.");
     } else if (meta?.seasonPack) {
       void loadPackEpisodes();
@@ -1278,26 +1475,64 @@
       }
     }
     if (subtitleStatus) {
-      if (kind === "vidsrc") {
+      if (kind === "embed") {
         clearSubtitleTracks();
-        setSubtitleStatus("Use VidSrc captions or switch to Local to unlock Dragon subtitle controls.");
+        setSubtitleStatus(`Use ${selectedProviderLabel()} captions or switch to Local to unlock Dragon subtitle controls.`);
       } else if (subtitleOptions === null) {
         setSubtitleStatus("Arabic will be selected first. Open Sub after Local starts to tune font, color, blur, or timing.");
       }
     }
   };
 
-  const showError = (message) => {
+  const showError = (message, { keepViewport = false } = {}) => {
     clearPoll();
     clearVideoPaintCheck();
     setWatchMode(false);
+    setPlayerState("failed", message);
     launch.disabled = false;
-    launch.hidden = false;
+    launch.hidden = true;
+    launchTitle.textContent = activeKind === "embed" ? `Try ${selectedProviderLabel()} again` : "Retry local player";
+    if (launchHint) launchHint.textContent = "Choose another release below if this source is no longer available.";
     frame.hidden = true;
-    if (mediaShell) mediaShell.hidden = true;
-    video.hidden = true;
-    controls.hidden = true;
+    if (externalToolbar) externalToolbar.hidden = true;
+    if (mediaShell) mediaShell.hidden = !keepViewport;
+    video.hidden = !keepViewport;
+    controls.hidden = false;
+    if (recovery) recovery.hidden = false;
+    if (recoveryMessage) recoveryMessage.textContent = message;
+    if (inlineFallback) inlineFallback.hidden = activeKind !== "local" || !fallbackEmbedOption();
+    if (retry) retry.hidden = false;
+    if (fallback) fallback.hidden = activeKind !== "local" || !fallbackEmbedOption();
+    if (stop) stop.hidden = true;
     setStatus(message);
+  };
+
+  const classifyLocalFailure = (message) => {
+    const normalized = String(message || "").toLowerCase();
+    if (normalized.includes("peer") || normalized.includes("torrent stalled")) {
+      return "The torrent has no usable peers right now. Retry, or choose another release.";
+    }
+    if (normalized.includes("decode") || normalized.includes("codec")) {
+      return "This release cannot play in the browser. Dragon will try local transcoding once; otherwise choose another release.";
+    }
+    if (normalized.includes("transcod") || normalized.includes("ffmpeg")) {
+      return "Local transcoding could not start. Choose another release or switch source.";
+    }
+    if (normalized.includes("subtitle")) {
+      return "Playback is still available, but this subtitle track failed. Pick another subtitle or turn subtitles off.";
+    }
+    return "Local playback could not start. Retry, choose another release, or switch source.";
+  };
+
+  const fallbackEmbedOption = () => Array.from(source.querySelectorAll('option[data-kind="embed"]'))
+    .find((option) => option.value !== source.value) || null;
+  const switchToFallbackEmbed = async () => {
+    const embed = fallbackEmbedOption();
+    if (!embed) return;
+    await stopLocal({ silent: true, persistProgress: false });
+    source.value = embed.value;
+    source.dispatchEvent(new Event("change", { bubbles: true }));
+    launch.focus();
   };
 
   const localPlaybackUrl = () => {
@@ -1317,6 +1552,7 @@
     video.src = transcodePlaybackUrl();
     if (mediaShell) mediaShell.hidden = false;
     video.hidden = false;
+    video.controls = false;
     video.preload = "auto";
     setPlayerState("buffering", "Direct playback was not supported. Switching to local transcoding…");
     video.load();
@@ -1358,26 +1594,48 @@
         setPlayerState("buffering", "Audio started but the browser could not render video frames. Switching to local transcoding…");
         return;
       }
-      setPlayerState("failed", "Audio is playing, but the browser still reports 0×0 video frames from the transcoder. Try another release while I tune this path.");
+      const message = classifyLocalFailure("local transcoding did not produce visible frames");
+      showError(message, { keepViewport: true });
     }, localSession.streamKind === "transcode" ? 4000 : 1600);
   };
 
-  const loadVidSrc = () => {
+  const loadEmbed = () => {
     setWatchMode(true);
     frame.hidden = false;
+    if (externalToolbar) externalToolbar.hidden = false;
     if (mediaShell) mediaShell.hidden = true;
+    if (sourceSandbox) frame.setAttribute("sandbox", sourceSandbox);
+    else frame.removeAttribute("sandbox");
     frame.src = sourceUrl;
     launch.hidden = true;
     controls.hidden = false;
+    if (retry) retry.hidden = true;
+    if (fallback) fallback.hidden = true;
     reload.hidden = false;
     open.hidden = false;
     open.href = sourceUrl;
+    if (externalOpen) externalOpen.href = sourceUrl;
     stop.hidden = true;
-    setStatus("VidSrc is loading…");
+    setStatus(`${selectedProviderLabel()} is loading…`);
+  };
+
+  const rememberSelectedEmbedSource = () => {
+    const template = String(player.dataset.sourceSelectedTemplate || "");
+    if (!template || !resolvedSourceId) return;
+    const endpoint = template.replace("source-id", encodeURIComponent(resolvedSourceId));
+    void fetch(endpoint, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { Accept: "application/json", "X-CSRFToken": csrf },
+    });
   };
 
   const renderLocalStatus = (session) => {
     const details = [];
+    const sourceMeta = selectedSourceMeta();
+    [sourceMeta?.quality, sourceMeta?.codec, sourceMeta?.playback, sourceMeta?.size].filter(Boolean).forEach((item) => details.push(item));
+    if (sourceMeta?.hdr) details.push("HDR");
+    if (session.stream_kind) details.push(session.stream_kind === "transcode" ? "local transcode" : "direct stream");
     if (session.file_name) details.push(session.file_name);
     if (session.peers) details.push(`${session.peers} peer${session.peers === 1 ? "" : "s"}`);
     if (session.download_speed) details.push(formatSpeed(session.download_speed));
@@ -1386,7 +1644,8 @@
     const progress = session.buffer_percent ? ` ${session.buffer_percent}% startup buffer.` : "";
     setStatus(`${session.message || "Preparing local stream…"}${progress}${details.length ? ` · ${details.join(" · ")}` : ""}`);
     if (!video.hasAttribute("src")) {
-      setPlayerState(session.state === "ready" ? "buffering" : (session.state || "metadata"));
+      const runtimeState = session.state === "metadata" ? "preparing" : session.state;
+      setPlayerState(runtimeState === "ready" ? "buffering" : (runtimeState || "preparing"));
     }
   };
 
@@ -1437,7 +1696,9 @@
       pollTimer = window.setTimeout(pollLocal, payload.session?.complete ? 5000 : 1000);
     } catch (error) {
       if (localSession !== session) return;
-      showError(String(error?.message || "Local player unavailable"));
+      const message = classifyLocalFailure(String(error?.message || "Local player unavailable"));
+      await stopLocal({ silent: true, persistProgress: false });
+      showError(message);
     }
   };
 
@@ -1478,12 +1739,15 @@
       mediaShell.dataset.controlsVisible = "true";
     }
     video.hidden = false;
+    video.controls = false;
     controls.hidden = false;
+    if (retry) retry.hidden = true;
+    if (fallback) fallback.hidden = true;
     reload.hidden = true;
     open.hidden = true;
     stop.hidden = false;
     renderLocalStatus(payload.session || {});
-    setPlayerState("metadata", "Reading torrent metadata…");
+    setPlayerState("preparing", "Reading torrent metadata…");
     void loadSubtitleOptions();
     pollLocal();
   };
@@ -1570,12 +1834,20 @@
           syncPackLaunchState();
           return;
         }
-        setPlayerState("metadata", "Starting the local WebTorrent runtime…");
+        setPlayerState("preparing", "Starting the local WebTorrent runtime…");
         await startLocal(selection);
         return;
       }
-      setStatus("Preparing VidSrc…");
-      const response = await fetch(player.dataset.vidsrcEndpoint, {
+      setStatus(`Preparing ${selectedProviderLabel()}…`);
+      const embedEndpoint = selectedEmbedEndpoint();
+      if (!embedEndpoint) throw new Error("The selected embed provider is unavailable.");
+      const endpoint = new URL(embedEndpoint, window.location.origin);
+      const scope = selectedEpisodeScope();
+      if (scope.season && scope.episode) {
+        endpoint.searchParams.set("season", String(scope.season));
+        endpoint.searchParams.set("episode", String(scope.episode));
+      }
+      const response = await fetch(endpoint, {
         credentials: "same-origin",
         headers: { Accept: "application/json" },
       });
@@ -1583,15 +1855,18 @@
       if (!response.ok) throw new Error(payload?.error?.message || "source unavailable");
       sourceUrl = String(payload?.source?.url || "").trim();
       if (!sourceUrl) throw new Error("source unavailable");
-      loadVidSrc();
+      sourceSandbox = String(payload?.source?.sandbox || "").trim();
+      resolvedSourceId = String(payload?.source?.source_id || "").trim();
+      loadEmbed();
     } catch (error) {
       showError(String(error?.message || "Playback is unavailable for this movie."));
     }
   });
 
   frame.addEventListener("load", () => {
-    if (activeKind === "vidsrc" && frame.src !== "about:blank") {
-      setStatus("VidSrc loaded. Playback controls are inside the player.");
+    if (activeKind === "embed" && frame.src !== "about:blank") {
+      setStatus(`${selectedProviderLabel()} loaded. Playback controls are inside the player.`);
+      rememberSelectedEmbedSource();
       void reportWatchStarted();
     }
   });
@@ -1599,21 +1874,93 @@
   reload.addEventListener("click", () => {
     if (!sourceUrl) return;
     frame.src = "about:blank";
-    window.setTimeout(loadVidSrc, 0);
+    window.setTimeout(loadEmbed, 0);
   });
+  externalReload?.addEventListener("click", () => reload.click());
+  externalBack?.addEventListener("click", () => { void exitWatchMode(); });
   stop.addEventListener("click", async () => {
     await stopLocal();
     resetViewport();
     syncSourceUi();
+  });
+  nextCancel?.addEventListener("click", clearNextEpisode);
+  const retryLocalPlayer = async () => {
+    await stopLocal({ silent: true, persistProgress: false });
+    resetViewport();
+    syncSourceUi();
+    launch.click();
+  };
+  retry?.addEventListener("click", retryLocalPlayer);
+  inlineRetry?.addEventListener("click", retryLocalPlayer);
+  fallback?.addEventListener("click", () => { void switchToFallbackEmbed(); });
+  inlineFallback?.addEventListener("click", () => { void switchToFallbackEmbed(); });
+  findRelease?.addEventListener("click", () => {
+    const browser = document.querySelector("[data-inline-release-browser]");
+    if (!browser) return;
+    if (browser instanceof HTMLDetailsElement) browser.open = true;
+    browser.scrollIntoView({ behavior: "smooth", block: "start" });
+    window.setTimeout(() => (browser.querySelector("[data-release-load]") || browser.querySelector("button"))?.focus(), 260);
   });
   playerBack?.addEventListener("click", () => { void exitWatchMode(); });
   sourceReturn?.addEventListener("click", () => { void exitWatchMode(); });
   quickToggles.forEach((button) => button.addEventListener("click", togglePlayback));
   quickBack?.addEventListener("click", () => seekRelative(-10));
   quickForward?.addEventListener("click", () => seekRelative(10));
+  skipIntro?.addEventListener("click", () => {
+    if (playerMarkers.intro) seekRelative(playerMarkers.intro - effectiveCurrentTime());
+  });
+  skipRecap?.addEventListener("click", () => {
+    if (playerMarkers.recap) seekRelative(playerMarkers.recap - effectiveCurrentTime());
+  });
+  markIntro?.addEventListener("click", () => {
+    playerMarkers.intro = Math.round(effectiveCurrentTime());
+    savePlayerMarkers();
+    setStatus(`Intro point saved at ${formatTime(playerMarkers.intro)}.`);
+  });
+  markRecap?.addEventListener("click", () => {
+    playerMarkers.recap = Math.round(effectiveCurrentTime());
+    savePlayerMarkers();
+    setStatus(`Recap point saved at ${formatTime(playerMarkers.recap)}.`);
+  });
+  bookmark?.addEventListener("click", () => {
+    const seconds = Math.round(effectiveCurrentTime());
+    const note = window.prompt("Bookmark note (optional)", "") || "";
+    playerMarkers.bookmarks.push({ seconds, note: note.slice(0, 180), createdAt: Date.now() });
+    savePlayerMarkers();
+    setStatus(`Bookmark saved at ${formatTime(seconds)}${note ? ` · ${note}` : ""}.`);
+    showControlsBriefly();
+  });
   quickMute?.addEventListener("click", () => {
     video.muted = !video.muted;
     syncQuickControls();
+    showControlsBriefly();
+  });
+  quickRate?.addEventListener("change", () => {
+    const rate = Number(quickRate.value || 1);
+    if (Number.isFinite(rate) && rate > 0) video.playbackRate = rate;
+    showControlsBriefly();
+  });
+  audioSelect?.addEventListener("change", () => {
+    const tracks = Array.from(video.audioTracks || []);
+    const selected = Number(audioSelect.value);
+    tracks.forEach((track, index) => { track.enabled = index === selected; });
+    showControlsBriefly();
+  });
+  quickPip?.addEventListener("click", async () => {
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture?.();
+      else if (document.pictureInPictureEnabled && !video.disablePictureInPicture) {
+        await video.requestPictureInPicture?.();
+      } else {
+        setStatus("Picture-in-Picture is not available in this browser or source.");
+      }
+    } catch (_error) {
+      setStatus("Picture-in-Picture could not start for this source.");
+    }
+    showControlsBriefly();
+  });
+  quickShortcuts?.addEventListener("click", () => {
+    setStatus("Shortcuts: Space play/pause · ←/→ seek 10s · M mute · F fullscreen · C subtitles · Esc exit player.");
     showControlsBriefly();
   });
   volume?.addEventListener("input", () => {
@@ -1728,7 +2075,10 @@
     showControlsBriefly();
   });
   document.addEventListener("fullscreenchange", syncFullscreenChrome);
-  mediaShell?.addEventListener("mousemove", showControlsBriefly);
+  mediaShell?.addEventListener("pointerenter", showControlsBriefly);
+  mediaShell?.addEventListener("pointermove", showControlsBriefly);
+  mediaShell?.addEventListener("touchstart", showControlsBriefly, { passive: true });
+  mediaShell?.addEventListener("focusin", showControlsBriefly);
   mediaShell?.addEventListener("click", (event) => {
     if (event.target.closest?.("[data-player-subtitle-panel]")) return;
     if (event.target.closest?.("button,input,select,a")) return;
@@ -1753,6 +2103,7 @@
     }
     if (activeKind === "local") scheduleVideoPaintCheck();
     syncTimeline();
+    syncAudioTracks();
     renderActiveCaption();
   });
   video.addEventListener("loadeddata", () => {
@@ -1775,7 +2126,13 @@
     if (activeKind === "local") setPlayerState("buffering", "Buffering requested torrent pieces…");
   });
   video.addEventListener("stalled", () => {
-    if (activeKind === "local") setPlayerState("stalled", "The torrent stalled. Waiting for peers; VidSrc remains available as fallback.");
+    if (activeKind !== "local") return;
+    setPlayerState("stalled", "The torrent stalled. Waiting briefly for peers before offering recovery options.");
+    window.setTimeout(() => {
+      if (activeKind === "local" && player.dataset.playbackState === "stalled") {
+        showError(classifyLocalFailure("torrent stalled"));
+      }
+    }, 3000);
   });
   video.addEventListener("playing", () => {
     if (activeKind === "local") {
@@ -1795,19 +2152,22 @@
     renderActiveCaption();
     void saveMovieProgress({ force: true });
   });
+  video.addEventListener("ended", () => {
+    void saveMovieProgress({ force: true });
+    queueNextEpisode();
+  });
   video.addEventListener("volumechange", syncQuickControls);
   video.addEventListener("error", () => {
     if (activeKind !== "local") return;
     const codecFailure = video.error?.code === window.MediaError?.MEDIA_ERR_DECODE;
     if (localSession?.streamKind !== "transcode" && switchLocalToTranscode()) return;
-    setPlayerState(
-      "failed",
-      codecFailure
-        ? "This codec is not supported by the browser. Switch to VidSrc."
-        : "Local playback failed or peers are unavailable. Switch to VidSrc as fallback.",
+    const message = classifyLocalFailure(
+      codecFailure ? "browser codec decode failure" : "video frames did not arrive",
     );
+    showError(message, { keepViewport: true });
   });
   document.addEventListener("keydown", (event) => {
+    trapSubtitlePanelFocus(event);
     if (event.key === "Escape" && subtitlePanelOpen) {
       setSubtitlePanelOpen(false);
       return;
@@ -1832,12 +2192,16 @@
     } else if (event.key.toLowerCase() === "f") {
       event.preventDefault();
       quickFullscreen?.click();
+    } else if (event.key.toLowerCase() === "c") {
+      event.preventDefault();
+      captionToggle?.click();
     } else if (event.key === "Escape") {
       event.preventDefault();
       void exitWatchMode();
     }
   });
   loadSubtitlePreferences();
+  loadPlayerMarkers();
   updateSubtitlePreferenceLabels();
   syncEpisodeUrl({ replace: true });
   const persistProgressBeforeHide = () => {

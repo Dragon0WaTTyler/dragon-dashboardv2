@@ -117,6 +117,7 @@ class PlaybackSession:
     state: str = "metadata"
     message: str = "Reading torrent metadata…"
     file_name: str = ""
+    relative_path: str = ""
     total_bytes: int = 0
     downloaded_bytes: int = 0
     file_progress: float = 0.0
@@ -342,6 +343,7 @@ class MagnetPlaybackManager:
 
     def _apply_runtime_status(self, session: PlaybackSession, result: dict) -> None:
         session.file_name = str(result.get("fileName") or "")
+        session.relative_path = str(result.get("relativePath") or "")
         session.total_bytes = max(0, int(result.get("totalBytes") or 0))
         session.downloaded_bytes = max(0, int(result.get("downloadedBytes") or 0))
         session.file_progress = min(1.0, max(0.0, float(result.get("fileProgress") or 0)))
@@ -377,6 +379,33 @@ class MagnetPlaybackManager:
             session.state = "metadata"
             session.message = "Selecting the best video file from this torrent…"
         session.updated_at = datetime.now(UTC)
+
+    def transcode_path(self, session_id: str, *, user_id: str) -> Path | None:
+        """Return a safe completed cache file, keeping partial torrents on HTTP."""
+        with self._lock:
+            session = self._get(session_id)
+            self._owns(session, user_id=user_id)
+            if not session.complete or not session.relative_path or not session.total_bytes:
+                return None
+            candidate = (session.root / session.relative_path).resolve()
+            try:
+                candidate.relative_to(session.root)
+            except ValueError:
+                return None
+            try:
+                if candidate.is_file() and candidate.stat().st_size >= session.total_bytes:
+                    return candidate
+            except OSError:
+                return None
+            return None
+
+    def fail(self, session_id: str, *, user_id: str, message: str) -> None:
+        with self._lock:
+            session = self._get(session_id)
+            self._owns(session, user_id=user_id)
+            session.state = "failed"
+            session.message = str(message or "Local transcoding failed.")[:500]
+            session.updated_at = datetime.now(UTC)
 
     def status(self, session_id: str, *, user_id: str) -> dict:
         with self._lock:

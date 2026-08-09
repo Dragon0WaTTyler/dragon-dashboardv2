@@ -1,0 +1,30 @@
+{% extends "layouts/app.html" %}
+{% block title %}Playback settings · Dragon{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
+<section class="detail-section" aria-labelledby="playback-settings-title">
+  <span class="eyebrow">Playback</span>
+  <h1 id="playback-settings-title">Provider settings</h1>
+  <p class="muted">Enable the providers you trust and set their default order. A provider still needs its feature configuration and authorized mappings before it can play.</p>
+</section>
+{% if providers %}
+  {% for provider in providers %}
+  <section class="detail-section" aria-labelledby="provider-{{ provider.key }}">
+    <form method="post" action="{{ url_for('playback_settings.update_provider', provider=provider.key) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="movie-release-browser__header">
+        <div><span class="eyebrow">{{ provider.key }}</span><h2 id="provider-{{ provider.key }}">{{ provider.label }}</h2></div>
+        <label><input type="checkbox" name="enabled"{% if provider.enabled %} checked{% endif %}> Enabled</label>
+      </div>
+      <div class="definition-grid">
+        <label class="field"><span>Priority</span><input type="number" name="priority" min="0" max="10000" value="{{ provider.priority }}"><small>Lower values appear first.</small></label>
+        <label class="field"><span>Availability checks</span><span><input type="checkbox" name="background_checks"{% if provider.background_checks %} checked{% endif %}> Allow optional background checks</span><small>Off by default to preserve the no-request-on-detail-page rule.</small></label>
+      </div>
+      <p><button class="button button--primary" type="submit">Save {{ provider.label }}</button></p>
+    </form>
+  </section>
+  {% endfor %}
+{% else %}
+  <section class="detail-section"><p>No direct playback provider is configured.</p></section>
+{% endif %}
+{% endblock %}

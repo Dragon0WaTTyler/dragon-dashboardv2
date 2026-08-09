@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
+from app.playback.providers import validate_indexed_embed_url_template
+
 TRUE_VALUES = {"1", "true", "yes", "on"}
 FALSE_VALUES = {"0", "false", "no", "off"}
 
@@ -82,6 +84,22 @@ class Settings:
     playback_enabled: bool
     vidsrc_enabled: bool
     vidsrc_embed_url: str
+    videotube_enabled: bool
+    videotube_embed_url: str
+    updown_enabled: bool
+    updown_embed_url: str
+    streamwish_enabled: bool
+    streamwish_embed_url: str
+    doodstream_enabled: bool
+    doodstream_embed_url: str
+    filelions_enabled: bool
+    filelions_embed_url: str
+    ok_enabled: bool
+    ok_embed_url: str
+    streamtape_enabled: bool
+    streamtape_embed_url: str
+    lulustream_enabled: bool
+    lulustream_embed_url: str
     tmdb_api_key: str
     tmdb_read_access_token: str
     jackett_url: str
@@ -193,6 +211,25 @@ class Settings:
             ),
             name="DRAGON_VIDSRC_EMBED_URL",
         )
+
+        def optional_indexed_embed_url(provider_key: str) -> str:
+            config_key = f"{provider_key.upper()}_EMBED_URL"
+            raw = str(
+                override_map.get(config_key)
+                or override_map.get(f"DRAGON_{config_key}")
+                or os.getenv(f"DRAGON_{config_key}", "")
+                or _private_setting(instance_root, f"{provider_key}_embed_url")
+            ).strip()
+            return validate_indexed_embed_url_template(provider_key, raw) if raw else ""
+
+        videotube_embed_url = optional_indexed_embed_url("videotube")
+        updown_embed_url = optional_indexed_embed_url("updown")
+        streamwish_embed_url = optional_indexed_embed_url("streamwish")
+        doodstream_embed_url = optional_indexed_embed_url("doodstream")
+        filelions_embed_url = optional_indexed_embed_url("filelions")
+        ok_embed_url = optional_indexed_embed_url("ok")
+        streamtape_embed_url = optional_indexed_embed_url("streamtape")
+        lulustream_embed_url = optional_indexed_embed_url("lulustream")
         tmdb_api_key = str(
             override_map.get("TMDB_API_KEY")
             or override_map.get("DRAGON_TMDB_API_KEY")
@@ -303,12 +340,16 @@ class Settings:
             or os.getenv("DRAGON_WYZIE_API_KEY", "")
             or _private_setting(instance_root, "wyzie_api_key")
         ).strip()
-        subtitle_provider = str(
-            override_map.get("SUBTITLE_PROVIDER")
-            or override_map.get("DRAGON_SUBTITLE_PROVIDER")
-            or os.getenv("DRAGON_SUBTITLE_PROVIDER", "")
-            or "auto"
-        ).strip().lower()
+        subtitle_provider = (
+            str(
+                override_map.get("SUBTITLE_PROVIDER")
+                or override_map.get("DRAGON_SUBTITLE_PROVIDER")
+                or os.getenv("DRAGON_SUBTITLE_PROVIDER", "")
+                or "auto"
+            )
+            .strip()
+            .lower()
+        )
         if subtitle_provider not in {"auto", "wyzie", "subdl"}:
             raise ValueError("DRAGON_SUBTITLE_PROVIDER must be auto, wyzie, or subdl.")
         wyzie_base_url = _service_base_url(
@@ -336,13 +377,27 @@ class Settings:
             playback_enabled=feature("PLAYBACK_ENABLED", False),
             vidsrc_enabled=feature("VIDSRC_ENABLED", False),
             vidsrc_embed_url=vidsrc_embed_url,
+            videotube_enabled=feature("VIDEOTUBE_ENABLED", False),
+            videotube_embed_url=videotube_embed_url,
+            updown_enabled=feature("UPDOWN_ENABLED", False),
+            updown_embed_url=updown_embed_url,
+            streamwish_enabled=feature("STREAMWISH_ENABLED", False),
+            streamwish_embed_url=streamwish_embed_url,
+            doodstream_enabled=feature("DOODSTREAM_ENABLED", False),
+            doodstream_embed_url=doodstream_embed_url,
+            filelions_enabled=feature("FILELIONS_ENABLED", False),
+            filelions_embed_url=filelions_embed_url,
+            ok_enabled=feature("OK_ENABLED", False),
+            ok_embed_url=ok_embed_url,
+            streamtape_enabled=feature("STREAMTAPE_ENABLED", False),
+            streamtape_embed_url=streamtape_embed_url,
+            lulustream_enabled=feature("LULUSTREAM_ENABLED", False),
+            lulustream_embed_url=lulustream_embed_url,
             tmdb_api_key=tmdb_api_key,
             tmdb_read_access_token=tmdb_read_access_token,
             jackett_url=jackett_url,
             jackett_api_key=jackett_api_key,
-            jackett_min_seeders=positive_integer(
-                "JACKETT_MIN_SEEDERS", 5, maximum=100000
-            ),
+            jackett_min_seeders=positive_integer("JACKETT_MIN_SEEDERS", 5, maximum=100000),
             magnets_enabled=feature("MAGNETS_ENABLED", False),
             playback_cache_gb=positive_integer("PLAYBACK_CACHE_GB", 10, maximum=1000),
             playback_cache_ttl_hours=positive_integer(
@@ -387,9 +442,7 @@ class Settings:
             notion_tv_show_data_source_id=notion_tv_show_data_source_id,
             notion_tv_episode_database_id=notion_tv_episode_database_id,
             notion_tv_episode_data_source_id=notion_tv_episode_data_source_id,
-            notion_sync_ttl_seconds=positive_integer(
-                "NOTION_SYNC_TTL_SECONDS", 120, maximum=86400
-            ),
+            notion_sync_ttl_seconds=positive_integer("NOTION_SYNC_TTL_SECONDS", 120, maximum=86400),
             youtube_delete_enabled=feature("YOUTUBE_DELETE_ENABLED", False),
             youtube_sync_enabled=feature(
                 "YOUTUBE_SYNC_ENABLED",
@@ -418,6 +471,22 @@ class Settings:
             "DRAGON_PLAYBACK_ENABLED": self.playback_enabled,
             "DRAGON_VIDSRC_ENABLED": self.vidsrc_enabled,
             "DRAGON_VIDSRC_EMBED_URL": self.vidsrc_embed_url,
+            "DRAGON_VIDEOTUBE_ENABLED": self.videotube_enabled,
+            "DRAGON_VIDEOTUBE_EMBED_URL": self.videotube_embed_url,
+            "DRAGON_UPDOWN_ENABLED": self.updown_enabled,
+            "DRAGON_UPDOWN_EMBED_URL": self.updown_embed_url,
+            "DRAGON_STREAMWISH_ENABLED": self.streamwish_enabled,
+            "DRAGON_STREAMWISH_EMBED_URL": self.streamwish_embed_url,
+            "DRAGON_DOODSTREAM_ENABLED": self.doodstream_enabled,
+            "DRAGON_DOODSTREAM_EMBED_URL": self.doodstream_embed_url,
+            "DRAGON_FILELIONS_ENABLED": self.filelions_enabled,
+            "DRAGON_FILELIONS_EMBED_URL": self.filelions_embed_url,
+            "DRAGON_OK_ENABLED": self.ok_enabled,
+            "DRAGON_OK_EMBED_URL": self.ok_embed_url,
+            "DRAGON_STREAMTAPE_ENABLED": self.streamtape_enabled,
+            "DRAGON_STREAMTAPE_EMBED_URL": self.streamtape_embed_url,
+            "DRAGON_LULUSTREAM_ENABLED": self.lulustream_enabled,
+            "DRAGON_LULUSTREAM_EMBED_URL": self.lulustream_embed_url,
             "DRAGON_TMDB_API_KEY": self.tmdb_api_key,
             "DRAGON_TMDB_READ_ACCESS_TOKEN": self.tmdb_read_access_token,
             "DRAGON_JACKETT_URL": self.jackett_url,
@@ -463,6 +532,14 @@ class Settings:
             "youtube_api_key",
             "youtube_watch_later_playlist_id",
             "vidsrc_embed_url",
+            "videotube_embed_url",
+            "updown_embed_url",
+            "streamwish_embed_url",
+            "doodstream_embed_url",
+            "filelions_embed_url",
+            "ok_embed_url",
+            "streamtape_embed_url",
+            "lulustream_embed_url",
             "tmdb_api_key",
             "tmdb_read_access_token",
             "jackett_url",

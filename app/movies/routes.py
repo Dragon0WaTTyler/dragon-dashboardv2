@@ -25,13 +25,83 @@ from app.movies.external_library import (
     writeback_watch,
 )
 from app.movies.integrations import MediaIntegrationError
-from app.movies.scoring import notion_score_options, score_option_for_input
+from app.movies.models import Movie
 from app.movies.repositories import MovieRepository
-from app.movies.services import MovieService, movie_detail, movie_item, parse_movie_filters
-from app.movies.services import tv_season_workspace, tv_show_workspace
+from app.movies.scoring import notion_score_options, score_option_for_input
+from app.movies.services import (
+    MovieService,
+    movie_detail,
+    movie_item,
+    parse_movie_filters,
+    tv_season_workspace,
+    tv_show_workspace,
+)
+from app.playback.providers import build_provider_registry_from_config
 from app.playback.services import PlaybackService
 
 bp = Blueprint("movies", __name__, url_prefix="/movies")
+
+
+def _enabled_indexed_embed_providers() -> frozenset[str]:
+    registry = build_provider_registry_from_config(current_app.config)
+    return PlaybackService.enabled_provider_keys(registry.keys() - {"vidsrc"})
+
+
+def _provider_priorities() -> dict[str, int]:
+    registry = build_provider_registry_from_config(current_app.config)
+    return {
+        key: int(preference["priority"])
+        for key, preference in PlaybackService.provider_preferences(registry.keys()).items()
+    }
+
+
+def _indexed_provider_options() -> list[dict[str, str]]:
+    registry = build_provider_registry_from_config(current_app.config)
+    enabled_keys = PlaybackService.enabled_provider_keys(registry.keys() - {"vidsrc"})
+    return [
+        {"key": key, "label": registry.require(key).display_name} for key in sorted(enabled_keys)
+    ]
+
+
+def _vidsrc_is_usable_candidate(movie: Movie) -> bool:
+    external_ids = dict(movie.external_ids or {})
+    return bool(
+        current_app.config["DRAGON_PLAYBACK_ENABLED"]
+        and current_app.config["DRAGON_VIDSRC_ENABLED"]
+        and "vidsrc" in PlaybackService.enabled_provider_keys({"vidsrc"})
+        and (external_ids.get("imdb_id") or external_ids.get("tmdb_id"))
+    )
+
+
+def _jackett_is_eligible(
+    movie: Movie,
+    *,
+    indexed_embed_sources: list[dict],
+    player_sources: list[dict],
+) -> bool:
+    return bool(
+        not _vidsrc_is_usable_candidate(movie) and not indexed_embed_sources and not player_sources
+    )
+
+
+def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> list[dict]:
+    priorities = _provider_priorities()
+    sources: list[dict] = []
+    if _vidsrc_is_usable_candidate(movie):
+        sources.append(
+            {
+                "id": "vidsrc",
+                "provider": "vidsrc",
+                "label": "VidSrc",
+                "quality": "",
+                "priority": priorities.get("vidsrc", 100),
+            }
+        )
+    sources.extend(dict(item) for item in indexed_embed_sources)
+    return sorted(
+        sources,
+        key=lambda source: priorities.get(source["provider"], 100),
+    )
 
 
 def _positive_int(value: str | None, default: int, maximum: int) -> int:
@@ -68,6 +138,14 @@ def index():
         offset=offset,
         library_ids=library_sync.library_ids,
     )
+    recommendation = next(
+        iter(
+            MovieService.recommendation_pool(
+                category=filters["category"], source=filters["source"]
+            )["items"]
+        ),
+        None,
+    )
     return render_template(
         "movies/index.html",
         active_module="movies",
@@ -80,6 +158,24 @@ def index():
         total=total,
         has_previous=page > 1,
         has_next=offset + len(movies) < total,
+        library_sync_error=library_sync.error,
+        continue_watching=[
+            movie_item(movie)
+            for movie in MovieRepository.continue_watching(library_ids=library_sync.library_ids)
+        ],
+        recommendation=recommendation,
+    )
+
+
+@bp.get("/watch-next")
+@login_required
+def watch_next():
+    library_sync = sync_notion_library()
+    movies = MovieRepository.watch_next(limit=100, library_ids=library_sync.library_ids)
+    return render_template(
+        "movies/watch_next.html",
+        active_module="movies",
+        movies=[movie_item(movie) for movie in movies],
         library_sync_error=library_sync.error,
     )
 
@@ -256,22 +352,36 @@ def detail(movie_id: str):
         local_player_enabled
         and current_app.config["DRAGON_SUBTITLES_ENABLED"]
         and bool(
-            current_app.config["DRAGON_WYZIE_API_KEY"]
-            or current_app.config["DRAGON_SUBDL_API_KEY"]
+            current_app.config["DRAGON_WYZIE_API_KEY"] or current_app.config["DRAGON_SUBDL_API_KEY"]
         )
     )
+    indexed_embed_sources = PlaybackService.indexed_embed_sources(
+        movie_id,
+        enabled_providers=_enabled_indexed_embed_providers(),
+        provider_priorities=_provider_priorities(),
+    )
+    player_sources = PlaybackService.player_sources(movie_id) if local_player_enabled else []
+    last_selected_source = PlaybackService.last_selected_source(movie_id)
+    embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
     return render_template(
         "movies/detail.html",
         active_module="movies",
         movie=movie_detail(movie),
         score_options=_movie_score_options(),
-        vidsrc_enabled=(
-            current_app.config["DRAGON_PLAYBACK_ENABLED"]
-            and current_app.config["DRAGON_VIDSRC_ENABLED"]
-        ),
+        vidsrc_enabled=_vidsrc_is_usable_candidate(movie),
         local_player_enabled=local_player_enabled,
         subtitles_enabled=subtitles_enabled,
-        player_sources=PlaybackService.player_sources(movie_id) if local_player_enabled else [],
+        player_sources=player_sources,
+        indexed_embed_sources=indexed_embed_sources,
+        embed_player_sources=embed_player_sources,
+        indexed_provider_options=_indexed_provider_options(),
+        last_selected_source_id=last_selected_source.id if last_selected_source else "",
+        last_selected_provider=last_selected_source.provider if last_selected_source else "",
+        jackett_eligible=_jackett_is_eligible(
+            movie,
+            indexed_embed_sources=indexed_embed_sources,
+            player_sources=player_sources,
+        ),
     )
 
 
@@ -294,11 +404,12 @@ def tv_season(movie_id: str, season_number: int):
         local_player_enabled
         and current_app.config["DRAGON_SUBTITLES_ENABLED"]
         and bool(
-            current_app.config["DRAGON_WYZIE_API_KEY"]
-            or current_app.config["DRAGON_SUBDL_API_KEY"]
+            current_app.config["DRAGON_WYZIE_API_KEY"] or current_app.config["DRAGON_SUBDL_API_KEY"]
         )
     )
     player_sources = workspace["player_sources"] if local_player_enabled else []
+    indexed_embed_sources: list[dict] = []
+    embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
     return render_template(
         "movies/tv_season.html",
         active_module="movies",
@@ -306,12 +417,19 @@ def tv_season(movie_id: str, season_number: int):
         workspace=workspace,
         selected_episode=None,
         player_sources=player_sources,
-        vidsrc_enabled=(
-            current_app.config["DRAGON_PLAYBACK_ENABLED"]
-            and current_app.config["DRAGON_VIDSRC_ENABLED"]
-        ),
+        indexed_embed_sources=indexed_embed_sources,
+        embed_player_sources=embed_player_sources,
+        indexed_provider_options=[],
+        last_selected_source_id="",
+        last_selected_provider="",
+        vidsrc_enabled=_vidsrc_is_usable_candidate(movie),
         local_player_enabled=local_player_enabled,
         subtitles_enabled=subtitles_enabled,
+        jackett_eligible=_jackett_is_eligible(
+            movie,
+            indexed_embed_sources=indexed_embed_sources,
+            player_sources=player_sources,
+        ),
     )
 
 
@@ -338,11 +456,23 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
         local_player_enabled
         and current_app.config["DRAGON_SUBTITLES_ENABLED"]
         and bool(
-            current_app.config["DRAGON_WYZIE_API_KEY"]
-            or current_app.config["DRAGON_SUBDL_API_KEY"]
+            current_app.config["DRAGON_WYZIE_API_KEY"] or current_app.config["DRAGON_SUBDL_API_KEY"]
         )
     )
     player_sources = workspace["player_sources"] if local_player_enabled else []
+    indexed_embed_sources = PlaybackService.indexed_embed_sources(
+        movie_id,
+        season=season_number,
+        episode=episode_number,
+        enabled_providers=_enabled_indexed_embed_providers(),
+        provider_priorities=_provider_priorities(),
+    )
+    last_selected_source = PlaybackService.last_selected_source(
+        movie_id,
+        season=season_number,
+        episode=episode_number,
+    )
+    embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
     return render_template(
         "movies/tv_season.html",
         active_module="movies",
@@ -350,12 +480,19 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
         workspace=workspace,
         selected_episode=workspace["selected_episode"],
         player_sources=player_sources,
-        vidsrc_enabled=(
-            current_app.config["DRAGON_PLAYBACK_ENABLED"]
-            and current_app.config["DRAGON_VIDSRC_ENABLED"]
-        ),
+        indexed_embed_sources=indexed_embed_sources,
+        embed_player_sources=embed_player_sources,
+        indexed_provider_options=_indexed_provider_options(),
+        last_selected_source_id=last_selected_source.id if last_selected_source else "",
+        last_selected_provider=last_selected_source.provider if last_selected_source else "",
+        vidsrc_enabled=_vidsrc_is_usable_candidate(movie),
         local_player_enabled=local_player_enabled,
         subtitles_enabled=subtitles_enabled,
+        jackett_eligible=_jackett_is_eligible(
+            movie,
+            indexed_embed_sources=indexed_embed_sources,
+            player_sources=player_sources,
+        ),
     )
 
 
@@ -469,6 +606,35 @@ def resolve_tv_episode_source(movie_id: str, season_number: int, episode_number:
     )
     if existing_sources["exact"] or existing_sources["fallback"]:
         flash("A saved local source is already ready for this episode.", "success")
+        return redirect(
+            url_for(
+                "movies.tv_episode",
+                movie_id=movie_id,
+                season_number=season_number,
+                episode_number=episode_number,
+            )
+            + "#episode-player"
+        )
+    indexed_embed_sources = PlaybackService.indexed_embed_sources(
+        movie_id,
+        season=season_number,
+        episode=episode_number,
+        enabled_providers=_enabled_indexed_embed_providers(),
+        provider_priorities=_provider_priorities(),
+    )
+    if not _jackett_is_eligible(
+        movie,
+        indexed_embed_sources=indexed_embed_sources,
+        player_sources=[
+            source
+            for source in (existing_sources["exact"], existing_sources["fallback"])
+            if source is not None
+        ],
+    ):
+        flash(
+            "A direct playback source is already available, so local source search was skipped.",
+            "info",
+        )
         return redirect(
             url_for(
                 "movies.tv_episode",

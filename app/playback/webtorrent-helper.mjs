@@ -169,6 +169,7 @@ export const runRuntime = () => {
     return {
       sessionId: session.id,
       fileName: String(session.file?.name || ""),
+      relativePath: String(session.file?.path || ""),
       totalBytes,
       downloadedBytes,
       fileProgress: Number(session.file?.progress || 0),

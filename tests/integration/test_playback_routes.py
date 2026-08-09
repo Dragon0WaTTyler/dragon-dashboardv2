@@ -1,6 +1,10 @@
+from urllib.parse import urlsplit
+
 from app.extensions import db
 from app.movies.models import Movie
-from app.playback.models import PlaybackSource
+from app.playback.models import PlaybackSource, ProviderAvailability
+from app.playback.providers import INDEXED_EMBED_PROVIDER_SPECS, ProviderProbeResult
+from app.playback.services import PlaybackService, ProviderAvailabilityService
 from app.playback.subtitles import SubtitleCandidate
 from tests.conftest import csrf_from
 
@@ -63,7 +67,10 @@ def test_vidsrc_is_click_gated_and_resolved_by_protected_playback_route(authenti
     response = authenticated_client.get(f"/playback/movie/{movie_id}/vidsrc")
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "private, no-store"
-    assert response.get_json()["source"] == {
+    source_payload = response.get_json()["source"]
+    source_id = source_payload.pop("source_id")
+    assert source_id.startswith("src_")
+    assert source_payload == {
         "provider": "vidsrc",
         "label": "VidSrc",
         "url": "https://vsembed.ru/embed/tt2543164",
@@ -116,6 +123,83 @@ def test_vidsrc_resolves_and_caches_external_ids(authenticated_client, app):
         }
 
 
+def test_vidsrc_tv_episode_uses_scope_and_materializes_a_source(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_episodes": {
+                    "2": [{"season_number": 2, "episode_number": 5, "name": "Big Girls"}]
+                }
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=True,
+        DRAGON_VIDSRC_EMBED_URL="https://vsembed.ru/embed",
+    )
+
+    response = authenticated_client.get(f"/playback/movie/{movie_id}/vidsrc?season=2&episode=5")
+
+    assert response.status_code == 200
+    source_payload = response.get_json()["source"]
+    source_id = source_payload.pop("source_id")
+    assert source_id.startswith("src_")
+    assert source_payload == {
+        "provider": "vidsrc",
+        "label": "VidSrc",
+        "url": "https://vsembed.ru/embed/tv/1399/2-5",
+        "match": "tmdb",
+    }
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "vidsrc",
+            )
+        )
+        assert source is not None
+        assert source.scope_key == "s02e05"
+        assert source.provider_asset_id == "1399"
+        assert source.locator == "1399"
+        assert source.kind == "embed"
+        availability = db.session.scalar(
+            db.select(ProviderAvailability).where(
+                ProviderAvailability.playback_source_id == source.id
+            )
+        )
+        assert availability is not None
+        assert availability.status == "UNKNOWN"
+
+
+def test_vidsrc_rejects_invalid_tv_scope(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"imdb_id": "tt0141842"},
+            metadata_state={"tv_episodes": {"1": [{"episode_number": 1}]}},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDSRC_ENABLED=True)
+
+    response = authenticated_client.get(f"/playback/movie/{movie_id}/vidsrc?season=1")
+
+    assert response.status_code == 400
+    assert response.get_json()["error"]["code"] == "invalid_playback_scope"
+
+
 def test_vidsrc_v2_redirect_hosts_are_allowed_by_csp(authenticated_client, app):
     app.config["DRAGON_VIDSRC_ENABLED"] = True
     app.config["DRAGON_VIDSRC_EMBED_URL"] = "https://v2.vidsrc.me/embed"
@@ -124,6 +208,528 @@ def test_vidsrc_v2_redirect_hosts_are_allowed_by_csp(authenticated_client, app):
 
     policy = response.headers["Content-Security-Policy"]
     assert "frame-src 'self' https://v2.vidsrc.me https://vidsrc.me https://vidsrcme.ru" in policy
+
+
+def test_csp_does_not_allow_credentialed_embed_templates(authenticated_client, app):
+    app.config.update(
+        DRAGON_VIDSRC_ENABLED=True,
+        DRAGON_VIDSRC_EMBED_URL="https://user:pass@vidsrc.example/embed",
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://user:pass@down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    response = authenticated_client.get("/")
+
+    policy = response.headers["Content-Security-Policy"]
+    assert "user:pass" not in policy
+    assert "https://vidsrc.example" not in policy
+    assert "https://down.vidtube.one" not in policy
+
+
+def test_authorized_indexed_embed_is_listed_and_resolved_through_its_provider(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(title="Arrival", normalized_title="arrival")
+        db.session.add(movie)
+        db.session.commit()
+        source = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="iuki4kda2u7l",
+            label="VideoTube · Arabic Subs",
+            subtitle_languages=["ar"],
+        )
+        movie_id = movie.id
+        source_id = source.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    listing = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+    resolved = authenticated_client.get(f"/playback/movie/{movie_id}/sources/{source_id}/embed")
+
+    assert "VideoTube · Arabic Subs" in detail.get_data(as_text=True)
+    assert "data-inline-release-browser" not in detail.get_data(as_text=True)
+    assert listing.get_json()["items"][0]["provider"] == "videotube"
+    source_payload = resolved.get_json()["source"]
+    assert source_payload.pop("source_id") == source_id
+    assert source_payload == {
+        "provider": "videotube",
+        "label": "VideoTube",
+        "url": "https://down.vidtube.one/embed-iuki4kda2u7l.html",
+        "match": "indexed",
+        "sandbox": "allow-scripts allow-forms allow-popups allow-presentation",
+    }
+
+    selection = authenticated_client.post(
+        f"/playback/movie/{movie_id}/sources/{source_id}/selected",
+        data={"csrf_token": csrf_from(detail)},
+    )
+    assert selection.status_code == 200
+    with app.app_context():
+        assert PlaybackService.last_selected_source(movie_id).id == source_id
+
+
+def test_provider_activation_status_reports_local_config_and_mapping_readiness(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="Activation smoke test",
+            normalized_title="activation smoke test",
+            external_ids={"tmdb_id": "950387"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="knownasset123",
+            label="VideoTube",
+            provenance={"origin": "catalog_import"},
+        )
+        disabled_mapping = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="updown",
+            provider_asset_id="disabledprovider123",
+            label="UpDown",
+            provenance={"origin": "catalog_import"},
+        )
+        disabled_mapping.enabled = False
+        unapproved_mapping = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="ok",
+            provider_asset_id="7593181055685",
+            label="OK.ru",
+        )
+        unapproved_mapping.authorization_status = "unknown"
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=True,
+        DRAGON_VIDSRC_EMBED_URL="https://vsembed.example/embed",
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+        DRAGON_UPDOWN_ENABLED=False,
+        DRAGON_UPDOWN_EMBED_URL="",
+        DRAGON_OK_ENABLED=True,
+        DRAGON_OK_EMBED_URL="https://ok.ru/videoembed/{asset_id}",
+    )
+
+    response = authenticated_client.get(f"/playback/movie/{movie_id}/activation-status")
+
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    payload = response.get_json()
+    assert payload["scope_key"] == "movie"
+    providers = {item["provider"]: item for item in payload["providers"]}
+    assert providers["videotube"] == {
+        "provider": "videotube",
+        "label": "VideoTube",
+        "configured": True,
+        "configuration_reason": "",
+        "preference_enabled": True,
+        "mapping_count": 1,
+        "enabled_mapping_count": 1,
+        "authorized_enabled_mapping_count": 1,
+        "ready": True,
+    }
+    assert providers["updown"]["configured"] is False
+    assert providers["updown"]["configuration_reason"] == "disabled_in_config"
+    assert providers["updown"]["mapping_count"] == 1
+    assert providers["updown"]["enabled_mapping_count"] == 0
+    assert providers["updown"]["authorized_enabled_mapping_count"] == 0
+    assert providers["updown"]["ready"] is False
+    assert providers["ok"]["configured"] is True
+    assert providers["ok"]["enabled_mapping_count"] == 1
+    assert providers["ok"]["authorized_enabled_mapping_count"] == 0
+    assert providers["ok"]["ready"] is False
+    assert providers["vidsrc"]["identity_ready"] is True
+    assert providers["vidsrc"]["ready"] is True
+    assert "down.vidtube.one" not in response.get_data(as_text=True)
+
+
+def test_unapproved_indexed_embed_is_not_listed_or_resolved(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(title="Unapproved source", normalized_title="unapproved source")
+        db.session.add(movie)
+        db.session.commit()
+        source = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="notapproved123",
+            label="VideoTube",
+        )
+        source.authorization_status = "unknown"
+        db.session.commit()
+        movie_id = movie.id
+        source_id = source.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    listing = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+    resolved = authenticated_client.get(f"/playback/movie/{movie_id}/sources/{source_id}/embed")
+
+    assert listing.status_code == 200
+    assert listing.get_json()["items"] == []
+    assert resolved.status_code == 404
+
+
+def test_fresh_unavailable_source_is_hidden_and_cannot_be_played(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(title="Unavailable embed", normalized_title="unavailable embed")
+        db.session.add(movie)
+        db.session.commit()
+        source = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="iuki4kda2u7l",
+            label="VideoTube · unavailable",
+        )
+        ProviderAvailabilityService.record(source, ProviderProbeResult(status="UNAVAILABLE"))
+        movie_id = movie.id
+        source_id = source.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    listing = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+    play = authenticated_client.get(f"/playback/movie/{movie_id}/sources/{source_id}/embed")
+
+    assert listing.get_json()["items"] == []
+    assert play.status_code == 503
+    assert play.get_json()["error"]["code"] == "source_unavailable"
+
+
+def test_authorized_catalog_import_api_creates_a_report_and_source(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="Catalog import",
+            normalized_title="catalog import",
+            external_ids={"tmdb_id": "950387"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = True
+    page = authenticated_client.get(f"/movies/{movie_id}")
+    imported = authenticated_client.post(
+        "/playback/catalog/imports",
+        json={
+            "source_name": "Authorized fixture export",
+            "rows": [
+                {
+                    "tmdb_id": "950387",
+                    "media_type": "movie",
+                    "provider": "videotube",
+                    "provider_asset_id": "catalog-asset",
+                }
+            ],
+        },
+        headers={"X-CSRFToken": csrf_from(page)},
+    )
+
+    assert imported.status_code == 201
+    batch = imported.get_json()["batch"]
+    report = authenticated_client.get(f"/playback/catalog/imports/{batch['id']}")
+    assert batch["accepted_rows"] == 1
+    assert batch["rows"][0]["provider"] == "videotube"
+    assert report.get_json()["batch"]["rows"][0]["created_playback_source_id"].startswith("src_")
+
+
+def test_authorized_indexed_mapping_can_be_added_without_an_arbitrary_url(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(title="Manual Mapping", normalized_title="manual mapping")
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+    page = authenticated_client.get(f"/movies/{movie_id}")
+    response = authenticated_client.post(
+        f"/playback/movie/{movie_id}/sources/indexed",
+        data={
+            "csrf_token": csrf_from(page),
+            "provider": "videotube",
+            "provider_asset_id": "iuki4kda2u7l",
+            "label": "VideoTube · Arabic Subs",
+            "language": "ar",
+            "subtitle_languages": "ar,en",
+            "quality": "1080p",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Authorized embed mapping saved." in response.get_data(as_text=True)
+    listing = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+    assert listing.get_json()["items"] == [
+        {
+            "id": listing.get_json()["items"][0]["id"],
+            "provider": "videotube",
+            "label": "VideoTube · Arabic Subs",
+            "language": "ar",
+            "subtitle_languages": ["ar", "en"],
+            "quality": "1080p",
+            "playback_mode": "embed",
+            "selected": False,
+        }
+    ]
+    with app.app_context():
+        source = PlaybackService.last_selected_source(movie_id)
+        assert source is None
+        saved = db.session.scalar(
+            db.select(PlaybackSource).where(PlaybackSource.movie_id == movie_id)
+        )
+        assert saved.provenance["origin"] == "manual_authorized_import"
+        assert saved.locator == "iuki4kda2u7l"
+
+
+def test_disabled_indexed_embed_provider_is_not_exposed(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(title="Disabled VideoTube", normalized_title="disabled videotube")
+        db.session.add(movie)
+        db.session.commit()
+        PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="iuki4kda2u7l",
+            label="VideoTube · Arabic Subs",
+        )
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDEOTUBE_ENABLED=False)
+
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    listing = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+
+    assert "VideoTube · Arabic Subs" not in detail.get_data(as_text=True)
+    assert listing.get_json()["items"] == []
+
+
+def test_playback_settings_disable_a_provider_and_apply_its_preference(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(title="Provider Preferences", normalized_title="provider preferences")
+        db.session.add(movie)
+        db.session.commit()
+        source = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="iuki4kda2u7l",
+            label="VideoTube · Arabic Subs",
+        )
+        movie_id = movie.id
+        source_id = source.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    settings_page = authenticated_client.get("/settings/playback")
+    response = authenticated_client.post(
+        "/settings/playback/providers/videotube",
+        data={
+            "csrf_token": csrf_from(settings_page),
+            "priority": "25",
+        },
+        follow_redirects=True,
+    )
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    source_response = authenticated_client.get(
+        f"/playback/movie/{movie_id}/sources/{source_id}/embed"
+    )
+
+    assert response.status_code == 200
+    assert "Playback provider preference saved." in response.get_data(as_text=True)
+    assert "VideoTube · Arabic Subs" not in detail.get_data(as_text=True)
+    assert source_response.status_code == 409
+    with app.app_context():
+        preferences = PlaybackService.provider_preferences({"videotube"})
+        assert preferences["videotube"] == {
+            "provider": "videotube",
+            "enabled": False,
+            "priority": 25,
+            "background_checks": False,
+        }
+
+
+def test_provider_priority_orders_the_generic_embed_selector(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="Prioritized Providers",
+            normalized_title="prioritized providers",
+            external_ids={"imdb_id": "tt2543164"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="iuki4kda2u7l",
+            label="VideoTube · Arabic Subs",
+        )
+        PlaybackService.save_provider_preference(
+            provider="videotube",
+            enabled=True,
+            priority=25,
+            background_checks=False,
+        )
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    html = authenticated_client.get(f"/movies/{movie_id}").get_data(as_text=True)
+
+    assert html.index("VideoTube · Arabic Subs") < html.index("Player 1 · VidSrc")
+    assert 'value="vidsrc"' not in html.split("VideoTube · Arabic Subs", maxsplit=1)[0]
+
+
+def test_all_requested_authorized_hosters_are_available_in_player_source(
+    authenticated_client, app
+):
+    providers = (
+        ("videotube", "VideoTube"),
+        ("updown", "UpDown"),
+        ("streamwish", "StreamWish"),
+        ("doodstream", "DoodStream"),
+        ("filelions", "FileLions / EarnVids"),
+        ("ok", "OK.ru"),
+        ("streamtape", "StreamTape"),
+        ("lulustream", "LuluStream"),
+    )
+    with app.app_context():
+        movie = Movie(title="All hosters", normalized_title="all hosters")
+        db.session.add(movie)
+        db.session.commit()
+        provider_templates = {
+            spec.key: spec.default_embed_url_template for spec in INDEXED_EMBED_PROVIDER_SPECS
+        }
+        provider_assets = {
+            "videotube": "iuki4kda2u7l",
+            "updown": "updownasset",
+            "streamwish": "streamwish12",
+            "doodstream": "doodstreamasset",
+            "filelions": "filelionsasset",
+            "ok": "7593181055685",
+            "streamtape": "streamtapeasset",
+            "lulustream": "lulustream12",
+        }
+        source_ids = {}
+        for key, label in providers:
+            source = PlaybackService.upsert_indexed_embed_source(
+                movie_id=movie.id,
+                provider=key,
+                provider_asset_id=provider_assets[key],
+                label=label,
+            )
+            source_ids[key] = source.id
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        **{
+            setting: value
+            for key, _ in providers
+            for setting, value in (
+                (f"DRAGON_{key.upper()}_ENABLED", True),
+                (f"DRAGON_{key.upper()}_EMBED_URL", provider_templates[key]),
+            )
+        },
+    )
+
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    listing = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+    settings = authenticated_client.get("/settings/playback")
+    streamwish = authenticated_client.get(
+        f"/playback/movie/{movie_id}/sources/{source_ids['streamwish']}/embed"
+    )
+
+    assert detail.status_code == 200
+    assert [item["provider"] for item in listing.get_json()["items"]] == [
+        key for key, _ in providers
+    ]
+    for _, label in providers:
+        assert label in detail.get_data(as_text=True)
+        assert label in settings.get_data(as_text=True)
+    assert streamwish.get_json()["source"]["url"] == (
+        "https://streamwish.com/e/streamwish12"
+    )
+    csp = detail.headers["Content-Security-Policy"]
+    for template in provider_templates.values():
+        parsed = urlsplit(template)
+        assert f"{parsed.scheme}://{parsed.netloc}" in csp
+
+
+def test_authorized_indexed_embed_uses_exact_tv_episode_scope(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_episodes": {
+                    "2": [{"season_number": 2, "episode_number": 5, "name": "Big Girls"}]
+                }
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        source = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="iuki4kda2u7l",
+            label="VideoTube · Arabic Subs",
+            season=2,
+            episode=5,
+        )
+        movie_id = movie.id
+        source_id = source.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    episode_page = authenticated_client.get(f"/movies/{movie_id}/seasons/2/episodes/5")
+    wrong_scope = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+    resolved = authenticated_client.get(
+        f"/playback/movie/{movie_id}/sources/{source_id}/embed?season=2&episode=5"
+    )
+
+    assert "VideoTube · Arabic Subs" in episode_page.get_data(as_text=True)
+    assert wrong_scope.status_code == 400
+    assert resolved.status_code == 200
+    assert resolved.get_json()["source"]["url"].endswith("embed-iuki4kda2u7l.html")
 
 
 def test_wyzie_key_enables_subtitle_controls_on_movie_detail(authenticated_client, app):
@@ -190,7 +796,9 @@ def test_subtitles_are_private_ranked_and_delivered_as_webvtt(authenticated_clie
                 ),
             ]
 
-        def download(self, path, *, file_format, member_name, season=None, episode=None, episode_title=""):
+        def download(
+            self, path, *, file_format, member_name, season=None, episode=None, episode_title=""
+        ):
             assert path == "/subtitle/archive123-456.zip"
             assert file_format == "srt"
             assert member_name == "arrival.ar.srt"
@@ -279,7 +887,9 @@ def test_tv_subtitles_follow_selected_season_and_episode(authenticated_client, a
                 )
             ]
 
-        def download(self, path, *, file_format, member_name, season=None, episode=None, episode_title=""):
+        def download(
+            self, path, *, file_format, member_name, season=None, episode=None, episode_title=""
+        ):
             assert season == 1
             assert episode == 2
             assert episode_title == "46 Long"
@@ -381,9 +991,7 @@ def test_local_magnet_player_is_click_gated_and_keeps_locator_server_side(
     assert "Local · FHD" in html
     assert locator not in html
     assert "http://127.0.0.1:" not in html
-    assert "media-src 'self' http://127.0.0.1:*" in detail.headers[
-        "Content-Security-Policy"
-    ]
+    assert "media-src 'self' http://127.0.0.1:*" in detail.headers["Content-Security-Policy"]
 
     response = authenticated_client.post(
         f"/playback/movie/{movie_id}/local",
@@ -459,7 +1067,12 @@ def test_season_pack_player_exposes_episode_controls_and_payload_overrides(
             season=1,
             episode=5,
             source_role="season_pack_fallback",
-            metadata_json={"season_pack": True, "season": 1, "episode": 5, "release_mode": "season_pack"},
+            metadata_json={
+                "season_pack": True,
+                "season": 1,
+                "episode": 5,
+                "release_mode": "season_pack",
+            },
             selected=True,
         )
         db.session.add(source)
@@ -517,6 +1130,12 @@ def test_local_transcode_route_uses_private_loopback_stream_safely(
                 "complete": False,
             }
 
+        def transcode_path(self, session_id: str, *, user_id: str):
+            return None
+
+        def fail(self, session_id: str, *, user_id: str, message: str):
+            raise AssertionError(f"Transcode unexpectedly failed: {message}")
+
     called = {}
 
     def fake_transcode(
@@ -525,6 +1144,7 @@ def test_local_transcode_route_uses_private_loopback_stream_safely(
         allow_private: bool = False,
         input_headers=None,
         start_seconds=None,
+        on_failure=None,
     ):
         called["url"] = url
         called["allow_private"] = allow_private
@@ -548,9 +1168,7 @@ def test_local_transcode_route_uses_private_loopback_stream_safely(
     assert called["start_seconds"] is None
 
 
-def test_local_transcode_route_accepts_start_offset(
-    authenticated_client, app, monkeypatch
-):
+def test_local_transcode_route_accepts_start_offset(authenticated_client, app, monkeypatch):
     class StubRuntime:
         def status(self, session_id: str, *, user_id: str):
             assert session_id == "play_test"
@@ -573,6 +1191,12 @@ def test_local_transcode_route_accepts_start_offset(
                 "complete": False,
             }
 
+        def transcode_path(self, session_id: str, *, user_id: str):
+            return None
+
+        def fail(self, session_id: str, *, user_id: str, message: str):
+            raise AssertionError(f"Transcode unexpectedly failed: {message}")
+
     called = {}
 
     def fake_transcode(
@@ -581,6 +1205,7 @@ def test_local_transcode_route_accepts_start_offset(
         allow_private: bool = False,
         input_headers=None,
         start_seconds=None,
+        on_failure=None,
     ):
         called["url"] = url
         called["allow_private"] = allow_private
@@ -598,3 +1223,45 @@ def test_local_transcode_route_accepts_start_offset(
     response = authenticated_client.get("/playback/runtime/play_test/transcode?start=42.5")
     assert response.status_code == 200
     assert called["start_seconds"] == 42.5
+
+
+def test_completed_local_transcode_bypasses_loopback_http(
+    authenticated_client, app, monkeypatch, tmp_path
+):
+    cached_file = tmp_path / "episode.mp4"
+    cached_file.write_bytes(b"cached-video")
+
+    class StubRuntime:
+        def status(self, session_id: str, *, user_id: str):
+            return {
+                "id": session_id,
+                "state": "ready",
+                "stream_url": "http://127.0.0.1:54321/dragon-stream/episode.mp4",
+            }
+
+        def transcode_path(self, session_id: str, *, user_id: str):
+            return cached_file
+
+        def fail(self, session_id: str, *, user_id: str, message: str):
+            raise AssertionError(f"Transcode unexpectedly failed: {message}")
+
+    called = {}
+
+    def fake_transcode(source, **options):
+        called["source"] = source
+        called["options"] = options
+        from flask import Response
+
+        return Response(b"mp4-bytes", content_type="video/mp4")
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = True
+    app.config["DRAGON_MAGNETS_ENABLED"] = True
+    app.extensions["dragon_magnet_playback_manager"] = StubRuntime()
+    monkeypatch.setattr("app.playback.routes.transcode_stream", fake_transcode)
+
+    response = authenticated_client.get("/playback/runtime/play_test/transcode")
+
+    assert response.status_code == 200
+    assert called["source"] == cached_file
+    assert called["options"]["allow_private"] is False
+    assert called["options"]["input_headers"] is None

@@ -5,6 +5,7 @@ import pytest
 from app.extensions import db
 from app.movies.models import Movie, MovieProgress
 from app.playback.models import PlaybackSource
+from app.playback.services import PlaybackService
 
 pytestmark = pytest.mark.browser
 
@@ -76,7 +77,7 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
             body=(
                 "WEBVTT\n\n"
                 "00:00:01.000 --> 00:00:03.000\n"
-                "لتكوني في تي سي بي\n"
+                '<font color="#ffff00">لتكوني في تي سي بي</font>\n'
                 "واي يوغرت\n"
                 "عند وصول المدير\n"
                 "\n"
@@ -145,14 +146,33 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     page.locator("[data-movie-player][data-playback-state]").wait_for()
     page.wait_for_function(
         "() => document.querySelector('[data-subtitle-status]')?.textContent"
-        ".includes('Arabic · Arabic release is selected')"
+        ".includes('Arabic · Track 1 is selected')"
     )
     assert page.locator("video track").count() == 0
     assert page.locator("[data-player-video]").evaluate("video => video.controls") is False
     assert page.locator("[data-player-shell]").is_visible()
-    assert page.locator("[data-player-netflix-controls]").count() == 1
+    assert page.locator("[data-player-dragon-controls]").count() == 1
     assert page.locator("[data-player-caption-toggle]").count() == 1
     assert page.locator("[data-player-timeline]").count() == 1
+    assert (
+        page.locator("[data-player-dragon-controls]").evaluate(
+            "node => getComputedStyle(node).opacity"
+        )
+        == "1"
+    )
+    page.locator("[data-player-shell]").evaluate(
+        "node => { node.dataset.controlsVisible = 'false'; }"
+    )
+    page.locator("[data-player-shell]").hover()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-shell]')?.dataset.controlsVisible === 'true'"
+    )
+    assert (
+        page.locator("[data-player-dragon-controls]").evaluate(
+            "node => getComputedStyle(node).opacity"
+        )
+        == "1"
+    )
     page.locator("[data-player-video]").evaluate(
         "video => { video.currentTime = 1.5; video.dispatchEvent(new Event('timeupdate')); }"
     )
@@ -160,24 +180,28 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
         "() => document.querySelector('[data-movie-player]')?.dataset.captionLanguage === 'ar'"
     )
     assert page.locator("[data-player-caption-text]").evaluate("node => node.dir") == "rtl"
-    assert page.locator("[data-player-caption-text]").evaluate(
-        "node => getComputedStyle(node).textAlign"
-    ) == "center"
-    assert page.locator("[data-player-caption-text]").evaluate(
-        "node => node.childElementCount"
-    ) == 2
+    assert (
+        page.locator("[data-player-caption-text]").evaluate(
+            "node => getComputedStyle(node).textAlign"
+        )
+        == "center"
+    )
+    assert (
+        page.locator("[data-player-caption-text]").evaluate("node => node.childElementCount") == 2
+    )
     normalized_caption = page.locator("[data-player-caption-text]").evaluate(
         "node => Array.from(node.children).map((child) => child.textContent).join(' ')"
         ".replace(/[\\u200E\\u200F\\u2066-\\u2069]/g, '')"
         ".replace(/\\u00a0/g, ' ')"
     )
     assert "لتكوني في تي سي بي واي يوغرت عند وصول المدير" in normalized_caption
+    assert "<font" not in normalized_caption.lower()
     page.locator("[data-player-caption-toggle]").click()
     page.locator("[data-player-subtitle-panel]").wait_for(state="visible")
     subtitle_list = page.locator("[data-player-subtitle-list]")
-    assert subtitle_list.get_by_text("Arabic · Arabic release").count() == 1
-    assert subtitle_list.get_by_text("English · English release").count() == 1
-    page.get_by_role("button", name="Customize appearance").click()
+    assert subtitle_list.get_by_text("Arabic · Track 1").count() == 1
+    assert subtitle_list.get_by_text("English · Track 2").count() == 1
+    page.get_by_role("button", name="Appearance").click()
     page.locator("[data-player-subtitle-size]").evaluate(
         "node => { node.value = '44'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
     )
@@ -206,9 +230,9 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     assert page.locator("[data-player-caption-text]").evaluate(
         "node => Number.parseFloat(getComputedStyle(node).fontSize)"
     ) == pytest.approx(65, abs=0.1)
-    assert page.locator("[data-player-caption-text]").evaluate(
-        "node => node.childElementCount"
-    ) == 2
+    assert (
+        page.locator("[data-player-caption-text]").evaluate("node => node.childElementCount") == 2
+    )
     assert page.locator("[data-player-subtitle-size-label]").inner_text() == "65px"
     large_line_metrics = page.locator("[data-player-caption-text]").evaluate(
         """node => Array.from(node.children).map((line) => ({
@@ -235,9 +259,9 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     )
     assert large_caption_size == pytest.approx(96, abs=0.1)
     assert large_caption_size > medium_caption_size + 4
-    assert page.locator("[data-player-caption-text]").evaluate(
-        "node => node.childElementCount"
-    ) == 2
+    assert (
+        page.locator("[data-player-caption-text]").evaluate("node => node.childElementCount") == 2
+    )
     maximum_size_line_metrics = page.locator("[data-player-caption-text]").evaluate(
         """node => Array.from(node.children).map((line) => ({
           scrollWidth: line.scrollWidth,
@@ -245,8 +269,7 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
         }))"""
     )
     assert all(
-        metric["scrollWidth"] <= metric["clientWidth"] + 1
-        for metric in maximum_size_line_metrics
+        metric["scrollWidth"] <= metric["clientWidth"] + 1 for metric in maximum_size_line_metrics
     )
     long_caption_size = page.locator("[data-player-caption-text]").evaluate(
         "node => getComputedStyle(node).fontSize"
@@ -263,12 +286,12 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     )
     assert short_caption_size == long_caption_size
     page.get_by_role("button", name="Back to subtitles").click()
-    subtitle_list.locator("button").filter(has_text="English · English release").click()
+    subtitle_list.locator("button").filter(has_text="English · Track 2").click()
     page.wait_for_function(
         "() => document.querySelector('[data-subtitle-status]')?.textContent"
-        ".includes('English · English release is selected')"
+        ".includes('English · Track 2 is selected')"
     )
-    page.get_by_role("button", name="Customize appearance").click()
+    page.get_by_role("button", name="Appearance").click()
     page.locator("[data-player-subtitle-preset]").select_option("Minimal")
     page.locator("[data-player-subtitle-background]").select_option("Off")
     page.locator("[data-player-subtitle-position]").evaluate(
@@ -328,6 +351,92 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
         "clientWidth: document.documentElement.clientWidth})"
     )
     assert metrics["scrollWidth"] == metrics["clientWidth"]
+
+
+def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
+    with app.app_context():
+        movie = Movie(
+            title="Embed Switch",
+            normalized_title="embed switch",
+            external_ids={"imdb_id": "tt2543164"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        source = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="iuki4kda2u7l",
+            label="VideoTube · Arabic",
+            subtitle_languages=["ar"],
+        )
+        movie_id = movie.id
+        source_id = source.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    page.route(
+        f"**/playback/movie/{movie_id}/vidsrc",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "vidsrc",
+                    "label": "VidSrc",
+                    "url": "https://embed.vidsrc.example/tt2543164",
+                    "match": "imdb",
+                },
+            }
+        ),
+    )
+    page.route(
+        f"**/playback/movie/{movie_id}/sources/{source_id}/embed",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "videotube",
+                    "label": "VideoTube",
+                    "url": "https://down.vidtube.one/embed-iuki4kda2u7l.html",
+                    "match": "indexed",
+                    "sandbox": "allow-scripts allow-forms allow-popups allow-presentation",
+                },
+            }
+        ),
+    )
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}")
+    source_select = page.get_by_label("Player source")
+    assert source_select.input_value() == source_id
+
+    source_select.select_option(label="VideoTube · Arabic")
+    assert page.locator("[data-player-badge]").inner_text() == "VideoTube · Arabic"
+    page.get_by_role("button", name="Play with VideoTube · Arabic").click()
+    frame = page.locator("[data-player-frame]")
+    frame.wait_for(state="visible")
+    assert frame.get_attribute("src") == "https://down.vidtube.one/embed-iuki4kda2u7l.html"
+    assert (
+        frame.get_attribute("sandbox")
+        == "allow-scripts allow-forms allow-popups allow-presentation"
+    )
+    assert frame.get_attribute("title") == "VideoTube · Arabic player"
+    assert (
+        page.locator("[data-player-external-caption]")
+        .inner_text()
+        .startswith("VideoTube · Arabic uses its own controls")
+    )
+
+    page.get_by_role("button", name="Change source").click()
+    source_select.select_option("vidsrc")
+    assert frame.get_attribute("src") == "about:blank"
+    page.get_by_role("button", name="Play with VidSrc").click()
+    assert frame.get_attribute("src") == "https://embed.vidsrc.example/tt2543164"
+    assert frame.get_attribute("sandbox") is None
 
 
 def test_movie_player_offers_resume_from_saved_progress(page, live_app, app):
@@ -786,6 +895,7 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
         DRAGON_SUBTITLES_ENABLED=True,
         DRAGON_SUBDL_API_KEY="private-key",
     )
+
     def handle_subtitles(route):
         if "/track/" in route.request.url:
             route.fulfill(
@@ -911,7 +1021,9 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
         ")?.options.length > 1"
     )
     release_browser.get_by_role("button", name="Find full-season packs").click()
-    assert release_browser.get_by_role("heading", name="The Sopranos Season 1 Complete 1080p").is_visible()
+    assert release_browser.get_by_role(
+        "heading", name="The Sopranos Season 1 Complete 1080p"
+    ).is_visible()
     assert release_browser.get_by_role("button", name="Add full-season pack").is_visible()
     pack_browser = page.locator("[data-player-pack-browser]")
     pack_browser.wait_for()
@@ -976,7 +1088,12 @@ def test_switching_from_season_pack_to_regular_local_hides_pack_browser(page, li
                     season=1,
                     episode=1,
                     source_role="season_pack_fallback",
-                    metadata_json={"season_pack": True, "season": 1, "episode": 1, "release_mode": "season_pack"},
+                    metadata_json={
+                        "season_pack": True,
+                        "season": 1,
+                        "episode": 1,
+                        "release_mode": "season_pack",
+                    },
                     selected=True,
                 ),
                 PlaybackSource(
@@ -1063,7 +1180,12 @@ def test_switching_pack_episode_stops_current_local_session_before_restart(page,
                 season=1,
                 episode=2,
                 source_role="season_pack_fallback",
-                metadata_json={"season_pack": True, "season": 1, "episode": 2, "release_mode": "season_pack"},
+                metadata_json={
+                    "season_pack": True,
+                    "season": 1,
+                    "episode": 2,
+                    "release_mode": "season_pack",
+                },
                 selected=True,
             )
         )

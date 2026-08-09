@@ -1,23 +1,26 @@
 from __future__ import annotations
 
 import ipaddress
+import queue
 import re
 import shutil
 import socket
 import subprocess
 import threading
+from collections.abc import Callable
 from functools import lru_cache
+from pathlib import Path
 from urllib.parse import urljoin, urlparse
 
 import requests
 from flask import Response, current_app, request, stream_with_context, url_for
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
-
 URI_ATTRIBUTE_RE = re.compile(r'URI="([^"]+)"')
 _transcode_lock = threading.Lock()
 _transcode_semaphore: threading.BoundedSemaphore | None = None
 _transcode_limit = 0
+TRANSCODE_START_TIMEOUT_SECONDS = 12
 
 
 class UnsafeStreamUrl(ValueError):
@@ -185,18 +188,27 @@ def proxy_stream(
 
 
 def transcode_stream(
-    url: str,
+    source: str | Path,
     *,
     allow_private: bool = False,
     input_headers: dict[str, str] | None = None,
     start_seconds: float | None = None,
+    on_failure: Callable[[str], None] | None = None,
 ) -> Response:
-    validate_stream_url(url, allow_private=allow_private)
+    is_local_file = isinstance(source, Path)
+    if is_local_file:
+        input_value = str(source.resolve())
+        if not source.is_file():
+            message = "The completed cached video file is unavailable."
+            _notify_transcode_failure(on_failure, message)
+            return Response(message, status=404, content_type="text/plain")
+    else:
+        input_value = validate_stream_url(str(source), allow_private=allow_private)
     ffmpeg = shutil.which(current_app.config.get("MYTV_FFMPEG", "ffmpeg"))
     if not ffmpeg:
-        return Response(
-            "FFmpeg is required for this stream format.", status=503, content_type="text/plain"
-        )
+        message = "FFmpeg is required for this stream format."
+        _notify_transcode_failure(on_failure, message)
+        return Response(message, status=503, content_type="text/plain")
 
     semaphore = _get_transcode_semaphore(current_app.config.get("MYTV_MAX_TRANSCODES", 2))
     if not semaphore.acquire(blocking=False):
@@ -219,26 +231,29 @@ def transcode_stream(
         "-hide_banner",
         "-loglevel",
         "error",
-        "-rw_timeout",
-        "15000000",
         "-analyzeduration",
         "15000000",
         "-probesize",
         "50000000",
     ]
+    if not is_local_file:
+        command.extend(["-rw_timeout", "15000000"])
     if start_seconds is not None and start_seconds > 0:
         command.extend(["-ss", f"{float(start_seconds):.3f}"])
-    if serialized_headers:
+    if serialized_headers and not is_local_file:
         command.extend(["-headers", serialized_headers])
+    if not is_local_file:
+        command.extend([
+            "-reconnect",
+            "1",
+            "-reconnect_streamed",
+            "1",
+            "-reconnect_delay_max",
+            "2",
+        ])
     command.extend([
-        "-reconnect",
-        "1",
-        "-reconnect_streamed",
-        "1",
-        "-reconnect_delay_max",
-        "2",
         "-i",
-        url,
+        input_value,
         "-map",
         "0:v:0?",
         "-map",
@@ -253,6 +268,12 @@ def transcode_stream(
         "zerolatency",
         "-pix_fmt",
         "yuv420p",
+        "-g",
+        "48",
+        "-keyint_min",
+        "48",
+        "-sc_threshold",
+        "0",
         "-c:a",
         "aac",
         "-ac",
@@ -263,33 +284,121 @@ def transcode_stream(
         "128k",
         "-movflags",
         "frag_keyframe+empty_moov+default_base_moof",
+        # The MP4 muxer otherwise buffers packets while writing to a pipe.  That
+        # leaves HEVC/x265 local playback showing a black frame even though the
+        # torrent and FFmpeg process are both healthy.
+        "-flush_packets",
+        "1",
+        "-frag_duration",
+        "1000000",
         "-f",
         "mp4",
         "pipe:1",
     ])
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.DEVNULL,
-        bufsize=0,
+    try:
+        process = subprocess.Popen(  # noqa: S603 - ffmpeg path is resolved locally
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+        )
+    except OSError:
+        semaphore.release()
+        message = "FFmpeg could not start local transcoding."
+        _notify_transcode_failure(on_failure, message)
+        return Response(message, status=503, content_type="text/plain")
+
+    stderr_buffer = bytearray()
+
+    def read_stderr() -> None:
+        stderr = getattr(process, "stderr", None)
+        if stderr is None:
+            return
+        try:
+            while chunk := stderr.read(4096):
+                remaining = 16 * 1024 - len(stderr_buffer)
+                if remaining > 0:
+                    stderr_buffer.extend(chunk[:remaining])
+        except OSError:
+            return
+
+    stderr_thread = threading.Thread(
+        target=read_stderr,
+        daemon=True,
+        name="dragon-playback-transcode-errors",
     )
+    stderr_thread.start()
+
+    # Do not return a successful media response until FFmpeg has produced an
+    # MP4 byte.  Previously an immediately failing/blocked transcode looked
+    # like a valid 200 stream to the <video> element and resulted in a black
+    # screen with no actionable error.
+    first_chunk_queue: queue.Queue[bytes | BaseException] = queue.Queue(maxsize=1)
+
+    def read_first_chunk() -> None:
+        try:
+            chunk = process.stdout.read(64 * 1024) if process.stdout else b""
+            first_chunk_queue.put(chunk)
+        except BaseException as error:  # pragma: no cover - defensive pipe failure
+            first_chunk_queue.put(error)
+
+    threading.Thread(
+        target=read_first_chunk,
+        daemon=True,
+        name="dragon-playback-transcode-start",
+    ).start()
+    try:
+        first_chunk = first_chunk_queue.get(timeout=TRANSCODE_START_TIMEOUT_SECONDS)
+    except queue.Empty:
+        _stop_transcode_process(process)
+        stderr_thread.join(timeout=0.5)
+        semaphore.release()
+        message = _transcode_failure_message(
+            stderr_buffer,
+            fallback="Local transcoding did not produce video within 12 seconds.",
+        )
+        _notify_transcode_failure(on_failure, message)
+        return Response(message, status=504, content_type="text/plain")
+    if isinstance(first_chunk, BaseException) or not first_chunk:
+        _stop_transcode_process(process)
+        stderr_thread.join(timeout=0.5)
+        semaphore.release()
+        message = _transcode_failure_message(
+            stderr_buffer,
+            fallback="Local transcoding failed before video could start.",
+        )
+        _notify_transcode_failure(on_failure, message)
+        return Response(message, status=503, content_type="text/plain")
 
     @stream_with_context
     def generate():
+        reached_eof = False
+        return_code = None
         try:
+            yield first_chunk
             while process.stdout:
                 chunk = process.stdout.read(64 * 1024)
                 if not chunk:
+                    reached_eof = True
                     break
                 yield chunk
         finally:
-            if process.poll() is None:
-                process.terminate()
+            if reached_eof:
                 try:
-                    process.wait(timeout=2)
+                    return_code = process.wait(timeout=0.5)
                 except subprocess.TimeoutExpired:
-                    process.kill()
+                    _stop_transcode_process(process)
+                    return_code = process.poll()
+            else:
+                _stop_transcode_process(process)
+            stderr_thread.join(timeout=0.5)
             semaphore.release()
+            if reached_eof and return_code not in {None, 0}:
+                message = _transcode_failure_message(
+                    stderr_buffer,
+                    fallback="Local transcoding stopped unexpectedly.",
+                )
+                _notify_transcode_failure(on_failure, message)
 
     return Response(
         generate(),
@@ -300,6 +409,40 @@ def transcode_stream(
         },
         direct_passthrough=True,
     )
+
+
+def _notify_transcode_failure(
+    callback: Callable[[str], None] | None,
+    message: str,
+) -> None:
+    current_app.logger.warning("Local transcode failure: %s", message)
+    if callback is not None:
+        callback(message)
+
+
+def _transcode_failure_message(stderr: bytearray, *, fallback: str) -> str:
+    detail = bytes(stderr).decode("utf-8", "replace").casefold()
+    if "connection refused" in detail or "server returned 4" in detail:
+        return "The local torrent stream rejected the transcoder connection."
+    if "invalid data found" in detail or "error opening input" in detail:
+        return "FFmpeg could not read this release. The cached file may be incomplete."
+    if "no such file" in detail:
+        return "The completed cached video file is unavailable."
+    if "decoder" in detail or "decode" in detail:
+        return "FFmpeg could not decode this release's video stream."
+    if "encoder" in detail or "libx264" in detail:
+        return "FFmpeg could not start the browser-compatible video encoder."
+    return fallback
+
+
+def _stop_transcode_process(process: subprocess.Popen) -> None:
+    if process.poll() is not None:
+        return
+    process.terminate()
+    try:
+        process.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        process.kill()
 
 
 def _get_transcode_semaphore(limit: int) -> threading.BoundedSemaphore:

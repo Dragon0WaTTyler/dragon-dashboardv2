@@ -91,6 +91,49 @@ def test_vidsrc_configuration_is_typed_and_private(tmp_path: Path):
         )
 
 
+def test_indexed_embed_provider_urls_are_typed_and_private(tmp_path: Path):
+    secrets_dir = tmp_path / "secrets"
+    secrets_dir.mkdir()
+    (secrets_dir / "streamwish_embed_url").write_text(
+        "https://streamwish.com/e/{asset_id}", encoding="utf-8"
+    )
+    settings = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "DRAGON_UPDOWN_ENABLED": True,
+            "DRAGON_UPDOWN_EMBED_URL": "https://updown.icu/embed-{asset_id}-1280x640.html",
+            "DRAGON_STREAMWISH_ENABLED": True,
+            "DRAGON_DOODSTREAM_ENABLED": True,
+            "DRAGON_DOODSTREAM_EMBED_URL": "https://dood.to/e/{asset_id}",
+            "DRAGON_FILELIONS_ENABLED": True,
+            "DRAGON_FILELIONS_EMBED_URL": "https://filelions.to/v/{asset_id}",
+            "DRAGON_OK_ENABLED": True,
+            "DRAGON_OK_EMBED_URL": "https://ok.ru/videoembed/{asset_id}",
+            "DRAGON_STREAMTAPE_ENABLED": True,
+            "DRAGON_STREAMTAPE_EMBED_URL": "https://streamtape.com/e/{asset_id}",
+            "DRAGON_LULUSTREAM_ENABLED": True,
+            "DRAGON_LULUSTREAM_EMBED_URL": "https://lulustream.com/e/{asset_id}",
+        },
+    )
+
+    assert settings.updown_enabled is True
+    assert settings.streamwish_enabled is True
+    assert settings.streamwish_embed_url == "https://streamwish.com/e/{asset_id}"
+    assert settings.doodstream_enabled is True
+    assert settings.filelions_enabled is True
+    assert settings.ok_enabled is True
+    assert settings.streamtape_enabled is True
+    assert settings.lulustream_enabled is True
+    assert "updown_embed_url" not in settings.safe_summary()
+    assert "streamwish_embed_url" not in settings.safe_summary()
+    assert "doodstream_embed_url" not in settings.safe_summary()
+    assert "filelions_embed_url" not in settings.safe_summary()
+    assert "ok_embed_url" not in settings.safe_summary()
+    assert "streamtape_embed_url" not in settings.safe_summary()
+    assert "lulustream_embed_url" not in settings.safe_summary()
+
+
 def test_false_boolean_override_wins_over_environment(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("DRAGON_EXTERNAL_SYNC_ENABLED", "true")
     settings = Settings.load(

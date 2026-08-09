@@ -186,6 +186,35 @@ def test_transcode_sessions_wait_for_the_first_playable_chunk(tmp_path):
     assert status["stream_kind"] == "transcode"
 
 
+def test_completed_transcode_session_uses_safe_cached_file(tmp_path):
+    manager, client = manager_for(tmp_path)
+    started = manager.start(
+        movie_id="movie-1",
+        user_id="user-1",
+        source_id="source-1",
+        magnet=MAGNET,
+        origin="http://127.0.0.1:5050",
+    )
+    session_id = started["id"]
+    wait_until_ready(manager, session_id)
+    cached = manager.torrent_root / INFO_HASH / "Season 1" / "episode.mp4"
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    cached.write_bytes(b"video")
+    client.results[session_id] = {
+        **client.results[session_id],
+        "fileName": "episode.mp4",
+        "relativePath": "Season 1/episode.mp4",
+        "totalBytes": 5,
+        "downloadedBytes": 5,
+        "fileProgress": 1,
+        "complete": True,
+    }
+
+    manager.status(session_id, user_id="user-1")
+
+    assert manager.transcode_path(session_id, user_id="user-1") == cached.resolve()
+
+
 def test_cache_cleanup_expires_inactive_entries_but_keeps_active(tmp_path):
     manager, _client = manager_for(tmp_path, cache_ttl_hours=1)
     expired = manager.torrent_root / ("a" * 40)

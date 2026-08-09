@@ -15,12 +15,15 @@ from app.auth import bp as auth_bp
 from app.auth.cli import admin_cli
 from app.auth.forms import LogoutForm
 from app.auth.models import User
-from app.books import bp as books_bp, settings_bp as knowledge_settings_bp
+from app.books import bp as books_bp
+from app.books import settings_bp as knowledge_settings_bp
 from app.chess import bp as chess_bp
 from app.config import Settings
 from app.core import bp as core_bp
+from app.db import init_db as init_legacy_db
 from app.errors import register_error_handlers
-from app.extensions import csrf, db, login_manager, migrate
+from app.extensions import csrf, login_manager, migrate
+from app.extensions import db as orm_db
 from app.german import bp as german_bp
 from app.history import bp as history_bp
 from app.logging_config import configure_logging
@@ -29,6 +32,7 @@ from app.migration import migration_cli
 from app.movies import bp as movies_bp
 from app.mytv import bp as mytv_bp
 from app.playback import bp as playback_bp
+from app.playback.settings import bp as playback_settings_bp
 from app.reading import bp as reading_bp
 from app.reading.providers import ArticleExtractor, FeedClient
 from app.youtube import bp as youtube_bp
@@ -55,8 +59,12 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
         app.extensions["dragon_feed_client"] = FeedClient()
 
     install_request_middleware(app)
-    db.init_app(app)
-    migrate.init_app(app, db)
+    # Keep this alias stable: importing the legacy ``app.db`` SQLite helper otherwise
+    # replaces the package attribute named ``db`` during a long-running test process.
+    orm_db.init_app(app)
+    migrate.init_app(app, orm_db)
+    if app.config.get("DATABASE"):
+        init_legacy_db(app)
     login_manager.init_app(app)
     csrf.init_app(app)
 
@@ -69,7 +77,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     def load_user(user_id: str) -> User | None:
         if not user_id.isdigit():
             return None
-        return db.session.get(User, int(user_id))
+        return orm_db.session.get(User, int(user_id))
 
     @app.context_processor
     def shared_template_context() -> dict[str, Any]:
@@ -84,6 +92,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     app.register_blueprint(movies_bp)
     app.register_blueprint(mytv_bp)
     app.register_blueprint(playback_bp)
+    app.register_blueprint(playback_settings_bp)
     app.register_blueprint(youtube_bp)
     app.register_blueprint(reading_bp)
     app.register_blueprint(books_bp)

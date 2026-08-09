@@ -1,7 +1,8 @@
-from app.movies import routes as movie_routes
 from app.extensions import db
-from app.movies.models import Movie
+from app.movies import routes as movie_routes
+from app.movies.models import Movie, MovieProgress
 from app.playback.models import PlaybackSource
+from app.playback.services import PlaybackService
 from tests.conftest import csrf_from
 
 
@@ -124,11 +125,52 @@ def test_movie_pages_are_protected_and_render_local_data(authenticated_client, a
     assert "Science Fiction" in detail.get_data(as_text=True)
 
 
+def test_movies_prioritizes_continue_watching_and_exposes_watch_next(authenticated_client, app):
+    paused_id = add_movie(
+        app,
+        title="Paused film",
+        normalized_title="paused film",
+        runtime_minutes=100,
+    )
+    add_movie(
+        app,
+        title="Chosen next",
+        normalized_title="chosen next",
+        status="want_to_watch",
+        personal_score=5,
+        runtime_minutes=90,
+    )
+    with app.app_context():
+        db.session.add(
+            MovieProgress(
+                movie_id=paused_id,
+                current_seconds=3_000,
+                duration_seconds=6_000,
+                completed=False,
+            )
+        )
+        db.session.commit()
+
+    listing = authenticated_client.get("/movies")
+    watch_next = authenticated_client.get("/movies/watch-next")
+
+    assert listing.status_code == 200
+    assert "Continue watching" in listing.get_data(as_text=True)
+    assert "Paused film" in listing.get_data(as_text=True)
+    assert "Resume" in listing.get_data(as_text=True)
+    assert watch_next.status_code == 200
+    assert "Watch next" in watch_next.get_data(as_text=True)
+    assert "Chosen next" in watch_next.get_data(as_text=True)
+
+
 def test_movie_status_mutation_requires_csrf(authenticated_client, app):
     movie_id = add_movie(app)
-    assert authenticated_client.post(
-        f"/movies/{movie_id}/status", data={"status": "watched"}
-    ).status_code == 400
+    assert (
+        authenticated_client.post(
+            f"/movies/{movie_id}/status", data={"status": "watched"}
+        ).status_code
+        == 400
+    )
     page = authenticated_client.get(f"/movies/{movie_id}")
     response = authenticated_client.post(
         f"/movies/{movie_id}/status",
@@ -223,9 +265,7 @@ def test_import_writes_notion_and_creates_selected_player_source(authenticated_c
 
     detail = authenticated_client.get(f"/movies/{movie_id}")
     token = csrf_from(detail)
-    watch = authenticated_client.post(
-        f"/movies/{movie_id}/watch", headers={"X-CSRFToken": token}
-    )
+    watch = authenticated_client.post(f"/movies/{movie_id}/watch", headers={"X-CSRFToken": token})
     assert watch.status_code == 200
     assert notion.watched == [("notion-page-1", True)]
 
@@ -365,9 +405,7 @@ def test_resolve_tv_episode_source_updates_episode_page_with_fallback(
 
     with app.app_context():
         sources = list(
-            db.session.scalars(
-                db.select(PlaybackSource).where(PlaybackSource.movie_id == movie_id)
-            )
+            db.session.scalars(db.select(PlaybackSource).where(PlaybackSource.movie_id == movie_id))
         )
         assert any(
             source.season == 1
@@ -380,7 +418,54 @@ def test_resolve_tv_episode_source_updates_episode_page_with_fallback(
     next_html = next_episode.get_data(as_text=True)
     assert "A season-pack fallback is already saved for this page." in next_html
     assert 'data-source-season-pack="true"' in next_html
-    assert 'data-player-pack-browser' in next_html
+    assert "data-player-pack-browser" in next_html
+
+
+def test_direct_embed_blocks_tv_jackett_fallback(authenticated_client, app, monkeypatch):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_seasons": [{"season_number": 1, "episode_count": 1}],
+                "tv_episodes": {"1": [{"season_number": 1, "episode_number": 1, "name": "Pilot"}]},
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="iuki4kda2u7l",
+            label="VideoTube · Arabic",
+            season=1,
+            episode=1,
+        )
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+    )
+
+    def should_not_search(**_kwargs):
+        raise AssertionError("Jackett must not run when a direct embed is available")
+
+    monkeypatch.setattr(movie_routes, "release_lookup", should_not_search)
+    page = authenticated_client.get(f"/movies/{movie_id}/seasons/1/episodes/1")
+    response = authenticated_client.post(
+        f"/movies/{movie_id}/seasons/1/episodes/1/resolve-source",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "direct playback source is already available" in html
+    assert "Find Best Source" not in html
 
 
 def test_tv_season_exposes_jackett_season_pack_chooser(authenticated_client, app):
@@ -418,14 +503,12 @@ def test_tv_season_exposes_jackett_season_pack_chooser(authenticated_client, app
 
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert 'data-inline-release-browser' in html
+    assert "data-inline-release-browser" in html
     assert 'data-fixed-season="1"' in html
-    assert 'data-season-pack-load' in html
+    assert "data-season-pack-load" in html
 
 
-def test_tv_episode_hides_local_player_when_playback_flags_are_disabled(
-    authenticated_client, app
-):
+def test_tv_episode_hides_local_player_when_playback_flags_are_disabled(authenticated_client, app):
     with app.app_context():
         movie = Movie(
             title="Disabled Playback",
@@ -463,7 +546,12 @@ def test_tv_episode_hides_local_player_when_playback_flags_are_disabled(
                 season=1,
                 episode=1,
                 source_role="season_pack_fallback",
-                metadata_json={"season_pack": True, "season": 1, "episode": 1, "release_mode": "season_pack"},
+                metadata_json={
+                    "season_pack": True,
+                    "season": 1,
+                    "episode": 1,
+                    "release_mode": "season_pack",
+                },
                 selected=True,
             )
         )
