@@ -6,6 +6,7 @@
   <span class="eyebrow">Playback</span>
   <h1 id="playback-settings-title">Provider settings</h1>
   <p class="muted">Enable the providers you trust and set their default order. A provider still needs its feature configuration and authorized mappings before it can play.</p>
+  {% if feature_flags.playback_enabled %}<p><a class="button button--secondary" href="{{ url_for('playback_settings.catalog') }}">Authorized source catalog</a></p>{% endif %}
 </section>
 {% if providers %}
   {% for provider in providers %}

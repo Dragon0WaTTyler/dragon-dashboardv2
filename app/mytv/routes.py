@@ -1,17 +1,27 @@
 from __future__ import annotations
 
 import math
+import secrets
+import threading
 from datetime import UTC, datetime, timedelta
 
 import click
 import requests
 from flask import Blueprint, abort, current_app, jsonify, render_template, request
 from flask_login import login_required
-from sqlalchemy import case, func, not_, or_, select, update
+from sqlalchemy import case, delete, func, not_, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.extensions import db
 from app.mytv.cache import query_cache
+from app.mytv.epg import (
+    EPGSyncService,
+    epg_coordinator,
+    now_next_for_ids,
+)
+from app.mytv.epg import (
+    status_payload as epg_status_payload,
+)
 from app.mytv.health import health_coordinator, record_channel_health
 from app.mytv.models import (
     TVChannel,
@@ -26,9 +36,9 @@ from app.mytv.services import (
     SOURCE_OWNER,
     SOURCE_REPOSITORY,
     GithubTVSync,
+    persist_theme_preference,
     sync_coordinator,
 )
-from app.services.streaming import UnsafeStreamUrl, proxy_stream, read_resource_token
 from app.mytv.streaming import (
     StreamUnavailable,
     mark_stream_failure,
@@ -37,15 +47,19 @@ from app.mytv.streaming import (
     stream_failure_penalty,
     transcode_stream,
 )
+from app.services.streaming import UnsafeStreamUrl, proxy_stream, read_resource_token
 
 bp = Blueprint("mytv", __name__, url_prefix="/my-tv")
 PLAYBACK_CANDIDATE_LIMIT = 3
+_BULK_UNDO_TTL = timedelta(seconds=20)
+_bulk_undo_lock = threading.Lock()
+_bulk_undo: dict[str, dict] = {}
 
 
 def _effective_enabled():
-    return func.coalesce(
-        TVChannel.enabled_override, TVTheme.channel_policy, TVTheme.enabled
-    ).is_(True)
+    return func.coalesce(TVChannel.enabled_override, TVTheme.channel_policy, TVTheme.enabled).is_(
+        True
+    )
 
 
 def _cache_key(namespace: str, *parts: object) -> str:
@@ -65,8 +79,9 @@ def _health_payload() -> dict:
     counts = {
         str(status): int(count)
         for status, count in db.session.execute(
-            select(TVChannelHealth.status, func.count(TVChannelHealth.preference_key))
-            .group_by(TVChannelHealth.status)
+            select(TVChannelHealth.status, func.count(TVChannelHealth.preference_key)).group_by(
+                TVChannelHealth.status
+            )
         )
     }
     latest = db.session.scalar(select(func.max(TVChannelHealth.checked_at)))
@@ -78,19 +93,58 @@ def _health_payload() -> dict:
         "checked": checked,
         "known_online": counts.get("online", 0),
         "known_offline": counts.get("offline", 0),
+        "last_checked_at": latest.isoformat() if latest else None,
         "needs_check": checked == 0
         or latest is None
         or latest < datetime.now(UTC) - timedelta(hours=10),
     }
 
 
+def _last_channel_payload() -> dict | None:
+    row = db.session.execute(
+        select(TVChannel, TVChannelPreference.last_watched_at, TVTheme.name.label("theme_name"))
+        .join(
+            TVChannelRepresentative,
+            TVChannelRepresentative.channel_id == TVChannel.id,
+        )
+        .join(
+            TVChannelPreference,
+            TVChannelPreference.preference_key == TVChannel.preference_key,
+        )
+        .join(TVGroup, TVGroup.id == TVChannel.group_id)
+        .join(TVTheme, TVTheme.id == TVGroup.theme_id)
+        .where(TVChannelPreference.last_watched_at.is_not(None))
+        .order_by(TVChannelPreference.last_watched_at.desc())
+        .limit(1)
+    ).first()
+    if row is None:
+        return None
+    channel = row[0]
+    watched_at = row.last_watched_at
+    if watched_at is not None and watched_at.tzinfo is None:
+        watched_at = watched_at.replace(tzinfo=UTC)
+    return {
+        "id": channel.id,
+        "name": channel.name,
+        "logo_url": channel.logo_url,
+        "group_name": row.theme_name,
+        "last_watched_at": watched_at.isoformat() if watched_at else None,
+    }
+
+
 @bp.get("")
 @login_required
 def index():
+    from app.admin.control_center import preference_store
+
+    preferences = preference_store().read()["sections"]["mytv"]
     return render_template(
         "mytv/index.html",
         active_module="mytv",
         source_repo=f"{SOURCE_OWNER}/{SOURCE_REPOSITORY}",
+        favorites_first=preferences["favorites_first"],
+        default_view=preferences["default_view"],
+        default_sort=preferences["default_sort"],
     )
 
 
@@ -104,8 +158,7 @@ def bootstrap():
                 select(func.count(TVChannelRepresentative.channel_id))
                 .outerjoin(
                     TVChannelHealth,
-                    TVChannelHealth.preference_key
-                    == TVChannelRepresentative.preference_key,
+                    TVChannelHealth.preference_key == TVChannelRepresentative.preference_key,
                 )
                 .where(
                     or_(
@@ -156,15 +209,17 @@ def bootstrap():
         )
         imported_sources = int(
             db.session.scalar(
-                select(func.count(TVPlaylist.id)).where(TVPlaylist.imported.is_(True))
+                select(func.count(TVPlaylist.id)).where(
+                    TVPlaylist.imported.is_(True),
+                    TVPlaylist.available.is_(True),
+                    TVPlaylist.enabled.is_(True),
+                )
             )
             or 0
         )
         repo_files = int(
             db.session.scalar(
-                select(func.count(TVPlaylist.id)).where(
-                    TVPlaylist.available.is_(True)
-                )
+                select(func.count(TVPlaylist.id)).where(TVPlaylist.available.is_(True))
             )
             or 0
         )
@@ -172,6 +227,14 @@ def bootstrap():
             db.session.scalar(
                 select(func.count(TVPlaylist.id)).where(
                     TVPlaylist.available.is_(True), TVPlaylist.imported.is_(False)
+                )
+            )
+            or 0
+        )
+        favorite_channels = int(
+            db.session.scalar(
+                select(func.count(TVChannelPreference.preference_key)).where(
+                    TVChannelPreference.favorite.is_(True)
                 )
             )
             or 0
@@ -184,17 +247,18 @@ def bootstrap():
                 "imported_playlists": imported_sources,
                 "repo_files": repo_files,
                 "pending_files": pending_files,
+                "favorite_channels": favorite_channels,
             },
         }
 
-    cached, hit = query_cache.get_or_set(
-        _cache_key("bootstrap"), build_payload, ttl_seconds=60
-    )
+    cached, hit = query_cache.get_or_set(_cache_key("bootstrap"), build_payload, ttl_seconds=60)
     return _json_cache_response(
         {
             **cached,
             "sync": sync_coordinator.status(),
             "health": _health_payload(),
+            "epg": epg_status_payload(),
+            "last_channel": _last_channel_payload(),
         },
         hit,
     )
@@ -214,6 +278,7 @@ def groups():
         conditions = [
             TVPlaylist.imported.is_(True),
             TVPlaylist.available.is_(True),
+            TVPlaylist.enabled.is_(True),
         ]
         if playlist_id:
             conditions.append(TVGroup.playlist_id == playlist_id)
@@ -225,9 +290,7 @@ def groups():
             conditions.append(TVTheme.enabled.is_(False))
         if query:
             search = f"%{query}%"
-            conditions.append(
-                or_(TVTheme.name.ilike(search), TVGroup.name.ilike(search))
-            )
+            conditions.append(or_(TVTheme.name.ilike(search), TVGroup.name.ilike(search)))
 
         statement = (
             select(
@@ -248,7 +311,7 @@ def groups():
             .join(TVPlaylist, TVPlaylist.id == TVGroup.playlist_id)
             .where(*conditions)
             .group_by(TVTheme.id)
-            .order_by(TVTheme.name)
+            .order_by(TVTheme.position, TVTheme.name)
             .limit(1000)
         )
         rows = list(db.session.execute(statement))
@@ -267,6 +330,7 @@ def groups():
                     TVGroup.theme_id.in_(theme_ids),
                     TVPlaylist.imported.is_(True),
                     TVPlaylist.available.is_(True),
+                    TVPlaylist.enabled.is_(True),
                 )
                 .group_by(TVGroup.theme_id)
             ):
@@ -277,6 +341,7 @@ def groups():
                 TVGroup.theme_id.in_(theme_ids),
                 TVPlaylist.imported.is_(True),
                 TVPlaylist.available.is_(True),
+                TVPlaylist.enabled.is_(True),
                 TVChannel.enabled_override.is_not(None),
             ]
             if playlist_id:
@@ -337,9 +402,7 @@ def groups():
             )
         return {"groups": payload}
 
-    key = _cache_key(
-        "groups", playlist_id or 0, active_only, visibility, query.casefold()
-    )
+    key = _cache_key("groups", playlist_id or 0, active_only, visibility, query.casefold())
     payload, hit = query_cache.get_or_set(key, build_payload, ttl_seconds=120)
     return _json_cache_response(payload, hit)
 
@@ -352,15 +415,22 @@ def channels():
     playlist_id = request.args.get("playlist_id", type=int)
     theme_id = request.args.get("theme_id", type=int)
     state = str(request.args.get("state") or "enabled")
+    active_only = request.args.get("active_only") == "true"
+    favorites_first = request.args.get("favorites_first") == "true"
+    sort = str(request.args.get("sort") or "name")
     query = str(request.args.get("q") or "").strip()
-    if state not in {"enabled", "disabled", "all", "favorites"}:
+    if state not in {"enabled", "disabled", "all", "favorites", "recent"}:
         abort(400, "Unknown channel state.")
+    if sort not in {"favorites", "name", "recent"}:
+        abort(400, "Unknown channel sort.")
 
     def build_payload() -> dict:
         effective = _effective_enabled()
+        effective_sort = "recent" if state == "recent" else sort
         conditions = [
             TVPlaylist.imported.is_(True),
             TVPlaylist.available.is_(True),
+            TVPlaylist.enabled.is_(True),
             or_(
                 TVChannelHealth.status.is_(None),
                 TVChannelHealth.status != "offline",
@@ -370,6 +440,8 @@ def channels():
             conditions.append(TVChannel.playlist_id == playlist_id)
         if theme_id:
             conditions.append(TVGroup.theme_id == theme_id)
+        if active_only:
+            conditions.append(TVTheme.enabled.is_(True))
         if query:
             search = f"%{query}%"
             conditions.append(
@@ -386,6 +458,8 @@ def channels():
             conditions.append(not_(effective))
         elif state == "favorites":
             conditions.append(TVChannelPreference.favorite.is_(True))
+        elif state == "recent":
+            conditions.append(TVChannelPreference.last_watched_at.is_not(None))
 
         count_statement = (
             select(func.count(TVChannel.id))
@@ -418,9 +492,9 @@ def channels():
                 TVPlaylist.enabled.label("playlist_enabled"),
                 effective.label("effective_enabled"),
                 func.coalesce(TVChannelPreference.favorite, False).label("favorite"),
-                func.coalesce(TVChannelHealth.status, "unknown").label(
-                    "health_status"
-                ),
+                func.coalesce(TVChannelHealth.status, "unknown").label("health_status"),
+                TVChannelPreference.last_watched_at.label("last_watched_at"),
+                TVTheme.channel_policy.label("theme_channel_policy"),
             )
             .join(TVGroup, TVGroup.id == TVChannel.group_id)
             .join(
@@ -438,13 +512,29 @@ def channels():
                 TVChannelHealth.preference_key == TVChannel.preference_key,
             )
             .where(*conditions)
-            .order_by(TVTheme.name, TVChannel.position, TVChannel.name)
+            .order_by(
+                func.coalesce(TVChannelPreference.favorite, False).desc()
+                if favorites_first or effective_sort == "favorites"
+                else TVChannelPreference.last_watched_at.desc().nullslast()
+                if effective_sort == "recent"
+                else TVTheme.name,
+                TVChannel.position,
+                TVChannel.name,
+            )
             .limit(per_page)
             .offset((page - 1) * per_page)
         )
+        rows = list(db.session.execute(statement))
+        favorite_tvg_ids = {
+            row[0].tvg_id for row in rows if bool(row.favorite) and row[0].tvg_id
+        }
+        schedule = now_next_for_ids(favorite_tvg_ids)
         items = []
-        for row in db.session.execute(statement):
+        for row in rows:
             channel = row[0]
+            watched_at = row.last_watched_at
+            if watched_at is not None and watched_at.tzinfo is None:
+                watched_at = watched_at.replace(tzinfo=UTC)
             items.append(
                 {
                     "id": channel.id,
@@ -459,10 +549,18 @@ def channels():
                     "playlist_name": row.playlist_name,
                     "playlist_enabled": bool(row.playlist_enabled),
                     "stream_kind": channel.stream_kind,
+                    "tvg_id": channel.tvg_id,
                     "enabled_override": channel.enabled_override,
                     "enabled": bool(row.effective_enabled),
                     "favorite": bool(row.favorite),
                     "health_status": row.health_status,
+                    "last_watched_at": watched_at.isoformat() if watched_at else None,
+                    "resolved_default": bool(
+                        row.theme_channel_policy
+                        if row.theme_channel_policy is not None
+                        else row.theme_enabled
+                    ),
+                    "epg": schedule.get(channel.tvg_id) if bool(row.favorite) else None,
                 }
             )
         return {
@@ -482,6 +580,9 @@ def channels():
         playlist_id or 0,
         theme_id or 0,
         state,
+        active_only,
+        favorites_first,
+        sort,
         query.casefold(),
     )
     payload, hit = query_cache.get_or_set(key, build_payload, ttl_seconds=90)
@@ -497,20 +598,24 @@ def update_group(theme_id: int):
     theme = db.session.get(TVTheme, theme_id)
     if theme is None:
         abort(404)
+    previous_enabled = theme.enabled
     theme.enabled = payload["enabled"]
+    persist_theme_preference(theme)
     if payload.get("clear_overrides") is True:
         db.session.execute(
             update(TVChannel)
-            .where(
-                TVChannel.group_id.in_(
-                    select(TVGroup.id).where(TVGroup.theme_id == theme_id)
-                )
-            )
+            .where(TVChannel.group_id.in_(select(TVGroup.id).where(TVGroup.theme_id == theme_id)))
             .values(enabled_override=None)
         )
     db.session.commit()
     query_cache.invalidate()
-    return jsonify({"ok": True})
+    return jsonify(
+        {
+            "ok": True,
+            "previous_enabled": previous_enabled,
+            "affected_channels": theme.channel_count,
+        }
+    )
 
 
 @bp.post("/api/groups/<int:theme_id>/channels")
@@ -523,14 +628,44 @@ def bulk_group_channels(theme_id: int):
     values = {"enable": True, "disable": False, "inherit": None}
     if action not in values:
         abort(400, "action must be enable, disable, or inherit.")
-    theme.channel_policy = values[action]
-    db.session.execute(
-        update(TVChannel)
-        .where(
-            TVChannel.group_id.in_(
-                select(TVGroup.id).where(TVGroup.theme_id == theme_id)
+    previous_overrides = {
+        preference.preference_key: preference.enabled_override
+        for preference in db.session.scalars(
+            select(TVChannelPreference).where(
+                TVChannelPreference.theme_key == theme.key,
+                TVChannelPreference.enabled_override.is_not(None),
             )
         )
+    }
+    for preference_key, enabled_override in db.session.execute(
+        select(TVChannel.preference_key, TVChannel.enabled_override)
+        .join(TVGroup, TVGroup.id == TVChannel.group_id)
+        .where(
+            TVGroup.theme_id == theme_id,
+            TVChannel.enabled_override.is_not(None),
+        )
+    ):
+        previous_overrides.setdefault(preference_key, enabled_override)
+    undo_token = secrets.token_urlsafe(24)
+    with _bulk_undo_lock:
+        expired = [
+            token
+            for token, snapshot in _bulk_undo.items()
+            if snapshot["expires_at"] <= datetime.now(UTC)
+        ]
+        for token in expired:
+            _bulk_undo.pop(token, None)
+        _bulk_undo[undo_token] = {
+            "expires_at": datetime.now(UTC) + _BULK_UNDO_TTL,
+            "theme_id": theme.id,
+            "channel_policy": theme.channel_policy,
+            "overrides": previous_overrides,
+        }
+    theme.channel_policy = values[action]
+    persist_theme_preference(theme)
+    db.session.execute(
+        update(TVChannel)
+        .where(TVChannel.group_id.in_(select(TVGroup.id).where(TVGroup.theme_id == theme_id)))
         .values(enabled_override=None)
     )
     db.session.execute(
@@ -538,6 +673,67 @@ def bulk_group_channels(theme_id: int):
         .where(TVChannelPreference.theme_key == theme.key)
         .values(enabled_override=None)
     )
+    db.session.commit()
+    query_cache.invalidate()
+    return jsonify(
+        {
+            "ok": True,
+            "undo_token": undo_token,
+            "undo_seconds": int(_BULK_UNDO_TTL.total_seconds()),
+            "affected_channels": theme.channel_count,
+        }
+    )
+
+
+@bp.post("/api/groups/<int:theme_id>/channels/undo")
+@login_required
+def undo_bulk_group_channels(theme_id: int):
+    token = str((request.get_json(silent=True) or {}).get("token") or "")
+    with _bulk_undo_lock:
+        snapshot = _bulk_undo.pop(token, None)
+    if (
+        snapshot is None
+        or snapshot["theme_id"] != theme_id
+        or snapshot["expires_at"] <= datetime.now(UTC)
+    ):
+        abort(409, "This undo has expired.")
+    theme = db.session.get(TVTheme, theme_id)
+    if theme is None:
+        abort(404)
+    theme.channel_policy = snapshot["channel_policy"]
+    persist_theme_preference(theme)
+    db.session.execute(
+        update(TVChannel)
+        .where(TVChannel.group_id.in_(select(TVGroup.id).where(TVGroup.theme_id == theme_id)))
+        .values(enabled_override=None)
+    )
+    db.session.execute(
+        update(TVChannelPreference)
+        .where(TVChannelPreference.theme_key == theme.key)
+        .values(enabled_override=None)
+    )
+    for preference_key, enabled in snapshot["overrides"].items():
+        db.session.execute(
+            update(TVChannel)
+            .where(TVChannel.preference_key == preference_key)
+            .values(enabled_override=enabled)
+        )
+        db.session.execute(
+            update(TVChannelPreference)
+            .where(TVChannelPreference.preference_key == preference_key)
+            .values(enabled_override=enabled)
+        )
+        channel = db.session.scalar(
+            select(TVChannel)
+            .join(TVGroup, TVGroup.id == TVChannel.group_id)
+            .where(
+                TVChannel.preference_key == preference_key,
+                TVGroup.theme_id == theme_id,
+            )
+            .limit(1)
+        )
+        if channel is not None:
+            _upsert_channel_preference(channel, enabled_override=enabled)
     db.session.commit()
     query_cache.invalidate()
     return jsonify({"ok": True})
@@ -572,6 +768,17 @@ def update_channel_favorite(channel_id: int):
     _upsert_channel_preference(channel, favorite=payload["favorite"])
     db.session.commit()
     query_cache.invalidate()
+    if (
+        payload["favorite"]
+        and channel.tvg_id
+        and current_app.config.get("DRAGON_TV_EPG_ENABLED", True)
+        and not current_app.config.get("TESTING")
+    ):
+        epg_coordinator.start(
+            current_app._get_current_object(),
+            force=True,
+            tvg_ids={channel.tvg_id},
+        )
     return jsonify({"ok": True, "favorite": payload["favorite"]})
 
 
@@ -583,13 +790,9 @@ def start_sync():
     if mode not in {"catalog", "fetch", "latest", "selected", "all"}:
         abort(400, "Unknown sync mode.")
     playlist_ids = payload.get("playlist_ids") or []
-    if not isinstance(playlist_ids, list) or not all(
-        type(item) is int for item in playlist_ids
-    ):
+    if not isinstance(playlist_ids, list) or not all(type(item) is int for item in playlist_ids):
         abort(400, "playlist_ids must be an array of integers.")
-    started = sync_coordinator.start(
-        current_app._get_current_object(), mode, playlist_ids
-    )
+    started = sync_coordinator.start(current_app._get_current_object(), mode, playlist_ids)
     if not started:
         return jsonify({"ok": False, "message": "A TV sync is already running."}), 409
     query_cache.invalidate()
@@ -611,9 +814,7 @@ def start_health_check():
         abort(400, "theme_id must be an integer or null.")
     if theme_id is not None and db.session.get(TVTheme, theme_id) is None:
         abort(404, "Bouquet was not found.")
-    started = health_coordinator.start(
-        current_app._get_current_object(), theme_id=theme_id
-    )
+    started = health_coordinator.start(current_app._get_current_object(), theme_id=theme_id)
     if not started:
         return jsonify({"ok": False, "message": "A health check is already running."}), 409
     return jsonify({"ok": True, "health": _health_payload()}), 202
@@ -625,10 +826,26 @@ def health_status():
     return jsonify(_health_payload())
 
 
+@bp.get("/api/epg")
+@login_required
+def epg_status():
+    return jsonify(epg_status_payload())
+
+
+@bp.post("/api/epg")
+@login_required
+def start_epg_refresh():
+    started = epg_coordinator.start(current_app._get_current_object(), force=True)
+    if not started:
+        return jsonify({"ok": False, "message": "A guide refresh is already running."}), 409
+    return jsonify({"ok": True, "epg": epg_status_payload()}), 202
+
+
 @bp.get("/api/channels/<int:channel_id>/playback")
 @login_required
 def playback_info(channel_id: int):
     channel = _playable_channel(channel_id)
+    source_count = len(_playback_candidates(channel))
     return jsonify(
         {
             "id": channel.id,
@@ -636,6 +853,7 @@ def playback_info(channel_id: int):
             "logo_url": channel.logo_url,
             "mode": "native" if channel.stream_kind == "file" else "transcode",
             "url": f"/my-tv/play/{channel.id}",
+            "source_count": source_count,
         }
     )
 
@@ -670,6 +888,9 @@ def play(channel_id: int):
             online=True,
             source_url=candidate.stream_url,
         )
+        _record_channel_watch(channel)
+        db.session.commit()
+        query_cache.invalidate()
         response.headers["X-Dragon-TV-Source-Attempt"] = str(attempt)
         response.headers["X-Dragon-TV-Source-Candidates"] = str(len(candidates))
         return response
@@ -757,9 +978,7 @@ def _upsert_channel_preference(
     }
     insert_values = {
         **values,
-        "enabled_override": (
-            None if enabled_override == "unchanged" else enabled_override
-        ),
+        "enabled_override": (None if enabled_override == "unchanged" else enabled_override),
         "favorite": False if favorite == "unchanged" else favorite,
     }
     statement = sqlite_insert(TVChannelPreference).values(insert_values)
@@ -773,12 +992,47 @@ def _upsert_channel_preference(
             index_elements=[TVChannelPreference.preference_key], set_=updates
         )
     )
+    db.session.execute(
+        delete(TVChannelPreference).where(
+            TVChannelPreference.preference_key == channel.preference_key,
+            TVChannelPreference.favorite.is_(False),
+            TVChannelPreference.enabled_override.is_(None),
+            TVChannelPreference.last_watched_at.is_(None),
+            TVChannelPreference.watch_count == 0,
+        )
+    )
+
+
+def _record_channel_watch(channel: TVChannel) -> None:
+    theme = channel.group.theme
+    now = datetime.now(UTC)
+    statement = sqlite_insert(TVChannelPreference).values(
+        preference_key=channel.preference_key,
+        theme_key=theme.key,
+        name=channel.name,
+        tvg_id=channel.tvg_id,
+        logo_url=channel.logo_url,
+        enabled_override=channel.enabled_override,
+        favorite=False,
+        last_watched_at=now,
+        watch_count=1,
+    )
+    db.session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[TVChannelPreference.preference_key],
+            set_={
+                "name": statement.excluded.name,
+                "tvg_id": statement.excluded.tvg_id,
+                "logo_url": statement.excluded.logo_url,
+                "last_watched_at": now,
+                "watch_count": TVChannelPreference.watch_count + 1,
+            },
+        )
+    )
 
 
 @bp.cli.command("sync")
-@click.option(
-    "--mode", type=click.Choice(["catalog", "fetch", "latest", "all"]), default="latest"
-)
+@click.option("--mode", type=click.Choice(["catalog", "fetch", "latest", "all"]), default="latest")
 def sync_command(mode: str):
     """Refresh the TV source catalogue and optionally import packages."""
     sync = GithubTVSync()
@@ -795,7 +1049,19 @@ def sync_command(mode: str):
     )
     for playlist_id in selected:
         result = sync.import_playlist(playlist_id, refresh_representatives=False)
-        click.echo(
-            f"Imported {result['channels']:,} channels from package {playlist_id}"
-        )
+        click.echo(f"Imported {result['channels']:,} channels from package {playlist_id}")
     sync.refresh_representatives()
+
+
+@bp.cli.command("sync-epg")
+@click.option("--force", is_flag=True, help="Refresh even when the cached guide is current.")
+def sync_epg_command(force: bool):
+    """Refresh Now/Next schedules for favorite TV channels."""
+    if not force and not EPGSyncService.is_due():
+        click.echo("Favorite channel schedules are already current.")
+        return
+    result = EPGSyncService().sync()
+    click.echo(
+        f"Loaded {result['programmes']:,} programme slots for "
+        f"{result['matched']:,}/{result['favorites']:,} favorite channels."
+    )

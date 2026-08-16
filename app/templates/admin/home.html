@@ -1,0 +1,13 @@
+{% extends "layouts/app.html" %}
+{% block title %}Home layout · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/control-center.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/settings.js') }}" defer></script>{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('admin.index') }}">← Settings</a>
+<header class="section-control-header"><div><span class="eyebrow">Home settings</span><h1>Arrange your home</h1><p>Show what matters, then drag blocks into the order you want.</p></div></header>
+<form class="settings-detail-card home-layout-form" method="post" action="{{ url_for('admin.update_home_preferences') }}" data-home-layout>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="layout_order" value="{{ dragon_home_layout()|map(attribute='section')|join(',') }}" data-layout-order>
+  <div class="home-layout-list" data-home-layout-list>{% for item in dragon_home_layout() %}<article class="home-layout-item" draggable="true" data-home-key="{{ item.section }}"><span class="home-layout-item__handle" aria-hidden="true">⠿</span><div><strong>{{ item.definition.label }}</strong><small>{{ item.definition.description }}</small></div><label class="inline-switch"><span class="visually-hidden">Show {{ item.definition.label }}</span><input type="checkbox" name="home_{{ item.section }}_enabled"{% if item.enabled %} checked{% endif %}><i aria-hidden="true"></i></label><label class="field field--compact"><span>Items</span><select name="home_{{ item.section }}_limit">{% for limit in [5, 10, 20] %}<option value="{{ limit }}"{% if item.item_limit == limit %} selected{% endif %}>{{ limit }}</option>{% endfor %}</select></label></article>{% endfor %}</div>
+  <button class="button button--primary" type="submit">Save home layout</button>
+</form>
+{% endblock %}

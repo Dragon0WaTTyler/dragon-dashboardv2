@@ -7,6 +7,7 @@ from app.movies.models import Movie
 from app.playback.identity import PlaybackIdentity
 from app.playback.models import PlaybackSource, ProviderAvailability
 from app.playback.providers import (
+    IdCatalogEmbedProvider,
     IndexedEmbedProvider,
     IndexedEmbedProviderConfig,
     ProviderProbeResult,
@@ -67,11 +68,47 @@ def test_vidsrc_provider_rejects_unscoped_tv_identity():
         provider.resolve(PlaybackIdentity(movie_id="mov_1", imdb_id="tt0944947", media_type="tv"))
 
 
+@pytest.mark.parametrize(
+    ("key", "movie_url", "episode_url"),
+    (
+        ("cinesrc", "https://cinesrc.st/embed/movie/550", "https://cinesrc.st/embed/tv/1399?s=1&e=5"),
+        ("vidcore", "https://vidcore.org/embed/movie/550", "https://vidcore.org/embed/tv/1399/1/5"),
+        ("vidzee", "https://player.vidzee.wtf/embed/movie/550", "https://player.vidzee.wtf/embed/tv/1399/1/5"),
+    ),
+)
+def test_direct_id_catalog_provider_resolves_tmdb_movie_and_exact_tv_episode(
+    key, movie_url, episode_url
+):
+    provider = IdCatalogEmbedProvider(key)
+
+    movie = provider.resolve(PlaybackIdentity(movie_id="mov_1", tmdb_id="550", media_type="movie"))
+    episode = provider.resolve(
+        PlaybackIdentity(movie_id="mov_1", tmdb_id="1399", media_type="tv", season=1, episode=5)
+    )
+
+    assert movie.url == movie_url
+    assert movie.provider_asset_id == "550"
+    assert episode.url == episode_url
+    with pytest.raises(ValueError, match="TMDb ID"):
+        provider.resolve(PlaybackIdentity(movie_id="mov_1", imdb_id="tt0137523"))
+
+
 def test_provider_registry_exposes_vidsrc_as_the_only_v0_provider():
     registry = build_provider_registry(vidsrc_embed_url="https://vidsrc-embed.ru/embed")
 
     assert registry.get("vidsrc") is not None
     assert registry.get("videotube") is None
+
+
+def test_provider_registry_enables_cinesrc_as_a_direct_identity_provider():
+    registry = build_provider_registry(
+        vidsrc_embed_url="https://vidsrc-embed.ru/embed",
+        cinesrc_enabled=True,
+        vidcore_enabled=True,
+        vidzee_enabled=True,
+    )
+
+    assert registry.keys() >= {"cinesrc", "vidcore", "vidzee"}
 
 
 def test_provider_registry_enables_videotube_only_with_an_authorized_endpoint():
@@ -176,13 +213,18 @@ def test_provider_metadata_renders_videotube_updown_and_ok_templates_exactly():
     ).url == "https://ok.ru/videoembed/7593181055685"
     assert DEFAULT_PROVIDER_PRIORITIES == {
         "videotube": 10,
+        "cinesrc": 15,
+        "vidcore": 16,
+        "vidzee": 17,
         "updown": 20,
         "streamwish": 30,
+        "mixdrop": 35,
         "doodstream": 40,
         "filelions": 50,
         "ok": 60,
         "streamtape": 70,
         "lulustream": 80,
+        "uqload": 90,
         "vidsrc": 100,
     }
 

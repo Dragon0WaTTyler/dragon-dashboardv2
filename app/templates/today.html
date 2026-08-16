@@ -14,7 +14,7 @@
 </header>
 
 <div
-  class="today-grid"
+  class="today-grid today-grid--custom-layout"
   data-today-live
   data-endpoint="{{ url_for('api_v1.home_live') }}"
   data-movies-prefix="{{ url_for('movies.index') }}"
@@ -28,8 +28,8 @@
   data-reading-next-at="{{ workspace.rotation.reading_next_at }}"
 >
   <section class="today-main" aria-label="Today’s media queue">
-    {% if dragon_feature('movies', 'today') %}
-    <section class="today-section" aria-labelledby="recommended-title">
+    {% if dragon_home_block_visible('recommended_movie') %}
+    <section class="today-section" style="order: {{ dragon_home_block_position('recommended_movie') }}" aria-labelledby="recommended-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Recommended movie</span><h2 id="recommended-title">One from your queue</h2></div>
         <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-movie-countdown>Changes hourly</span></span><a href="{{ url_for('movies.index') }}">View all</a></div>
@@ -53,8 +53,8 @@
 
     {% endif %}
 
-    {% if dragon_feature('youtube', 'today') %}
-    <section class="today-section report-section" aria-labelledby="youtube-today-title">
+    {% if dragon_home_block_visible('youtube_feed') %}
+    <section class="today-section report-section" style="order: {{ dragon_home_block_position('youtube_feed') }}" aria-labelledby="youtube-today-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Shuffled from Watch Later</span><h2 id="youtube-today-title">YouTube mix</h2></div>
         <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-youtube-countdown>New mix every 5 min</span></span><a href="{{ url_for('youtube.index', source='watch_later', order='shuffle') }}">View all</a></div>
@@ -79,8 +79,8 @@
     </section>
     {% endif %}
 
-    {% if dragon_feature('reading', 'today') %}
-    <section class="today-section report-section" aria-labelledby="reading-today-title">
+    {% if dragon_home_block_visible('latest_articles') %}
+    <section class="today-section report-section" style="order: {{ dragon_home_block_position('latest_articles') }}" aria-labelledby="reading-today-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">Latest from News</span><h2 id="reading-today-title">News mix</h2></div>
         <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-reading-countdown>New reads every 5 min</span></span><a href="{{ url_for('reading.index') }}">View all</a></div>
@@ -112,8 +112,8 @@
     </section>
     {% endif %}
 
-    {% if dragon_feature('youtube', 'today') %}
-    <section class="today-section report-section" aria-labelledby="pockettube-favorite-title">
+    {% if dragon_home_block_visible('youtube_feed') %}
+    <section class="today-section report-section" style="order: {{ dragon_home_block_position('youtube_feed') + 1 }}" aria-labelledby="pockettube-favorite-title">
       <div class="section-heading section-heading--action">
         <div><span class="eyebrow">PocketTube favorite</span><h2 id="pockettube-favorite-title">My favoret mix</h2></div>
         <div class="today-heading-actions"><span class="today-live-note"><span aria-hidden="true"></span><span data-pockettube-countdown>New mix every 5 min</span></span><a href="{{ url_for('youtube.index', source='pockettube', group='my favoret', order='shuffle') }}">View all</a></div>
@@ -140,7 +140,7 @@
   </section>
 
   <aside class="today-aside" aria-labelledby="guardrails-title">
-    {% if dragon_feature('books', 'today') %}<section aria-labelledby="book-today-title">
+    {% if dragon_home_block_visible('continue_reading') %}<section style="order: {{ dragon_home_block_position('continue_reading') }}" aria-labelledby="book-today-title">
       <span class="eyebrow">Current book</span>
       <h2 id="book-today-title">Reading now</h2>
       {% set current_books = workspace.current_books or ([workspace.current_book] if workspace.current_book else []) %}
@@ -176,7 +176,7 @@
       {% else %}<p class="muted">No current book.</p>{% endif %}
     </section>{% endif %}
 
-    <section class="report-section" aria-labelledby="watching-now-title">
+    {% if dragon_home_block_visible('continue_watching') %}<section class="report-section" style="order: {{ dragon_home_block_position('continue_watching') }}" aria-labelledby="watching-now-title">
       <span class="eyebrow">Now watching</span>
       <h2 id="watching-now-title">Movie or series</h2>
       {% if workspace.watching_now %}
@@ -198,12 +198,13 @@
         </div>
       </article>
       {% else %}<p class="muted">No active movie or series.</p>{% endif %}
-    </section>
+    </section>{% endif %}
 
-    {% if dragon_feature('chess', 'today') %}<section class="report-section" aria-labelledby="chess-today-title">
+    {% if dragon_home_block_visible('chess_training') %}<section class="report-section" style="order: {{ dragon_home_block_position('chess_training') }}" aria-labelledby="chess-today-title">
       <span class="eyebrow">Today’s chess</span><h2 id="chess-today-title">Training queue</h2>
       {% if workspace.chess_training %}<ul class="check-list">{% for puzzle in workspace.chess_training %}<li><span aria-hidden="true">→</span><a href="{{ url_for('chess.puzzle', puzzle_id=puzzle.id) }}">Puzzle {{ puzzle.external_id }} · {{ puzzle.rating }}</a></li>{% endfor %}</ul>{% else %}<p class="muted">No puzzles in the local queue.</p>{% endif %}
     </section>{% endif %}
+    {% if dragon_home_block_visible('favorite_iptv') %}<section class="report-section today-iptv-block" style="order: {{ dragon_home_block_position('favorite_iptv') }}" aria-labelledby="iptv-today-title"><span class="eyebrow">Live favorites</span><h2 id="iptv-today-title">Favorite IPTV</h2><p>Your favorite channels are ready in the live catalogue.</p><a class="button button--secondary" href="{{ url_for('mytv.index') }}">Open My TV</a></section>{% endif %}
   </aside>
   <span class="visually-hidden" data-live-announcer aria-live="polite"></span>
 </div>

@@ -36,6 +36,47 @@ def test_desktop_shell_keyboard_and_dialog(page, live_app):
     assert trigger.evaluate("element => element === document.activeElement")
 
 
+def test_today_supporting_blocks_use_the_desktop_sidebar(page, live_app):
+    page.set_viewport_size({"width": 1440, "height": 900})
+    sign_in(page, live_app)
+
+    grid = page.locator(".today-grid--custom-layout")
+    desktop = grid.evaluate(
+        """element => {
+          const main = element.querySelector('.today-main').getBoundingClientRect();
+          const aside = element.querySelector('.today-aside').getBoundingClientRect();
+          return {
+            columns: getComputedStyle(element).gridTemplateColumns.split(' ').length,
+            mainRight: main.right,
+            asideLeft: aside.left,
+            mainTop: main.top,
+            asideTop: aside.top,
+          };
+        }"""
+    )
+    assert desktop["columns"] == 2
+    assert desktop["asideLeft"] > desktop["mainRight"]
+    assert abs(desktop["asideTop"] - desktop["mainTop"]) <= 1
+
+    page.set_viewport_size({"width": 800, "height": 900})
+    mobile = grid.evaluate(
+        """element => {
+          const main = element.querySelector('.today-main').getBoundingClientRect();
+          const aside = element.querySelector('.today-aside').getBoundingClientRect();
+          return {
+            columns: getComputedStyle(element).gridTemplateColumns.split(' ').length,
+            mainBottom: main.bottom,
+            asideTop: aside.top,
+            hasOverflow:
+              document.documentElement.scrollWidth > document.documentElement.clientWidth,
+          };
+        }"""
+    )
+    assert mobile["columns"] == 1
+    assert mobile["asideTop"] >= mobile["mainBottom"]
+    assert not mobile["hasOverflow"]
+
+
 def test_mobile_shell_has_no_overflow_and_safe_targets(page, live_app):
     page.set_viewport_size({"width": 390, "height": 844})
     sign_in(page, live_app)

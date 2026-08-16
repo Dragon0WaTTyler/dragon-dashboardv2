@@ -234,6 +234,18 @@ def transcode_stream(url: str) -> Response:
         _transcode_slots.release()
         raise StreamUnavailable("The channel source is offline or rejected playback.")
 
+    cleanup_lock = threading.Lock()
+    cleaned_up = False
+
+    def cleanup() -> None:
+        nonlocal cleaned_up
+        with cleanup_lock:
+            if cleaned_up:
+                return
+            cleaned_up = True
+        _stop_process(process)
+        _transcode_slots.release()
+
     @stream_with_context
     def generate():
         try:
@@ -244,15 +256,16 @@ def transcode_stream(url: str) -> Response:
                     break
                 yield chunk
         finally:
-            _stop_process(process)
-            _transcode_slots.release()
+            cleanup()
 
-    return Response(
+    response = Response(
         generate(),
         content_type="video/mp4",
         headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
         direct_passthrough=True,
     )
+    response.call_on_close(cleanup)
+    return response
 
 
 def _stop_process(process: subprocess.Popen) -> None:

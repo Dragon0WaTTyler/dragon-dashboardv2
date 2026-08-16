@@ -1,0 +1,129 @@
+{% extends "layouts/app.html" %}
+{% block title %}Authorized source catalog · Dragon{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('playback_settings.index') }}">← Provider settings</a>
+<section class="detail-section" aria-labelledby="catalog-title">
+  <span class="eyebrow">Production ingestion</span>
+  <h1 id="catalog-title">Authorized source catalog</h1>
+  <p class="muted">Upload a CSV or JSON catalog you are authorized to use. Exact identity matches are imported disabled; review and activate each mapping explicitly. Opening this page never contacts a provider.</p>
+</section>
+
+<section class="detail-section" aria-labelledby="lulustream-sync-title">
+  <div class="section-heading"><div><span class="eyebrow">Account library</span><h2 id="lulustream-sync-title">LuluStream library sync</h2></div></div>
+  <p class="muted">Syncs only files from the LuluStream account configured in Dragon's local secret store. Files must include an exact <code>tmdb-123</code> or <code>tt1234567</code> marker; TV files also need <code>SxxExx</code>. New mappings remain disabled for review.</p>
+  <p class="muted">{{ lulustream_library.status }}</p>
+  <form method="post" action="{{ url_for('playback_settings.sync_lulustream_library') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--secondary" type="submit"{% if not lulustream_library.ready %} disabled{% endif %}>Sync LuluStream library</button></form>
+</section>
+
+<section class="detail-section" aria-labelledby="doodstream-sync-title">
+  <div class="section-heading"><div><span class="eyebrow">Account library</span><h2 id="doodstream-sync-title">DoodStream library sync</h2></div></div>
+  <p class="muted">Syncs only files from the DoodStream account configured in Dragon's local secret store. Files must include an exact <code>tmdb-123</code> or <code>tt1234567</code> marker; TV files also need <code>SxxExx</code>. New mappings remain disabled for review.</p>
+  <p class="muted">{{ doodstream_library.status }}</p>
+  <form method="post" action="{{ url_for('playback_settings.sync_doodstream_library') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--secondary" type="submit"{% if not doodstream_library.ready %} disabled{% endif %}>Sync DoodStream library</button></form>
+</section>
+
+<section class="detail-section" aria-labelledby="filelions-sync-title">
+  <div class="section-heading"><div><span class="eyebrow">Account library</span><h2 id="filelions-sync-title">FileLions library sync</h2></div></div>
+  <p class="muted">Syncs only files from the FileLions/EarnVids account configured in Dragon's local secret store. Files must include an exact <code>tmdb-123</code> or <code>tt1234567</code> marker; TV files also need <code>SxxExx</code>. New mappings remain disabled for review.</p>
+  <p class="muted">{{ filelions_library.status }}</p>
+  <form method="post" action="{{ url_for('playback_settings.sync_filelions_library') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button button--secondary" type="submit"{% if not filelions_library.ready %} disabled{% endif %}>Sync FileLions library</button>
+  </form>
+</section>
+
+<section class="detail-section" aria-labelledby="streamtape-sync-title">
+  <div class="section-heading"><div><span class="eyebrow">Account library</span><h2 id="streamtape-sync-title">StreamTape library sync</h2></div></div>
+  <p class="muted">Syncs only files from the StreamTape account configured in Dragon's local secret store. Files must include an exact <code>tmdb-123</code> or <code>tt1234567</code> marker; TV files also need <code>SxxExx</code>. New mappings remain disabled for review.</p>
+  <p class="muted">{{ streamtape_library.status }}</p>
+  <form method="post" action="{{ url_for('playback_settings.sync_streamtape_library') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button button--secondary" type="submit"{% if not streamtape_library.ready %} disabled{% endif %}>Sync StreamTape library</button>
+  </form>
+</section>
+
+<section class="detail-section" aria-labelledby="catalog-readiness-title">
+  <div class="section-heading"><div><span class="eyebrow">Local configuration</span><h2 id="catalog-readiness-title">Provider readiness</h2></div></div>
+  <p class="muted">A mapping can appear only when its provider is configured here on Dragon and enabled in Provider settings. This check performs no provider request and does not reveal embed URLs.</p>
+  <div class="definition-grid">
+  {% for provider in provider_readiness %}
+    <div><strong>{{ provider.label }}</strong><small>{{ provider.status }}</small></div>
+  {% endfor %}
+  </div>
+  <p><a class="button button--quiet" href="{{ url_for('playback_settings.index') }}">Open provider settings</a></p>
+</section>
+
+<section class="detail-section" aria-labelledby="catalog-upload-title">
+  <div class="section-heading"><div><span class="eyebrow">Step 1</span><h2 id="catalog-upload-title">Import mappings</h2></div></div>
+  <form class="operation-form" method="post" action="{{ url_for('playback_settings.import_catalog') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label class="field"><span>Catalog file</span><input type="file" name="catalog" accept=".csv,application/json,.json,text/csv" required><small>UTF-8 CSV or JSON. The importer accepts exact TMDb/IMDb matches only.</small></label>
+    <label class="field"><span>Catalog name <small>(optional)</small></span><input name="source_name" maxlength="200" autocomplete="off" placeholder="My authorized source export"></label>
+    <button class="button button--primary" type="submit">Import catalog</button>
+  </form>
+</section>
+
+<section class="detail-section" aria-labelledby="streamwish-sync-title">
+  <div class="section-heading"><div><span class="eyebrow">Account library</span><h2 id="streamwish-sync-title">StreamWish library sync</h2></div></div>
+  <p class="muted">Syncs only files from the StreamWish account configured in Dragon's local secret store. Files must include an exact <code>tmdb-123</code> or <code>tt1234567</code> marker; TV files also need <code>SxxExx</code>. New mappings remain disabled for review.</p>
+  <p class="muted">{{ streamwish_library.status }}</p>
+  <form method="post" action="{{ url_for('playback_settings.sync_streamwish_library') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button button--secondary" type="submit"{% if not streamwish_library.ready %} disabled{% endif %}>Sync StreamWish library</button>
+  </form>
+</section>
+
+<section class="detail-section" aria-labelledby="mixdrop-sync-title">
+  <div class="section-heading"><div><span class="eyebrow">Account library</span><h2 id="mixdrop-sync-title">MixDrop library sync</h2></div></div>
+  <p class="muted">Syncs only files from the MixDrop account configured in Dragon's local secret store. Files must include an exact <code>tmdb-123</code> or <code>tt1234567</code> marker; TV files also need <code>SxxExx</code>. New mappings remain disabled for review.</p>
+  <p class="muted">{{ mixdrop_library.status }}</p>
+  <form method="post" action="{{ url_for('playback_settings.sync_mixdrop_library') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <button class="button button--secondary" type="submit"{% if not mixdrop_library.ready %} disabled{% endif %}>Sync MixDrop library</button>
+  </form>
+</section>
+
+{% if recent_batches %}
+<section class="detail-section" aria-labelledby="catalog-batches-title">
+  <div class="section-heading"><div><span class="eyebrow">Recent imports</span><h2 id="catalog-batches-title">Batches</h2></div></div>
+  <div class="content-list">
+  {% for item in recent_batches %}
+    <a class="plain-row" href="{{ url_for('playback_settings.catalog', batch=item.id) }}">
+      <strong>{{ item.source_name }}</strong>
+      <small>{{ item.accepted_rows }} accepted · {{ item.review_rows }} review · {{ item.rejected_rows + item.error_rows }} not imported</small>
+    </a>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+{% if batch %}
+<section class="detail-section" aria-labelledby="catalog-result-title">
+  <div class="section-heading"><div><span class="eyebrow">Step 2</span><h2 id="catalog-result-title">{{ batch.source_name }}</h2><p class="muted">{{ batch.total_rows }} rows · {{ batch.import_method|upper }}{% if batch.filename %} · {{ batch.filename }}{% endif %}</p></div></div>
+  <div class="definition-grid">
+    <div><strong>{{ batch.accepted_rows }}</strong><small>Accepted</small></div>
+    <div><strong>{{ batch.review_rows }}</strong><small>Review required</small></div>
+    <div><strong>{{ batch.rejected_rows }}</strong><small>Rejected</small></div>
+    <div><strong>{{ batch.error_rows }}</strong><small>Errors</small></div>
+  </div>
+  {% if batch.rows_truncated %}<p class="muted">Showing the first 100 rows of this batch.</p>{% endif %}
+  <div class="content-list">
+  {% for row in batch.rows %}
+    <article class="plain-row">
+      <strong>Row {{ row.row_number }} · {{ row.provider or 'No provider' }}</strong>
+      <small>{{ row.match_status|replace('_', ' ')|title }}{% if row.reason %} · {{ row.reason }}{% endif %}</small>
+      {% if row.movie %}<small>Matched: <a href="{{ url_for('movies.detail', movie_id=row.movie.id) }}">{{ row.movie.title }}</a></small>{% endif %}
+      {% if row.source %}
+        <form method="post" action="{{ url_for('playback_settings.set_catalog_source_enabled', source_id=row.source.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="batch_id" value="{{ batch.id }}">
+          <input type="hidden" name="enabled" value="{{ 'false' if row.source.enabled else 'true' }}">
+          <button class="button button--quiet" type="submit">{{ 'Disable mapping' if row.source.enabled else 'Activate mapping' }}</button>
+        </form>
+      {% endif %}
+    </article>
+  {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% endblock %}

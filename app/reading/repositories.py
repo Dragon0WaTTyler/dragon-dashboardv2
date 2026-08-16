@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import func, or_
 from sqlalchemy.orm import joinedload
 
@@ -15,7 +17,15 @@ class ReadingRepository:
         )
 
     @staticmethod
-    def list(*, q: str = "", source_id: str = "", status: str = "", limit: int = 50):
+    def list(
+        *,
+        q: str = "",
+        source_id: str = "",
+        status: str = "",
+        sort: str = "recent",
+        published_since: datetime | None = None,
+        limit: int = 50,
+    ):
         conditions = []
         if q.strip():
             pattern = f"%{q.strip().lower()}%"
@@ -29,11 +39,18 @@ class ReadingRepository:
             conditions.append(Article.source_id == source_id)
         if status:
             conditions.append(Article.status == status)
+        if published_since:
+            conditions.append(Article.published_at >= published_since)
+        order = (
+            (func.lower(Article.title).asc(), Article.published_at.desc())
+            if sort == "title"
+            else (Article.published_at.desc(), Article.created_at.desc())
+        )
         query = (
             db.select(Article)
             .options(joinedload(Article.source))
             .where(*conditions)
-            .order_by(Article.published_at.desc(), Article.created_at.desc())
+            .order_by(*order)
             .limit(limit)
         )
         return list(db.session.scalars(query))

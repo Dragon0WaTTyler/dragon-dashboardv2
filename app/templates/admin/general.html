@@ -1,0 +1,17 @@
+{% extends "layouts/app.html" %}
+{% set preferences = dragon_preferences() %}
+{% block title %}General settings · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/control-center.css') }}">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('admin.index') }}">← Settings</a>
+<header class="section-control-header"><div><span class="eyebrow">General settings</span><h1>Appearance &amp; behavior</h1><p>Set the everyday defaults for all of Dragon.</p></div></header>
+<form class="settings-detail-card settings-form settings-form--general" method="post" action="{{ url_for('admin.update_general_preferences') }}">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <label class="field"><span>Appearance</span><select name="appearance"><option value="system"{% if preferences.general.appearance == 'system' %} selected{% endif %}>System</option><option value="light"{% if preferences.general.appearance == 'light' %} selected{% endif %}>Light</option><option value="dark"{% if preferences.general.appearance == 'dark' %} selected{% endif %}>Dark</option></select></label>
+  <label class="field"><span>Layout density</span><select name="layout_density"><option value="compact"{% if preferences.general.layout_density == 'compact' %} selected{% endif %}>Compact</option><option value="comfortable"{% if preferences.general.layout_density == 'comfortable' %} selected{% endif %}>Comfortable</option></select></label>
+  <label class="field"><span>Language</span><select name="language"><option value="ar"{% if preferences.general.language == 'ar' %} selected{% endif %}>العربية</option><option value="en"{% if preferences.general.language == 'en' %} selected{% endif %}>English</option><option value="fr"{% if preferences.general.language == 'fr' %} selected{% endif %}>Français</option></select></label>
+  <label class="field"><span>Startup</span><select name="start_destination"><option value="home"{% if preferences.general.start_destination == 'home' %} selected{% endif %}>Open Home</option><option value="last_section"{% if preferences.general.start_destination == 'last_section' %} selected{% endif %}>Open last section</option></select></label>
+  <fieldset class="settings-checklist"><legend>Behavior</legend><label><input type="checkbox" name="remember_filters"{% if preferences.general.remember_filters %} checked{% endif %}> Remember filters</label><label><input type="checkbox" name="remember_tabs"{% if preferences.general.remember_tabs %} checked{% endif %}> Remember selected tabs</label><label><input type="checkbox" name="remember_scroll_position"{% if preferences.general.remember_scroll_position %} checked{% endif %}> Remember scroll position</label></fieldset>
+  <button class="button button--primary" type="submit">Save general settings</button>
+</form>
+{% endblock %}

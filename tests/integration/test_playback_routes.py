@@ -1,3 +1,4 @@
+from io import BytesIO
 from urllib.parse import urlsplit
 
 from app.extensions import db
@@ -444,7 +445,7 @@ def test_authorized_catalog_import_api_creates_a_report_and_source(authenticated
         headers={"X-CSRFToken": csrf_from(page)},
     )
 
-    assert imported.status_code == 201
+    assert imported.status_code == 201, imported.get_json()
     batch = imported.get_json()["batch"]
     report = authenticated_client.get(f"/playback/catalog/imports/{batch['id']}")
     assert batch["accepted_rows"] == 1
@@ -504,6 +505,268 @@ def test_authorized_indexed_mapping_can_be_added_without_an_arbitrary_url(
         )
         assert saved.provenance["origin"] == "manual_authorized_import"
         assert saved.locator == "iuki4kda2u7l"
+
+
+def test_authorized_source_activation_smoke_flow_is_scoped_and_resilient(authenticated_client, app):
+    """Exercise the local catalog → selected sources → resolver chain without network I/O."""
+    with app.app_context():
+        movie = Movie(
+            title="Activation Movie",
+            normalized_title="activation movie",
+            external_ids={"tmdb_id": "1001", "imdb_id": "tt1000001"},
+        )
+        second_movie = Movie(
+            title="Disabled Mapping",
+            normalized_title="disabled mapping",
+            external_ids={"imdb_id": "tt1000002"},
+        )
+        tv = Movie(
+            title="Activation TV",
+            normalized_title="activation tv",
+            media_type="tv",
+            external_ids={"tmdb_id": "3003", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_episodes": {
+                    "1": [{"season_number": 1, "episode_number": 5, "name": "Episode 5"}]
+                }
+            },
+        )
+        db.session.add_all((movie, second_movie, tv))
+        db.session.flush()
+        db.session.add(
+            PlaybackSource(
+                movie_id=movie.id,
+                kind="magnet",
+                label="Local · FHD",
+                locator="magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+        second_movie_id = second_movie.id
+        tv_id = tv.id
+
+    rows = [
+        {
+            "tmdb_id": "1001",
+            "media_type": "movie",
+            "provider": "videotube",
+            "provider_asset_id": "movievideo",
+        },
+        {
+            "tmdb_id": "1001",
+            "media_type": "movie",
+            "provider": "updown",
+            "provider_asset_id": "movieupdown",
+        },
+        {
+            "tmdb_id": "1001",
+            "media_type": "movie",
+            "provider": "ok",
+            "provider_asset_id": "7593181055685",
+        },
+        {
+            "tmdb_id": "1001",
+            "media_type": "movie",
+            "provider": "videotube",
+            "provider_asset_id": "movievideo",
+        },
+        {
+            "imdb_id": "tt1000002",
+            "media_type": "movie",
+            "provider": "videotube",
+            "provider_asset_id": "secondvideo",
+        },
+        {
+            "imdb_id": "tt1000002",
+            "media_type": "movie",
+            "provider": "updown",
+            "provider_asset_id": "secondupdown",
+        },
+        {
+            "tmdb_id": "3003",
+            "media_type": "tv",
+            "season": 1,
+            "episode": 5,
+            "provider": "videotube",
+            "provider_asset_id": "tvvideo",
+        },
+        {
+            "tmdb_id": "3003",
+            "media_type": "tv",
+            "season": 1,
+            "episode": 5,
+            "provider": "updown",
+            "provider_asset_id": "tvupdown",
+        },
+        {
+            "tmdb_id": "3003",
+            "media_type": "tv",
+            "season": 1,
+            "episode": 5,
+            "provider": "okru",
+            "provider_asset_id": "7593181055686",
+        },
+        {
+            "title": "Activation Movie",
+            "year": 2025,
+            "media_type": "movie",
+            "provider": "videotube",
+            "provider_asset_id": "weakmatch",
+        },
+        {
+            "tmdb_id": "1001",
+            "media_type": "movie",
+            "embed_url": "https://unknown.example/embed-nope.html",
+        },
+        {
+            "tmdb_id": "1001",
+            "media_type": "movie",
+            "provider": "updown",
+            "provider_asset_id": "../../invalid",
+        },
+    ]
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=True,
+        DRAGON_VIDSRC_EMBED_URL="https://vsembed.ru/embed",
+        DRAGON_VIDEOTUBE_ENABLED=True,
+        DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+        DRAGON_UPDOWN_ENABLED=True,
+        DRAGON_UPDOWN_EMBED_URL="https://updown.icu/embed-{asset_id}-1280x640.html",
+        DRAGON_OK_ENABLED=True,
+        DRAGON_OK_EMBED_URL="https://ok.ru/videoembed/{asset_id}",
+    )
+    import_page = authenticated_client.get(f"/movies/{movie_id}")
+    imported = authenticated_client.post(
+        "/playback/catalog/imports",
+        json={"source_name": "synthetic authorized activation smoke", "rows": rows},
+        headers={"X-CSRFToken": csrf_from(import_page)},
+    )
+
+    assert imported.status_code == 201, imported.get_json()
+    batch = imported.get_json()["batch"]
+    expected_counts = (12, 9, 1, 2)
+    assert (
+        batch["total_rows"],
+        batch["accepted_rows"],
+        batch["review_rows"],
+        batch["rejected_rows"],
+    ) == expected_counts
+    reimported = authenticated_client.post(
+        "/playback/catalog/imports",
+        json={"source_name": "synthetic authorized activation smoke", "rows": rows},
+        headers={"X-CSRFToken": csrf_from(import_page)},
+    )
+    assert reimported.status_code == 201
+    rerun_batch = reimported.get_json()["batch"]
+    assert (
+        rerun_batch["total_rows"],
+        rerun_batch["accepted_rows"],
+        rerun_batch["review_rows"],
+        rerun_batch["rejected_rows"],
+    ) == expected_counts
+    with app.app_context():
+        movie_sources = list(
+            db.session.scalars(
+                db.select(PlaybackSource).where(
+                    PlaybackSource.movie_id == movie_id,
+                    PlaybackSource.kind == "embed",
+                )
+            )
+        )
+        assert len(movie_sources) == 3
+        assert {source.provider for source in movie_sources} == {"videotube", "updown", "ok"}
+        assert all(source.authorization_status == "catalog_authorized" for source in movie_sources)
+        assert not any(source.enabled for source in movie_sources)
+        assert [item["label"] for item in PlaybackService.player_sources(movie_id)] == [
+            "Local · FHD"
+        ]
+
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    assert detail.status_code == 200
+    assert "down.vidtube.one" not in detail.get_data(as_text=True)
+    assert authenticated_client.get(f"/playback/movie/{movie_id}/sources").get_json()["items"] == []
+    csrf_token = csrf_from(detail)
+    source_ids = {source.provider: source.id for source in movie_sources}
+    for source_id in source_ids.values():
+        activated = authenticated_client.post(
+            f"/playback/movie/{movie_id}/sources/{source_id}/enabled",
+            data={"enabled": "true", "csrf_token": csrf_token},
+        )
+        assert activated.status_code == 200
+        assert activated.get_json()["source"]["enabled"] is True
+
+    listed = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+    assert [item["provider"] for item in listed.get_json()["items"]] == [
+        "videotube",
+        "updown",
+        "ok",
+    ]
+    refreshed = authenticated_client.get(f"/movies/{movie_id}")
+    refreshed_html = refreshed.get_data(as_text=True)
+    assert all(label in refreshed_html for label in ("VideoTube", "UpDown", "OK.ru"))
+    resolved = {
+        provider: authenticated_client.get(
+            f"/playback/movie/{movie_id}/sources/{source_id}/embed"
+        ).get_json()["source"]["url"]
+        for provider, source_id in source_ids.items()
+    }
+    assert resolved == {
+        "videotube": "https://down.vidtube.one/embed-movievideo.html",
+        "updown": "https://updown.icu/embed-movieupdown-1280x640.html",
+        "ok": "https://ok.ru/videoembed/7593181055685",
+    }
+    assert authenticated_client.get(f"/playback/movie/{movie_id}/vidsrc").status_code == 200
+
+    with app.app_context():
+        tv_videotube = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == tv_id,
+                PlaybackSource.provider == "videotube",
+            )
+        )
+        assert tv_videotube.scope_key == "s01e05"
+        tv_videotube_id = tv_videotube.id
+    activated_tv = authenticated_client.post(
+        f"/playback/movie/{tv_id}/sources/{tv_videotube_id}/enabled",
+        data={"enabled": "true", "csrf_token": csrf_token},
+    )
+    assert activated_tv.status_code == 200
+    tv_sources = authenticated_client.get(
+        f"/playback/movie/{tv_id}/sources?season=1&episode=5"
+    ).get_json()["items"]
+    assert [item["provider"] for item in tv_sources] == ["videotube"]
+    assert (
+        authenticated_client.get(f"/playback/movie/{second_movie_id}/sources").get_json()["items"]
+        == []
+    )
+    with app.app_context():
+        disabled_source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == second_movie_id,
+                PlaybackSource.provider == "videotube",
+            )
+        )
+        disabled_source_id = disabled_source.id
+    assert (
+        authenticated_client.get(
+            f"/playback/movie/{second_movie_id}/sources/{disabled_source_id}/embed"
+        ).status_code
+        == 404
+    )
+
+    app.config["DRAGON_UPDOWN_EMBED_URL"] = "https://invalid.example/embed-{asset_id}.html"
+    app.extensions.pop("dragon_playback_provider_registry", None)
+    resilient = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
+    assert resilient.status_code == 200
+    assert [item["provider"] for item in resilient.get_json()["items"]] == ["videotube", "ok"]
+    assert (
+        authenticated_client.get(
+            f"/playback/movie/{movie_id}/sources/{source_ids['updown']}/embed"
+        ).status_code
+        == 409
+    )
 
 
 def test_disabled_indexed_embed_provider_is_not_exposed(authenticated_client, app):
@@ -568,12 +831,430 @@ def test_playback_settings_disable_a_provider_and_apply_its_preference(authentic
     assert source_response.status_code == 409
     with app.app_context():
         preferences = PlaybackService.provider_preferences({"videotube"})
-        assert preferences["videotube"] == {
+    assert preferences["videotube"] == {
             "provider": "videotube",
             "enabled": False,
             "priority": 25,
             "background_checks": False,
         }
+
+
+def test_authorized_catalog_settings_page_imports_and_activates_one_mapping(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="Production Catalog Fixture",
+            normalized_title="production catalog fixture",
+            external_ids={"tmdb_id": "603", "imdb_id": "tt0133093"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config["DRAGON_PLAYBACK_ENABLED"] = True
+    page = authenticated_client.get("/settings/playback/catalog")
+    assert page.status_code == 200
+    page_html = page.get_data(as_text=True)
+    assert "Authorized source catalog" in page_html
+    assert "VideoTube" in page_html
+    assert "UpDown" in page_html
+    assert "OK.ru" in page_html
+    assert page_html.count("Not configured") == 3
+
+    catalog = (
+        "media_type,tmdb_id,imdb_id,season,episode,provider_key,asset_id\n"
+        "movie,603,tt0133093,,,videotube,iuki4kda2u7l\n"
+    )
+    imported = authenticated_client.post(
+        "/settings/playback/catalog/imports",
+        data={
+            "csrf_token": csrf_from(page),
+            "source_name": "Production smoke fixture",
+            "catalog": (BytesIO(catalog.encode()), "authorized-fixture.csv"),
+        },
+        content_type="multipart/form-data",
+        follow_redirects=True,
+    )
+    html = imported.get_data(as_text=True)
+    assert imported.status_code == 200
+    assert "Catalog imported: 1 accepted" in html
+    assert "Production smoke fixture" in html
+    assert "Activate mapping" in html
+
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "videotube",
+            )
+        )
+        assert source is not None
+        assert source.authorization_status == "catalog_authorized"
+        assert source.enabled is False
+        source_id = source.id
+
+    activated = authenticated_client.post(
+        f"/settings/playback/catalog/sources/{source_id}/enabled",
+        data={
+            "csrf_token": csrf_from(imported),
+            "enabled": "true",
+        },
+        follow_redirects=True,
+    )
+    assert activated.status_code == 200
+    assert "Videotube mapping activated." in activated.get_data(as_text=True)
+    with app.app_context():
+        assert db.session.get(PlaybackSource, source_id).enabled is True
+
+
+def test_streamwish_account_library_sync_is_manual_disabled_and_visible_only_after_activation(
+    authenticated_client, app
+):
+    class FakeStreamWishAccount:
+        def list_files(self):
+            return [
+                {
+                    "file_code": "abc123def456",
+                    "title": "Arrival [tmdb-329865] 1080p",
+                    "fld_id": "movies",
+                    "canplay": 1,
+                }
+            ]
+
+    with app.app_context():
+        movie = Movie(
+            title="Arrival",
+            normalized_title="arrival",
+            external_ids={"tmdb_id": "329865"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_STREAMWISH_ENABLED=True,
+        DRAGON_STREAMWISH_EMBED_URL="https://streamwish.com/e/{asset_id}",
+        DRAGON_STREAMWISH_LIBRARY_SYNC_ENABLED=True,
+        DRAGON_STREAMWISH_API_KEY="configured-only-in-test",
+    )
+    app.extensions["dragon_streamwish_account_client"] = FakeStreamWishAccount()
+    page = authenticated_client.get("/settings/playback/catalog")
+    assert "Ready for a manual account-library sync" in page.get_data(as_text=True)
+
+    synced = authenticated_client.post(
+        "/settings/playback/catalog/streamwish/sync",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+    html = synced.get_data(as_text=True)
+    assert synced.status_code == 200
+    assert "StreamWish library synced: 1 valid assets cached; 1 mappings await review." in html
+    assert "configured-only-in-test" not in html
+
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "streamwish",
+            )
+        )
+        assert source is not None
+        assert source.source_type == "account_catalog"
+        assert source.authorization_status == "account_authorized"
+        assert source.enabled is False
+        source_id = source.id
+
+    before_activation = authenticated_client.get(f"/movies/{movie_id}").get_data(as_text=True)
+    assert "StreamWish · 1080P" not in before_activation
+    assert "streamwish.com/e" not in before_activation
+
+    activated = authenticated_client.post(
+        f"/settings/playback/catalog/sources/{source_id}/enabled",
+        data={"csrf_token": csrf_from(synced), "enabled": "true"},
+        follow_redirects=True,
+    )
+    assert activated.status_code == 200
+    detail = authenticated_client.get(f"/movies/{movie_id}").get_data(as_text=True)
+    assert "StreamWish · 1080P" in detail
+    assert "streamwish.com/e" not in detail
+    resolved = authenticated_client.get(
+        f"/playback/movie/{movie_id}/sources/{source_id}/embed"
+    )
+    assert resolved.status_code == 200
+    assert resolved.get_json()["source"]["url"] == "https://streamwish.com/e/abc123def456"
+
+
+def test_mixdrop_account_library_sync_is_manual_disabled_and_visible_only_after_activation(
+    authenticated_client, app
+):
+    class FakeMixDropAccount:
+        def list_files(self):
+            return [
+                {
+                    "fileref": "mixdrop123",
+                    "title": "Arrival [tmdb-329865] 1080p",
+                    "_folder_id": "movies",
+                    "isvideo": True,
+                    "status": "OK",
+                    "deleted": False,
+                }
+            ]
+
+    with app.app_context():
+        movie = Movie(
+            title="Arrival",
+            normalized_title="arrival",
+            external_ids={"tmdb_id": "329865"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_MIXDROP_ENABLED=True,
+        DRAGON_MIXDROP_EMBED_URL="https://mixdrop.ag/e/{asset_id}",
+        DRAGON_MIXDROP_LIBRARY_SYNC_ENABLED=True,
+        DRAGON_MIXDROP_API_EMAIL="configured@example.test",
+        DRAGON_MIXDROP_API_KEY="configured-only-in-test",
+    )
+    app.extensions["dragon_mixdrop_account_client"] = FakeMixDropAccount()
+    page = authenticated_client.get("/settings/playback/catalog")
+    assert "MixDrop library sync" in page.get_data(as_text=True)
+    assert "Ready for a manual account-library sync" in page.get_data(as_text=True)
+
+    synced = authenticated_client.post(
+        "/settings/playback/catalog/mixdrop/sync",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+    html = synced.get_data(as_text=True)
+    assert synced.status_code == 200
+    assert "MixDrop library synced: 1 valid assets cached; 1 mappings await review." in html
+    assert "configured-only-in-test" not in html
+
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "mixdrop",
+            )
+        )
+        assert source is not None
+        assert source.source_type == "account_catalog"
+        assert source.authorization_status == "account_authorized"
+        assert source.enabled is False
+        source_id = source.id
+
+    before_activation = authenticated_client.get(f"/movies/{movie_id}").get_data(as_text=True)
+    assert "MixDrop · 1080P" not in before_activation
+    assert "mixdrop.ag/e" not in before_activation
+
+    activated = authenticated_client.post(
+        f"/settings/playback/catalog/sources/{source_id}/enabled",
+        data={"csrf_token": csrf_from(synced), "enabled": "true"},
+        follow_redirects=True,
+    )
+    assert activated.status_code == 200
+    detail = authenticated_client.get(f"/movies/{movie_id}").get_data(as_text=True)
+    assert "MixDrop · 1080P" in detail
+    assert "mixdrop.ag/e" not in detail
+    resolved = authenticated_client.get(
+        f"/playback/movie/{movie_id}/sources/{source_id}/embed"
+    )
+    assert resolved.status_code == 200
+    assert resolved.get_json()["source"]["url"] == "https://mixdrop.ag/e/mixdrop123"
+
+
+def test_streamtape_account_library_sync_is_manual_disabled_and_visible_only_after_activation(
+    authenticated_client, app
+):
+    class FakeStreamTapeAccount:
+        def list_files(self):
+            return [
+                {
+                    "linkid": "streamtape123",
+                    "name": "Arrival [tmdb-329865] 1080p",
+                    "_folder_id": "movies",
+                    "convert": "converted",
+                }
+            ]
+
+    with app.app_context():
+        movie = Movie(
+            title="Arrival",
+            normalized_title="arrival",
+            external_ids={"tmdb_id": "329865"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_STREAMTAPE_ENABLED=True,
+        DRAGON_STREAMTAPE_EMBED_URL="https://streamtape.com/e/{asset_id}",
+        DRAGON_STREAMTAPE_LIBRARY_SYNC_ENABLED=True,
+        DRAGON_STREAMTAPE_API_LOGIN="configured-login",
+        DRAGON_STREAMTAPE_API_KEY="configured-only-in-test",
+    )
+    app.extensions["dragon_streamtape_account_client"] = FakeStreamTapeAccount()
+    page = authenticated_client.get("/settings/playback/catalog")
+    assert "StreamTape library sync" in page.get_data(as_text=True)
+
+    synced = authenticated_client.post(
+        "/settings/playback/catalog/streamtape/sync",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+    assert "StreamTape library synced: 1 valid assets cached; 1 mappings await review." in synced.get_data(as_text=True)
+
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "streamtape",
+            )
+        )
+        assert source is not None
+        assert source.enabled is False
+        source_id = source.id
+
+    activated = authenticated_client.post(
+        f"/settings/playback/catalog/sources/{source_id}/enabled",
+        data={"csrf_token": csrf_from(synced), "enabled": "true"},
+        follow_redirects=True,
+    )
+    assert activated.status_code == 200
+    detail = authenticated_client.get(f"/movies/{movie_id}").get_data(as_text=True)
+    assert "StreamTape · 1080P" in detail
+    resolved = authenticated_client.get(
+        f"/playback/movie/{movie_id}/sources/{source_id}/embed"
+    )
+    assert resolved.get_json()["source"]["url"] == "https://streamtape.com/e/streamtape123"
+
+
+def test_filelions_account_library_sync_is_manual_disabled_and_visible_only_after_activation(
+    authenticated_client, app
+):
+    class FakeFileLionsAccount:
+        def list_files(self):
+            return [{"file_code": "filelions123", "title": "Arrival [tmdb-329865] 720p", "canplay": 1}]
+
+    with app.app_context():
+        movie = Movie(title="Arrival", normalized_title="arrival", external_ids={"tmdb_id": "329865"})
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_FILELIONS_ENABLED=True,
+        DRAGON_FILELIONS_EMBED_URL="https://filelions.to/v/{asset_id}",
+        DRAGON_FILELIONS_LIBRARY_SYNC_ENABLED=True,
+        DRAGON_FILELIONS_API_KEY="configured-only-in-test",
+    )
+    app.extensions["dragon_filelions_account_client"] = FakeFileLionsAccount()
+    page = authenticated_client.get("/settings/playback/catalog")
+    synced = authenticated_client.post(
+        "/settings/playback/catalog/filelions/sync",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+    assert "FileLions library synced: 1 valid assets cached; 1 mappings await review." in synced.get_data(as_text=True)
+
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "filelions",
+            )
+        )
+        assert source is not None and source.enabled is False
+        source_id = source.id
+
+    activated = authenticated_client.post(
+        f"/settings/playback/catalog/sources/{source_id}/enabled",
+        data={"csrf_token": csrf_from(synced), "enabled": "true"},
+        follow_redirects=True,
+    )
+    assert activated.status_code == 200
+    assert "FileLions / EarnVids · 720P" in authenticated_client.get(
+        f"/movies/{movie_id}"
+    ).get_data(as_text=True)
+    resolved = authenticated_client.get(f"/playback/movie/{movie_id}/sources/{source_id}/embed")
+    assert resolved.get_json()["source"]["url"] == "https://filelions.to/v/filelions123"
+
+
+def test_cinesrc_direct_tmdb_provider_is_not_contacted_until_watch(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="Fight Club", normalized_title="fight club", external_ids={"tmdb_id": "550"}
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_CINESRC_ENABLED=True)
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+
+    assert detail.status_code == 200
+    assert "CineSrc" in detail.get_data(as_text=True)
+    assert "cinesrc.st/embed" not in detail.get_data(as_text=True)
+    assert "frame-src 'self' https://cinesrc.st" in detail.headers["Content-Security-Policy"]
+    resolved = authenticated_client.get(f"/playback/movie/{movie_id}/providers/cinesrc")
+    assert resolved.status_code == 200
+    assert resolved.get_json()["source"]["url"] == "https://cinesrc.st/embed/movie/550"
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "cinesrc",
+            )
+        )
+        assert source is not None
+        assert source.source_type == "id_catalog"
+
+
+def test_cinesrc_uses_exact_tv_episode_scope(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_episodes": {
+                    "1": [{"season_number": 1, "episode_number": 5, "name": "College"}],
+                    "2": [{"season_number": 2, "episode_number": 5, "name": "Big Girls"}],
+                }
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_CINESRC_ENABLED=True)
+    episode_page = authenticated_client.get(f"/movies/{movie_id}/seasons/2/episodes/5")
+    resolved = authenticated_client.get(
+        f"/playback/movie/{movie_id}/providers/cinesrc?season=2&episode=5"
+    )
+
+    assert episode_page.status_code == 200
+    assert "CineSrc" in episode_page.get_data(as_text=True)
+    assert resolved.status_code == 200
+    assert resolved.get_json()["source"]["url"] == "https://cinesrc.st/embed/tv/1399?s=2&e=5"
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "cinesrc",
+            )
+        )
+        assert source is not None
+        assert source.scope_key == "s02e05"
 
 
 def test_provider_priority_orders_the_generic_embed_selector(authenticated_client, app):
@@ -612,9 +1293,7 @@ def test_provider_priority_orders_the_generic_embed_selector(authenticated_clien
     assert 'value="vidsrc"' not in html.split("VideoTube · Arabic Subs", maxsplit=1)[0]
 
 
-def test_all_requested_authorized_hosters_are_available_in_player_source(
-    authenticated_client, app
-):
+def test_all_requested_authorized_hosters_are_available_in_player_source(authenticated_client, app):
     providers = (
         ("videotube", "VideoTube"),
         ("updown", "UpDown"),
@@ -630,7 +1309,9 @@ def test_all_requested_authorized_hosters_are_available_in_player_source(
         db.session.add(movie)
         db.session.commit()
         provider_templates = {
-            spec.key: spec.default_embed_url_template for spec in INDEXED_EMBED_PROVIDER_SPECS
+            spec.key: spec.default_embed_url_template
+            for spec in INDEXED_EMBED_PROVIDER_SPECS
+            if spec.key in {key for key, _ in providers}
         }
         provider_assets = {
             "videotube": "iuki4kda2u7l",
@@ -679,9 +1360,7 @@ def test_all_requested_authorized_hosters_are_available_in_player_source(
     for _, label in providers:
         assert label in detail.get_data(as_text=True)
         assert label in settings.get_data(as_text=True)
-    assert streamwish.get_json()["source"]["url"] == (
-        "https://streamwish.com/e/streamwish12"
-    )
+    assert streamwish.get_json()["source"]["url"] == ("https://streamwish.com/e/streamwish12")
     csp = detail.headers["Content-Security-Policy"]
     for template in provider_templates.values():
         parsed = urlsplit(template)
@@ -761,7 +1440,8 @@ def test_wyzie_key_enables_subtitle_controls_on_movie_detail(authenticated_clien
     detail_html = detail.get_data(as_text=True)
 
     assert "data-subtitle-status" in detail_html
-    assert "from the player controls" in detail_html
+    assert 'data-subtitle-status aria-live="polite" hidden' in detail_html
+    assert "Provider settings" not in detail_html
     assert "private-wyzie-key" not in detail_html
 
 
@@ -840,7 +1520,8 @@ def test_subtitles_are_private_ranked_and_delivered_as_webvtt(authenticated_clie
     detail = authenticated_client.get(f"/movies/{movie_id}")
     detail_html = detail.get_data(as_text=True)
     assert "data-subtitle-status" in detail_html
-    assert "from the player controls" in detail_html
+    assert 'data-subtitle-status aria-live="polite" hidden' in detail_html
+    assert "Provider settings" not in detail_html
     assert "data-subtitle-select" not in detail_html
     assert "private-key" not in detail_html
     assert "dl.subdl.com" not in detail_html

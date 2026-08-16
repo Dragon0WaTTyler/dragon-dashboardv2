@@ -1,5 +1,6 @@
 <!doctype html>
-<html lang="en">
+{% set preferences = dragon_preferences() %}
+<html lang="{{ preferences.general.language }}"{% if preferences.general.language == 'ar' %} dir="rtl"{% endif %} data-appearance="{{ preferences.general.appearance }}" data-density="{{ preferences.general.layout_density }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -100,7 +101,7 @@
       {% if dragon_section_visible('german') %}<a href="{{ url_for('german.index') }}"><span>German</span><small>Resources and vocabulary</small></a>{% endif %}
       {% if dragon_section_visible('history') %}<a href="{{ url_for('history.index') }}"><span>History</span><small>Your local progress timeline</small></a>{% endif %}
       {% if dragon_section_visible('ai') %}<a href="{{ url_for('ai.workspace') }}"><span>AI workspaces</span><small>Optional contextual assistance</small></a>{% endif %}
-      <a href="{{ url_for('admin.index') }}"><span>Control Center</span><small>Preferences, health, and operations</small></a>
+      <a href="{{ url_for('admin.index') }}"><span>Settings</span><small>Preferences, health, and operations</small></a>
       <a href="{{ url_for('admin.design_system') }}"><span>Design system</span><small>Review production components</small></a>
     </div>
   </dialog>

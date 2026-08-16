@@ -1,0 +1,80 @@
+<section class="source-manager" id="source-manager" aria-labelledby="tv-sources-title">
+  <div class="source-manager__header">
+    <div><span class="eyebrow">My TV · sources</span><h2 id="tv-sources-title">Channel sources</h2><p>Add M3U links, GitHub repositories or files, and local playlists. Sources stay separate from channel choices.</p></div>
+    <details class="source-manager__add"><summary class="button button--primary">Add source</summary>
+      <form class="source-editor" method="post" action="{{ url_for('admin.create_tv_source') }}" enctype="multipart/form-data" data-source-draft-form data-test-url="{{ url_for('admin.test_tv_source_draft') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field"><span>Name</span><input name="name" maxlength="240" placeholder="Morocco IPTV" required></label>
+        <label class="field"><span>Source type</span><select name="source_type" required>{% for key, label in tv_source_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></label>
+        <label class="field source-editor__wide"><span>URL or owner/repository</span><input name="locator" maxlength="2000" placeholder="https://example.com/channels.m3u or owner/repository"></label>
+        <label class="field"><span>Branch</span><input name="branch" value="main" maxlength="160"></label>
+        <label class="field"><span>File pattern</span><input name="file_pattern" value="*.m3u" maxlength="500"></label>
+        <label class="field source-editor__wide"><span>Local M3U file</span><input name="local_file" type="file" accept=".m3u,.m3u8,audio/x-mpegurl,application/vnd.apple.mpegurl"></label>
+        <label class="field"><span>Refresh interval</span><select name="refresh_interval_minutes">{% for minutes in tv_refresh_intervals %}<option value="{{ minutes }}"{% if minutes == 360 %} selected{% endif %}>{{ minutes }} minutes</option>{% endfor %}</select></label>
+        <div class="source-editor__checks"><label class="check-field"><input type="checkbox" name="enabled" checked> Enabled</label><label class="check-field"><input type="checkbox" name="auto_refresh" checked> Automatic refresh</label></div>
+        <p class="source-test-result source-editor__wide" data-test-result role="status" hidden></p>
+        <div class="source-editor__actions"><button class="button button--secondary" type="button" data-test-source>Test connection only</button><button class="button button--primary" name="submit_action" value="import" type="submit">Save &amp; import</button></div>
+      </form>
+    </details>
+  </div>
+
+  {% if tv_sources %}<div class="source-card-list">
+    {% for item in tv_sources %}{% set source = item.record %}
+    <article class="source-card source-card--{{ source.status }}{% if not source.enabled %} is-paused{% endif %}">
+      <div class="source-card__summary"><span class="source-card__signal" aria-hidden="true"></span><div><small>{{ item.type_label }} · {{ 'Enabled' if source.enabled else 'Paused' }}</small><h3>{{ source.name }}</h3><p>{{ item.channel_count }} channels · {{ item.playlist_count }} playlist{% if item.playlist_count != 1 %}s{% endif %}{% if source.last_success_at %} · Updated {{ source.last_success_at.strftime('%Y-%m-%d %H:%M') }}{% endif %}</p>{% if source.last_error %}<p class="source-card__error">{{ source.last_error }}</p>{% endif %}</div>{{ badge(source.status|title, 'success' if source.status == 'healthy' else 'warning') }}</div>
+      <div class="source-card__actions">
+        <form method="post" action="{{ url_for('admin.run_tv_source_action', source_id=source.id, action='refresh') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--secondary" type="submit">Import / update</button></form>
+        <form method="post" action="{{ url_for('admin.run_tv_source_action', source_id=source.id, action='test') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Test</button></form>
+        <form method="post" action="{{ url_for('admin.run_tv_source_action', source_id=source.id, action='toggle') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">{{ 'Pause' if source.enabled else 'Enable' }}</button></form>
+      </div>
+      {% if not source.protected %}<details class="source-card__details"><summary>Edit or remove</summary>
+        <form class="source-editor" method="post" action="{{ url_for('admin.update_tv_source', source_id=source.id) }}" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="field"><span>Name</span><input name="name" value="{{ source.name }}" maxlength="240" required></label>
+          <label class="field"><span>Source type</span><select name="source_type">{% for key, label in tv_source_types.items() %}<option value="{{ key }}"{% if source.source_type == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+          <label class="field source-editor__wide"><span>URL or owner/repository</span><input name="locator" value="{{ source.locator }}" maxlength="2000"></label>
+          <label class="field"><span>Branch</span><input name="branch" value="{{ source.branch }}"></label>
+          <label class="field"><span>File pattern</span><input name="file_pattern" value="{{ source.file_pattern }}"></label>
+          <label class="field source-editor__wide"><span>Replace local M3U</span><input name="local_file" type="file" accept=".m3u,.m3u8"></label>
+          <label class="field"><span>Refresh interval</span><select name="refresh_interval_minutes">{% for minutes in tv_refresh_intervals %}<option value="{{ minutes }}"{% if source.refresh_interval_minutes == minutes %} selected{% endif %}>{{ minutes }} minutes</option>{% endfor %}</select></label>
+          <div class="source-editor__checks"><label class="check-field"><input type="checkbox" name="enabled"{% if source.enabled %} checked{% endif %}> Enabled</label><label class="check-field"><input type="checkbox" name="auto_refresh"{% if source.auto_refresh %} checked{% endif %}> Automatic refresh</label></div>
+          <div class="source-editor__actions"><button class="button button--secondary" name="submit_action" value="save" type="submit">Save changes</button><button class="button button--primary" name="submit_action" value="import" type="submit">Save &amp; import</button></div>
+        </form>
+        <form class="source-delete" method="post" action="{{ url_for('admin.delete_tv_source', source_id=source.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div><strong>Remove source</strong><p>Choose exactly what happens to channels imported by this source.</p></div><label class="field"><span>Imported channels</span><select name="data_action"><option value="keep">Keep imported channels</option><option value="delete">Delete imported channels</option></select></label><label class="check-field"><input type="checkbox" name="confirmed" value="yes" required> I understand this source will be removed</label><button class="button button--quiet" type="submit">Remove source</button></form>
+      </details>{% else %}<p class="source-card__protected">Built-in source · Enabled allows Dragon to use it. Automatic refresh checks the catalogue and updates only packages backing your favorites or ON/OFF choices; it does not import every package.</p>{% endif %}
+    </article>
+    {% endfor %}
+  </div>{% else %}<p class="control-note">No TV sources are connected.</p>{% endif %}
+</section>
+
+<section class="source-manager" id="category-manager" aria-labelledby="tv-categories-title">
+  <div class="source-manager__header"><div><span class="eyebrow">My TV · categories</span><h2 id="tv-categories-title">Channel categories</h2><p>Rename, hide, reorder, or merge the smart categories created from your playlists.</p>{% if tv_category_total %}<small>{{ tv_category_total }} categories · page {{ tv_category_page }} of {{ tv_category_pages }}</small>{% endif %}</div></div>
+  {% if tv_categories %}
+  <datalist id="tv-category-options">{% for target in tv_category_options %}<option value="{{ target.name }}"></option>{% endfor %}</datalist>
+  <div class="category-manager-list">
+    {% for category in tv_categories %}
+    <article class="category-manager-row">
+      <form method="post" action="{{ url_for('admin.update_tv_category', theme_id=category.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field"><span>Category</span><input name="name" value="{{ category.name }}" required></label>
+        <label class="check-field"><input type="checkbox" name="enabled"{% if category.enabled %} checked{% endif %}> Visible</label>
+        <span>{{ category.channel_count }} channels</span>
+        <button class="button button--secondary" type="submit">Save</button>
+      </form>
+      <div class="category-manager-row__actions">
+        <form method="post" action="{{ url_for('admin.run_tv_category_action', theme_id=category.id, action='up') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit" aria-label="Move {{ category.name }} up">↑</button></form>
+        <form method="post" action="{{ url_for('admin.run_tv_category_action', theme_id=category.id, action='down') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit" aria-label="Move {{ category.name }} down">↓</button></form>
+        <form class="category-merge" method="post" action="{{ url_for('admin.run_tv_category_action', theme_id=category.id, action='merge') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input name="target_name" list="tv-category-options" placeholder="Merge into…" aria-label="Merge {{ category.name }} into" required>
+          <button class="button button--quiet" type="submit">Merge</button>
+        </form>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% if tv_category_pages > 1 %}<nav class="category-pagination" aria-label="TV category pages">{% if tv_category_page > 1 %}<a class="button button--quiet" href="{{ url_for('admin.section_detail', section_key='mytv', category_page=tv_category_page - 1) }}#category-manager">← Previous</a>{% endif %}<span>Showing {{ ((tv_category_page - 1) * 100) + 1 }}–{{ [tv_category_page * 100, tv_category_total]|min }} of {{ tv_category_total }}</span>{% if tv_category_page < tv_category_pages %}<a class="button button--quiet" href="{{ url_for('admin.section_detail', section_key='mytv', category_page=tv_category_page + 1) }}#category-manager">Next →</a>{% endif %}</nav>{% endif %}
+  {% else %}<p class="control-note">Categories appear after the first playlist refresh.</p>{% endif %}
+</section>
+
+<section class="source-manager source-manager--compact" aria-labelledby="tv-playback-title"><div class="source-manager__header"><div><span class="eyebrow">My TV · playback</span><h2 id="tv-playback-title">Playback</h2><p>My TV uses Dragon's browser player and shared playback safety settings.</p></div><a class="button button--secondary" href="{{ url_for('playback_settings.index') }}">Open playback settings →</a></div></section>

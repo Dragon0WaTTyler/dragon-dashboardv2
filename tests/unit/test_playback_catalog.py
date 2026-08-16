@@ -36,7 +36,7 @@ def test_authorized_catalog_sample_has_the_supported_json_shape():
 
     rows = parse_catalog_json(sample.read_bytes())
 
-    assert [row["provider"] for row in rows] == ["videotube", "updown", "ok"]
+    assert [row["provider_key"] for row in rows] == ["videotube", "updown", "ok"]
     assert rows[2]["media_type"] == "tv"
     assert rows[2]["season"] == rows[2]["episode"] == 1
 
@@ -72,6 +72,7 @@ def test_exact_movie_import_creates_idempotent_playback_source(app):
         assert len(sources) == 1
         assert sources[0].provider_asset_id == "minecraft-asset"
         assert sources[0].authorization_status == "catalog_authorized"
+        assert sources[0].enabled is False
         assert sources[0].subtitle_languages == ["ar", "en"]
         assert sources[0].priority_override == 0
         assert sources[0].provenance["origin"] == "catalog_import"

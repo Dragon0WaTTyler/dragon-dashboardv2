@@ -1,61 +1,22 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
-{% block title %}Control Center · Dragon{% endblock %}
+{% block title %}Settings · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/control-center.css') }}">{% endblock %}
 {% block content %}
-<header class="page-header control-header">
-  <div>
-    <span class="eyebrow">Dragon system brain</span>
-    <h1>Control Center</h1>
-    <p>Shape every section, inspect its live state, and fix problems from one protected workspace.</p>
-  </div>
-  {{ badge(control_center.attention ~ ' need attention', 'warning' if control_center.attention else 'success') }}
+<header class="page-header settings-header">
+  <div><span class="eyebrow">Dragon preferences</span><h1>Settings</h1><p>Choose one area to configure. Each card opens only its own controls.</p></div>
+  {{ badge('Preferences v' ~ dragon_preferences().schema_version, 'success') }}
 </header>
 
-<section class="control-pulse" aria-label="System overview">
-  <div><span>Healthy</span><strong>{{ control_center.healthy }}</strong><small>modules operating normally</small></div>
-  <div><span>Attention</span><strong>{{ control_center.attention }}</strong><small>modules with a clear next action</small></div>
-  <div><span>Hidden</span><strong>{{ control_center.hidden }}</strong><small>removed from primary navigation</small></div>
-  <div><span>Reports</span><strong>{{ operations|length }}</strong><small><a href="{{ url_for('admin.operations') }}">inspect operation history</a></small></div>
-</section>
-
-<section class="control-workbench" aria-labelledby="sections-title">
-  <div class="section-heading section-heading--action">
-    <div><span class="eyebrow">Section registry</span><h2 id="sections-title">Your workspace, module by module</h2></div>
-    <a class="button button--secondary" href="{{ url_for('admin.design_system') }}">Design system</a>
-  </div>
-  <div class="section-registry">
+<section class="settings-hub" aria-labelledby="settings-hub-title">
+  <div class="settings-hub__heading"><span class="eyebrow">Settings areas</span><h2 id="settings-hub-title">What do you want to change?</h2></div>
+  <div class="settings-hub__grid">
+    <a class="settings-hub-card settings-hub-card--general" href="{{ url_for('admin.general_settings') }}"><span class="settings-hub-card__mark" aria-hidden="true">◌</span><span><small>General</small><strong>Appearance &amp; behavior</strong><em>Theme, language, layout density, startup, and memory.</em></span><b aria-hidden="true">→</b></a>
+    <a class="settings-hub-card settings-hub-card--home" href="{{ url_for('admin.home_settings') }}"><span class="settings-hub-card__mark" aria-hidden="true">⌂</span><span><small>Home</small><strong>Home layout</strong><em>Show, hide, and order the blocks on your daily workspace.</em></span><b aria-hidden="true">→</b></a>
     {% for item in control_center.sections %}
-    <article class="section-pulse section-pulse--{{ item.status }}">
-      <a class="section-pulse__main" href="{{ url_for('admin.section_detail', section_key=item.definition.key) }}">
-        <span class="section-pulse__signal" aria-hidden="true"></span>
-        <span class="section-pulse__identity">
-          <small>{{ '%02d'|format(loop.index) }} · {{ item.status|upper }}</small>
-          <strong>{{ item.definition.label }}</strong>
-          <span>{{ item.definition.description }}</span>
-        </span>
-        <span class="section-pulse__metric">
-          <strong>{{ item.count if item.count is not none else '—' }}</strong>
-          <small>{{ 'records' if item.count is not none else 'runtime' }}</small>
-        </span>
-        <span class="section-pulse__state">
-          {% if item.issues %}<strong>{{ item.issues|length }} signal{% if item.issues|length != 1 %}s{% endif %}</strong><span>{{ item.issues[0] }}</span>{% else %}<strong>Clear</strong><span>No active issue detected.</span>{% endif %}
-        </span>
-        <span class="section-pulse__arrow" aria-hidden="true">→</span>
-      </a>
-    </article>
+    <a class="settings-hub-card" href="{{ url_for('admin.section_detail', section_key=item.definition.key) }}"><span class="settings-hub-card__mark settings-hub-card__mark--{{ item.status }}" aria-hidden="true"></span><span><small>{{ 'Enabled' if item.preferences.enabled else 'Disabled' }} · {{ 'In navigation' if item.preferences.show_in_navigation else 'Hidden' }}</small><strong>{{ item.definition.label }}</strong><em>Default: {{ item.default_view_label }} · {{ item.default_sort_label }}</em></span><b aria-hidden="true">→</b></a>
     {% endfor %}
+    <a class="settings-hub-card" href="{{ url_for('admin.advanced_settings') }}"><span class="settings-hub-card__mark" aria-hidden="true">+</span><span><small>Advanced</small><strong>Diagnostics &amp; operations</strong><em>Run refreshes and inspect protected system actions.</em></span><b aria-hidden="true">→</b></a>
   </div>
-</section>
-
-<section class="control-actions" aria-labelledby="global-action-title">
-  <div><span class="eyebrow">Explicit operations</span><h2 id="global-action-title">Run across the workspace</h2><p>External services only run after this protected POST action. Every run creates a report.</p></div>
-  <form class="operation-form" method="post" action="{{ url_for('admin.run_operation') }}">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-    <label class="field"><span>Operation</span><select name="kind"><option value="refresh">Refresh snapshot</option><option value="sync">Synchronize</option><option value="repair">Metadata repair</option><option value="diagnose">Diagnose sources</option></select></label>
-    <label class="field"><span>Domain</span><select name="domain"><option value="all">All sections</option>{% for value in ['movies','youtube_watch_later','youtube_pockettube','reading','books','chess'] %}<option value="{{ value }}">{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label>
-    <label class="check-field"><input type="checkbox" name="confirmed" value="yes"> Confirm global sync</label>
-    <button class="button button--primary" type="submit">Run operation</button>
-  </form>
 </section>
 {% endblock %}

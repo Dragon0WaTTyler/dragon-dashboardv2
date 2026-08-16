@@ -11,9 +11,19 @@ from app.mytv.models import (
     TVChannelPreference,
     TVGroup,
     TVPlaylist,
+    TVSource,
     TVTheme,
+    TVThemePreference,
 )
-from app.mytv.services import ChannelEntry, GithubTVSync
+from app.mytv.services import (
+    ChannelEntry,
+    GithubTVSync,
+    persist_theme_preference,
+    prune_irrelevant_playlist_cache,
+    purge_unavailable_playlists,
+    relevant_playlist_ids,
+)
+from app.mytv.source_manager import TVSourceManager
 
 CSRF_META = re.compile(r'<meta name="csrf-token" content="([^"]+)">')
 
@@ -94,6 +104,19 @@ def test_mytv_renders_inside_dragon_and_lists_enabled_channels(
     assert "My TV" in html
     assert 'active_module="mytv"' not in html
     assert 'href="/my-tv" aria-current="page"' in html
+    assert 'id="groupFilter"' not in html
+    assert 'class="field tv-visibility-filter"' in html
+    assert 'id="channelSearch"' in html
+    assert "Quick control" not in html
+    assert 'id="channelGrid" role="list"' in html
+    assert 'id="previousPage"' not in html
+    assert 'id="nextPage"' not in html
+    assert 'id="manageChannelList" role="list"' in html
+    assert 'id="manageChannelSearch"' in html
+    assert "Channel exceptions" in html
+    assert 'data-channel-view="favorites"' in html
+    assert 'id="refreshEpg"' in html
+    assert 'id="loadMoreChannels"' in html
 
     bootstrap = authenticated_client.get("/my-tv/api/bootstrap").get_json()
     assert bootstrap["stats"]["total_channels"] == 2
@@ -110,6 +133,9 @@ def test_mytv_group_and_channel_overrides(authenticated_client, app):
         f"/my-tv/api/groups/{group_id}", json={"enabled": False}, headers=headers
     )
     assert response.status_code == 200
+    with app.app_context():
+        durable_theme = db.session.get(TVThemePreference, "news")
+        assert durable_theme.enabled is False
     assert authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()[
         "pagination"
     ]["total"] == 0
@@ -128,6 +154,58 @@ def test_mytv_group_and_channel_overrides(authenticated_client, app):
     all_channels = authenticated_client.get("/my-tv/api/channels?state=all").get_json()
     restored = next(item for item in all_channels["channels"] if item["id"] == channel_id)
     assert restored["enabled_override"] is None
+    with app.app_context():
+        channel = db.session.get(TVChannel, channel_id)
+        assert db.session.get(TVChannelPreference, channel.preference_key) is None
+
+
+def test_mytv_bulk_change_can_be_undone(authenticated_client, app):
+    with app.app_context():
+        _, group_id, channel_id = seed_tv()
+    headers = csrf_header(authenticated_client)
+    authenticated_client.patch(
+        f"/my-tv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
+    )
+    with app.app_context():
+        channel = db.session.get(TVChannel, channel_id)
+        db.session.delete(db.session.get(TVChannelPreference, channel.preference_key))
+        db.session.commit()
+
+    changed = authenticated_client.post(
+        f"/my-tv/api/groups/{group_id}/channels",
+        json={"action": "disable"},
+        headers=headers,
+    )
+    assert changed.status_code == 200
+    payload = changed.get_json()
+    assert payload["affected_channels"] == 2
+    assert payload["undo_seconds"] == 20
+    assert authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()[
+        "pagination"
+    ]["total"] == 0
+
+    restored = authenticated_client.post(
+        f"/my-tv/api/groups/{group_id}/channels/undo",
+        json={"token": payload["undo_token"]},
+        headers=headers,
+    )
+    assert restored.status_code == 200
+    enabled = authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()
+    assert {item["name"] for item in enabled["channels"]} == {"News One", "News Two"}
+    with app.app_context():
+        channel = db.session.get(TVChannel, channel_id)
+        assert (
+            db.session.get(TVChannelPreference, channel.preference_key).enabled_override
+            is True
+        )
+    assert (
+        authenticated_client.post(
+            f"/my-tv/api/groups/{group_id}/channels/undo",
+            json={"token": payload["undo_token"]},
+            headers=headers,
+        ).status_code
+        == 409
+    )
 
 
 def test_mytv_confirmed_offline_channels_are_hidden(authenticated_client, app):
@@ -176,6 +254,25 @@ def test_mytv_health_check_route_is_protected_and_scoped(
     ).status_code == 400
 
 
+def test_mytv_epg_route_is_protected_and_reports_status(
+    authenticated_client, monkeypatch
+):
+    calls = []
+    monkeypatch.setattr(
+        "app.mytv.routes.epg_coordinator.start",
+        lambda _app, force=False, tvg_ids=None: calls.append((force, tvg_ids)) or True,
+    )
+    status = authenticated_client.get("/my-tv/api/epg")
+    assert status.status_code == 200
+    assert "state" in status.get_json()
+    started = authenticated_client.post(
+        "/my-tv/api/epg", json={}, headers=csrf_header(authenticated_client)
+    )
+    assert started.status_code == 202
+    assert calls == [(True, None)]
+    assert authenticated_client.post("/my-tv/api/epg", json={}).status_code == 400
+
+
 def test_mytv_active_selector_hides_disabled_smart_theme(authenticated_client, app):
     with app.app_context():
         _, theme_id, _ = seed_tv()
@@ -197,6 +294,14 @@ def test_mytv_active_selector_hides_disabled_smart_theme(authenticated_client, a
     )
     hidden = authenticated_client.get("/my-tv/api/groups?active_only=1").get_json()
     assert hidden["groups"] == []
+    assert authenticated_client.get(
+        "/my-tv/api/channels?state=all&active_only=true"
+    ).get_json()["channels"] == []
+    assert len(
+        authenticated_client.get("/my-tv/api/channels?state=all").get_json()[
+            "channels"
+        ]
+    ) == 2
     assert authenticated_client.get(
         "/my-tv/api/groups?visibility=on"
     ).get_json()["groups"] == []
@@ -342,6 +447,16 @@ class FakeCatalogSession:
         return FakeCatalogResponse()
 
 
+class FakeIncrementalSession:
+    def __init__(self):
+        self.headers = {}
+
+    def get(self, url, **_kwargs):
+        if "api.github.com" in url:
+            return FakeCatalogResponse()
+        return FakePlaylistResponse()
+
+
 def test_mytv_fetch_detects_changed_import_without_erasing_choices(app):
     with app.app_context():
         playlist_id, theme_id, _ = seed_tv()
@@ -352,6 +467,107 @@ def test_mytv_fetch_detects_changed_import_without_erasing_choices(app):
         assert sync.pending_ids == sync.new_ids
         assert db.session.get(TVPlaylist, playlist_id).enabled is True
         assert db.session.get(TVTheme, theme_id).enabled is True
+
+
+def test_builtin_source_refresh_does_not_import_every_catalogue_package(app):
+    with app.app_context():
+        playlist_id, _, _ = seed_tv()
+        source = TVSource(
+            name="Dragon IPTV catalogue",
+            source_type="github_repository",
+            locator="mesbahikarim63-commits/hot-dodo",
+            protected=True,
+        )
+        db.session.add(source)
+        db.session.flush()
+        db.session.get(TVPlaylist, playlist_id).source_id = source.id
+        db.session.commit()
+
+        result = TVSourceManager(session=FakeIncrementalSession()).sync(source)
+
+        assert result["catalog_files"] == 2
+        assert result["files"] == 1
+        assert db.session.query(TVPlaylist).count() == 2
+        assert db.session.query(TVPlaylist).filter_by(imported=True).count() == 1
+
+
+def test_mytv_incremental_refresh_selects_only_packages_backing_choices(app):
+    with app.app_context():
+        selected_id, _, _ = seed_tv()
+        source = TVSource(
+            name="Incremental source",
+            source_type="github_repository",
+            locator="dragon/tv",
+        )
+        db.session.add(source)
+        db.session.flush()
+        db.session.get(TVPlaylist, selected_id).source_id = source.id
+        unrelated = TVPlaylist(
+            source_id=source.id,
+            name="Unrelated package",
+            github_path="unrelated.m3u",
+            source_url="https://example.test/unrelated.m3u",
+            imported=True,
+            available=True,
+        )
+        unrelated_theme = TVTheme(key="sports", name="Sports", enabled=False)
+        unrelated_group = TVGroup(name="Sports", theme=unrelated_theme)
+        unrelated.groups.append(unrelated_group)
+        db.session.add(
+            TVChannel(
+                playlist=unrelated,
+                group=unrelated_group,
+                external_key="sport-one",
+                preference_key="sport-one",
+                name="Sport One",
+                stream_url="https://stream.example/sport",
+                position=1,
+                last_seen_sync="seed",
+            )
+        )
+        db.session.commit()
+
+        assert relevant_playlist_ids([selected_id, unrelated.id]) == [selected_id]
+        assert prune_irrelevant_playlist_cache(source.id) == 1
+        assert db.session.get(TVPlaylist, selected_id).imported is True
+        assert db.session.get(TVPlaylist, unrelated.id).imported is False
+        assert db.session.scalar(
+            select(TVChannel).where(TVChannel.playlist_id == unrelated.id)
+        ) is None
+
+
+def test_mytv_stale_cache_is_removed_without_deleting_personal_choices(app):
+    with app.app_context():
+        playlist_id, theme_id, channel_id = seed_tv()
+        source = TVSource(
+            name="Disposable source",
+            source_type="github_repository",
+            locator="dragon/tv",
+        )
+        db.session.add(source)
+        db.session.flush()
+        playlist = db.session.get(TVPlaylist, playlist_id)
+        playlist.source_id = source.id
+        playlist.available = False
+        theme = db.session.get(TVTheme, theme_id)
+        persist_theme_preference(theme)
+        channel = db.session.get(TVChannel, channel_id)
+        preference_key = channel.preference_key
+        db.session.add(
+            TVChannelPreference(
+                preference_key=preference_key,
+                theme_key=theme.key,
+                name=channel.name,
+                favorite=True,
+            )
+        )
+        db.session.commit()
+
+        assert purge_unavailable_playlists(source.id) == 1
+        assert db.session.get(TVPlaylist, playlist_id) is None
+        assert db.session.get(TVTheme, theme_id) is None
+        assert db.session.get(TVThemePreference, "news") is not None
+        assert db.session.get(TVChannelPreference, preference_key).favorite is True
 
 
 def test_mytv_playback_url_privacy(authenticated_client, app):
@@ -404,6 +620,7 @@ def test_mytv_playback_uses_an_alternate_source_and_quarantines_failure(
         db.session.commit()
         GithubTVSync.refresh_representatives()
         failing_id = failing.id
+        preference_key = working.preference_key
 
     calls: list[str] = []
 
@@ -432,6 +649,16 @@ def test_mytv_playback_uses_an_alternate_source_and_quarantines_failure(
     assert second.status_code == 200
     assert second.headers["X-Dragon-TV-Source-Attempt"] == "1"
     assert calls == ["https://stream.example/one.mp4"]
+
+    recent = authenticated_client.get("/my-tv/api/channels?state=recent").get_json()
+    assert [item["name"] for item in recent["channels"]] == ["News One"]
+    assert recent["channels"][0]["last_watched_at"] is not None
+    bootstrap = authenticated_client.get("/my-tv/api/bootstrap").get_json()
+    assert bootstrap["last_channel"]["name"] == "News One"
+    with app.app_context():
+        preference = db.session.get(TVChannelPreference, preference_key)
+        assert preference.watch_count == 2
+
 
 def test_mytv_writes_require_csrf(authenticated_client, app):
     with app.app_context():

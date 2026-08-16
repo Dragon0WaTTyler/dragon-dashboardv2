@@ -5,6 +5,7 @@
   const playerTitle = player.querySelector("#movie-player-title");
   const selectedEpisodeSummary = document.querySelector("[data-player-selected-episode]");
   const source = player.querySelector("[data-player-source]");
+  const sourceChoices = Array.from(player.querySelectorAll("[data-player-source-choice]"));
   const launch = player.querySelector("[data-player-launch]");
   const launchTitle = player.querySelector("[data-player-launch-title]");
   const launchHint = player.querySelector("[data-player-launch-hint]");
@@ -276,6 +277,13 @@
   const selectedProvider = () => selectedOption()?.dataset.provider || "local";
   const selectedProviderLabel = () => selectedOption()?.dataset.providerLabel || "Local";
   const selectedEmbedEndpoint = () => selectedOption()?.dataset.embedEndpoint || "";
+  const syncSourceChoices = () => {
+    sourceChoices.forEach((choice) => {
+      const isSelected = choice.dataset.sourceId === source.value;
+      choice.classList.toggle("is-active", isSelected);
+      choice.setAttribute("aria-pressed", String(isSelected));
+    });
+  };
   const selectedSourceMeta = () => {
     const option = selectedOption();
     if (!option || option.dataset.kind !== "local") return null;
@@ -323,6 +331,7 @@
   const setSubtitleStatus = (message) => {
     if (!subtitleStatus) return;
     subtitleStatus.textContent = message;
+    subtitleStatus.hidden = !message;
   };
   const clamp = (value, min, max) => Math.max(min, Math.min(max, Number(value)));
   const subtitleFontFamily = (value) => ({
@@ -1477,11 +1486,12 @@
     if (subtitleStatus) {
       if (kind === "embed") {
         clearSubtitleTracks();
-        setSubtitleStatus(`Use ${selectedProviderLabel()} captions or switch to Local to unlock Dragon subtitle controls.`);
+        setSubtitleStatus("");
       } else if (subtitleOptions === null) {
         setSubtitleStatus("Arabic will be selected first. Open Sub after Local starts to tune font, color, blur, or timing.");
       }
     }
+    syncSourceChoices();
   };
 
   const showError = (message, { keepViewport = false } = {}) => {
@@ -1792,6 +1802,14 @@
     syncEpisodeUrl();
     syncSourceUi();
     void loadSavedProgress();
+  });
+  sourceChoices.forEach((choice) => {
+    choice.addEventListener("click", () => {
+      const sourceId = String(choice.dataset.sourceId || "");
+      if (!sourceId || sourceId === source.value) return;
+      source.value = sourceId;
+      source.dispatchEvent(new Event("change", { bubbles: true }));
+    });
   });
   packEpisode?.addEventListener("change", async () => {
     const localWasActive = activeKind === "local" && (Boolean(localSession) || !video.hidden || video.hasAttribute("src"));

@@ -21,7 +21,13 @@ KINDS = {"refresh", "sync", "repair", "diagnose"}
 
 class OperationCoordinator:
     @staticmethod
-    def run(*, kind: str, domain: str, scope: str = "all"):
+    def run(
+        *,
+        kind: str,
+        domain: str,
+        scope: str = "all",
+        source_ids: set[str] | None = None,
+    ):
         if kind not in KINDS:
             raise ValueError("Unknown operation kind.")
         if domain not in DOMAINS:
@@ -80,19 +86,26 @@ class OperationCoordinator:
                     warnings=["Article source synchronization is unavailable."],
                 )
             try:
-                counts = ReadingService.sync_sources(client)
+                counts = ReadingService.sync_sources(client, source_ids=source_ids)
+                from app.admin.control_center import preference_store
+                from app.extensions import db
+
+                reading = preference_store().read()["sections"]["reading"]
+                counts["trimmed"] += ReadingService.trim_by_age(
+                    days=reading["retention_days"],
+                    protect_saved=reading["never_delete_saved"],
+                )
+                db.session.commit()
             except Exception as exc:
                 return OperationService.fail(operation, exc)
             warnings = []
             if counts["sources_failed"]:
                 warnings.append(
-                    f'{counts["sources_failed"]} article source(s) could not be reached. '
+                    f"{counts['sources_failed']} article source(s) could not be reached. "
                     "Working sources were still updated."
                 )
             return OperationService.complete(operation, counts=counts, warnings=warnings)
-        if kind in {"refresh", "sync"} and not current_app.config[
-            "DRAGON_EXTERNAL_SYNC_ENABLED"
-        ]:
+        if kind in {"refresh", "sync"} and not current_app.config["DRAGON_EXTERNAL_SYNC_ENABLED"]:
             return OperationService.complete(
                 operation,
                 counts={"changed": 0},

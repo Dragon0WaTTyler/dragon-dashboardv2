@@ -39,6 +39,8 @@ def _auto_sync_loop(app: Flask) -> None:
     while True:
         _sync_pockettube_if_due(app)
         _sync_reading_if_due(app)
+        _sync_tv_sources_if_due(app)
+        _sync_epg_if_due(app)
         sleep(_CHECK_INTERVAL_SECONDS)
 
 
@@ -61,7 +63,6 @@ def _sync_pockettube_if_due(app: Flask) -> None:
     except Exception:
         LOGGER.exception("PocketTube auto sync crashed.")
     finally:
-        db.session.remove()
         _sync_lock.release()
 
 
@@ -77,11 +78,16 @@ def _sync_reading_if_due(app: Flask) -> None:
         return
     try:
         with app.app_context():
-            if not _reading_sync_due():
+            from app.reading.source_manager import ReadingSourceManager
+
+            source_ids = ReadingSourceManager.due_source_ids()
+            if not source_ids:
                 return
             from app.shared.refresh import OperationCoordinator
 
-            operation = OperationCoordinator.run(kind="sync", domain="reading")
+            operation = OperationCoordinator.run(
+                kind="sync", domain="reading", source_ids=source_ids
+            )
             if operation.status == "failed":
                 LOGGER.warning("Reading auto sync failed: %s", operation.safe_error)
             else:
@@ -89,7 +95,43 @@ def _sync_reading_if_due(app: Flask) -> None:
     except Exception:
         LOGGER.exception("Reading auto sync crashed.")
     finally:
-        db.session.remove()
+        _sync_lock.release()
+
+
+def _sync_tv_sources_if_due(app: Flask) -> None:
+    if not _sync_lock.acquire(blocking=False):
+        return
+    try:
+        with app.app_context():
+            from app.mytv.source_manager import TVSourceManager
+
+            manager = TVSourceManager()
+            for source in manager.due_sources():
+                try:
+                    result = manager.sync(source)
+                    LOGGER.info("TV source %s auto refreshed: %s", source.name, result)
+                except Exception:
+                    LOGGER.exception("TV source %s auto refresh failed.", source.name)
+    except Exception:
+        LOGGER.exception("TV source auto sync crashed.")
+    finally:
+        _sync_lock.release()
+
+
+def _sync_epg_if_due(app: Flask) -> None:
+    if not _sync_lock.acquire(blocking=False):
+        return
+    try:
+        with app.app_context():
+            from app.mytv.epg import EPGSyncService
+
+            if not EPGSyncService.is_due():
+                return
+            result = EPGSyncService().sync()
+            LOGGER.info("Favorite TV guide auto refresh completed: %s", result)
+    except Exception:
+        LOGGER.exception("Favorite TV guide auto refresh failed.")
+    finally:
         _sync_lock.release()
 
 
@@ -98,9 +140,7 @@ def _reading_sync_due() -> bool:
 
 
 def _snapshot_sync_due(domain: str, *, seconds: int) -> bool:
-    snapshot = db.session.scalar(
-        db.select(SnapshotRecord).where(SnapshotRecord.domain == domain)
-    )
+    snapshot = db.session.scalar(db.select(SnapshotRecord).where(SnapshotRecord.domain == domain))
     if snapshot is None or snapshot.last_success_at is None:
         return True
     last_success_at = snapshot.last_success_at

@@ -5,7 +5,11 @@ from urllib.parse import urlsplit
 
 from flask import Flask, g, request
 
-from app.playback.providers import INDEXED_EMBED_PROVIDER_SPECS, validate_indexed_embed_url_template
+from app.playback.providers import (
+    ID_CATALOG_EMBED_PROVIDER_SPECS,
+    INDEXED_EMBED_PROVIDER_SPECS,
+    validate_indexed_embed_url_template,
+)
 
 VIDSRC_REDIRECT_HOSTS = {
     "v2.vidsrc.me": ("https://vidsrc.me", "https://vidsrcme.ru"),
@@ -51,6 +55,11 @@ def install_request_middleware(app: Flask) -> None:
             ):
                 frame_sources.append(f"{parsed.scheme}://{parsed.netloc}")
                 frame_sources.extend(VIDSRC_REDIRECT_HOSTS.get(parsed.hostname or "", ()))
+        for provider_spec in ID_CATALOG_EMBED_PROVIDER_SPECS:
+            if app.config.get(f"DRAGON_{provider_spec.key.upper()}_ENABLED"):
+                frame_sources.extend(
+                    f"https://{domain}" for domain in sorted(provider_spec.allowed_domains)
+                )
         for provider_spec in INDEXED_EMBED_PROVIDER_SPECS:
             provider_key = provider_spec.key.upper()
             if not app.config.get(f"DRAGON_{provider_key}_ENABLED"):

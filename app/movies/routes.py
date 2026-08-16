@@ -36,7 +36,10 @@ from app.movies.services import (
     tv_season_workspace,
     tv_show_workspace,
 )
-from app.playback.providers import build_provider_registry_from_config
+from app.playback.providers import (
+    ID_CATALOG_EMBED_PROVIDER_SPECS,
+    build_provider_registry_from_config,
+)
 from app.playback.services import PlaybackService
 
 bp = Blueprint("movies", __name__, url_prefix="/movies")
@@ -44,7 +47,16 @@ bp = Blueprint("movies", __name__, url_prefix="/movies")
 
 def _enabled_indexed_embed_providers() -> frozenset[str]:
     registry = build_provider_registry_from_config(current_app.config)
-    return PlaybackService.enabled_provider_keys(registry.keys() - {"vidsrc"})
+    direct_provider_keys = {spec.key for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
+    return PlaybackService.enabled_provider_keys(
+        registry.keys() - {"vidsrc"} - direct_provider_keys
+    )
+
+
+def _enabled_id_catalog_embed_providers() -> frozenset[str]:
+    registry = build_provider_registry_from_config(current_app.config)
+    provider_keys = {spec.key for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
+    return PlaybackService.enabled_provider_keys(registry.keys() & provider_keys)
 
 
 def _provider_priorities() -> dict[str, int]:
@@ -57,7 +69,10 @@ def _provider_priorities() -> dict[str, int]:
 
 def _indexed_provider_options() -> list[dict[str, str]]:
     registry = build_provider_registry_from_config(current_app.config)
-    enabled_keys = PlaybackService.enabled_provider_keys(registry.keys() - {"vidsrc"})
+    direct_provider_keys = {spec.key for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
+    enabled_keys = PlaybackService.enabled_provider_keys(
+        registry.keys() - {"vidsrc"} - direct_provider_keys
+    )
     return [
         {"key": key, "label": registry.require(key).display_name} for key in sorted(enabled_keys)
     ]
@@ -73,6 +88,27 @@ def _vidsrc_is_usable_candidate(movie: Movie) -> bool:
     )
 
 
+def _id_catalog_embed_candidates(movie: Movie) -> list[dict]:
+    external_ids = dict(movie.external_ids or {})
+    if not external_ids.get("tmdb_id"):
+        return []
+    registry = build_provider_registry_from_config(current_app.config)
+    priorities = _provider_priorities()
+    candidates = []
+    for key in _enabled_id_catalog_embed_providers():
+        candidates.append(
+            {
+                "id": f"provider-{key}",
+                "provider": key,
+                "label": registry.require(key).display_name,
+                "quality": "",
+                "priority": priorities.get(key, 100),
+                "id_catalog": True,
+            }
+        )
+    return candidates
+
+
 def _jackett_is_eligible(
     movie: Movie,
     *,
@@ -80,8 +116,16 @@ def _jackett_is_eligible(
     player_sources: list[dict],
 ) -> bool:
     return bool(
-        not _vidsrc_is_usable_candidate(movie) and not indexed_embed_sources and not player_sources
+        not _vidsrc_is_usable_candidate(movie)
+        and not _id_catalog_embed_candidates(movie)
+        and not indexed_embed_sources
+        and not player_sources
     )
+
+
+def _jackett_search_available(movie: Movie) -> bool:
+    """A person can compare Jackett releases whenever the title has a TMDb identity."""
+    return bool((movie.external_ids or {}).get("tmdb_id"))
 
 
 def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> list[dict]:
@@ -97,6 +141,7 @@ def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> li
                 "priority": priorities.get("vidsrc", 100),
             }
         )
+    sources.extend(_id_catalog_embed_candidates(movie))
     sources.extend(dict(item) for item in indexed_embed_sources)
     return sorted(
         sources,
@@ -128,6 +173,27 @@ def _movie_score_options() -> list:
 @login_required
 def index():
     filters, errors = parse_movie_filters(request.args)
+    from app.admin.control_center import preference_store
+
+    preferences = preference_store().read()["sections"]["movies"]
+    if "status" not in request.args:
+        default_status = {
+            "watching": "watching",
+            "library": "",
+            "finished": "finished",
+            "wishlist": "want_to_watch",
+        }.get(preferences["default_view"], "")
+        filters["status"] = default_status
+    if "sort" not in request.args:
+        filters["sort"] = {
+            "recent": "recently_updated",
+            "last_watched": "recently_updated",
+            "rating": "score_desc",
+            "year": "year_desc",
+            "title": "title_asc",
+        }.get(preferences["default_sort"], "recently_updated")
+    if preferences["hide_completed"] and not filters["status"]:
+        filters["hide_completed"] = True
     page = _positive_int(request.args.get("page"), 1, 100000)
     per_page = _positive_int(request.args.get("per_page"), 24, 100)
     offset = (page - 1) * per_page
@@ -382,6 +448,7 @@ def detail(movie_id: str):
             indexed_embed_sources=indexed_embed_sources,
             player_sources=player_sources,
         ),
+        jackett_search_available=_jackett_search_available(movie),
     )
 
 
@@ -430,6 +497,7 @@ def tv_season(movie_id: str, season_number: int):
             indexed_embed_sources=indexed_embed_sources,
             player_sources=player_sources,
         ),
+        jackett_search_available=_jackett_search_available(movie),
     )
 
 
@@ -493,6 +561,7 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
             indexed_embed_sources=indexed_embed_sources,
             player_sources=player_sources,
         ),
+        jackett_search_available=_jackett_search_available(movie),
     )
 
 

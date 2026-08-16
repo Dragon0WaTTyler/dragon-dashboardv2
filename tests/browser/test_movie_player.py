@@ -137,10 +137,20 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     page.set_viewport_size({"width": 1280, "height": 800})
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies/{movie_id}")
+    assert page.get_by_role("link", name="Provider settings").count() == 0
+    assert page.locator("[data-subtitle-status]").is_hidden()
     source = page.get_by_label("Player source")
     assert source.input_value() == "vidsrc"
+    source_choices = page.locator("[data-player-source-choice]")
+    assert source_choices.count() == 2
+    assert source_choices.nth(0).get_attribute("aria-pressed") == "true"
+    page.get_by_role("button", name="Local · FHD").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-source]')?.selectedOptions[0]?.dataset.kind"
+        " === 'local'"
+    )
+    assert source_choices.nth(1).get_attribute("aria-pressed") == "true"
     assert page.locator("[data-subtitle-select]").count() == 0
-    source.select_option(label="Local · FHD")
     assert page.locator("[data-player-badge]").inner_text() == "Local"
     page.get_by_role("button", name="Start local player").click()
     page.locator("[data-movie-player][data-playback-state]").wait_for()
@@ -369,14 +379,32 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
             label="VideoTube · Arabic",
             subtitle_languages=["ar"],
         )
+        updown = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="updown",
+            provider_asset_id="updownasset",
+            label="UpDown",
+        )
+        ok = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="ok",
+            provider_asset_id="7593181055685",
+            label="OK.ru",
+        )
         movie_id = movie.id
         source_id = source.id
+        updown_id = updown.id
+        ok_id = ok.id
 
     app.config.update(
         DRAGON_PLAYBACK_ENABLED=True,
         DRAGON_VIDSRC_ENABLED=True,
         DRAGON_VIDEOTUBE_ENABLED=True,
         DRAGON_VIDEOTUBE_EMBED_URL="https://down.vidtube.one/embed-{asset_id}.html",
+        DRAGON_UPDOWN_ENABLED=True,
+        DRAGON_UPDOWN_EMBED_URL="https://updown.icu/embed-{asset_id}-1280x640.html",
+        DRAGON_OK_ENABLED=True,
+        DRAGON_OK_EMBED_URL="https://ok.ru/videoembed/{asset_id}",
     )
 
     page.route(
@@ -408,18 +436,64 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
             }
         ),
     )
+    page.route(
+        f"**/playback/movie/{movie_id}/sources/{updown_id}/embed",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "updown",
+                    "label": "UpDown",
+                    "url": "https://updown.icu/embed-updownasset-1280x640.html",
+                    "match": "indexed",
+                    "sandbox": "allow-scripts allow-forms allow-popups allow-presentation",
+                },
+            }
+        ),
+    )
+    page.route(
+        f"**/playback/movie/{movie_id}/sources/{ok_id}/embed",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "ok",
+                    "label": "OK.ru",
+                    "url": "https://ok.ru/videoembed/7593181055685",
+                    "match": "indexed",
+                    "sandbox": "allow-scripts allow-forms allow-popups allow-presentation",
+                },
+            }
+        ),
+    )
 
+    provider_requests = []
+    provider_hosts = ("down.vidtube.one", "updown.icu", "ok.ru")
+    page.on(
+        "request",
+        lambda request: provider_requests.append(request.url)
+        if any(host in request.url for host in provider_hosts)
+        else None,
+    )
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies/{movie_id}")
     source_select = page.get_by_label("Player source")
     assert source_select.input_value() == source_id
+    assert provider_requests == []
+    source_choices = page.locator("[data-player-source-choice]")
+    assert source_choices.count() == 4
+    assert (
+        source_choices.filter(has_text="VideoTube · Arabic").get_attribute("aria-pressed")
+        == "true"
+    )
 
-    source_select.select_option(label="VideoTube · Arabic")
     assert page.locator("[data-player-badge]").inner_text() == "VideoTube · Arabic"
     page.get_by_role("button", name="Play with VideoTube · Arabic").click()
     frame = page.locator("[data-player-frame]")
     frame.wait_for(state="visible")
-    assert frame.get_attribute("src") == "https://down.vidtube.one/embed-iuki4kda2u7l.html"
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === 'https://down.vidtube.one/embed-iuki4kda2u7l.html'"
+    )
     assert (
         frame.get_attribute("sandbox")
         == "allow-scripts allow-forms allow-popups allow-presentation"
@@ -432,10 +506,39 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
     )
 
     page.get_by_role("button", name="Change source").click()
-    source_select.select_option("vidsrc")
+    source_choices.filter(has_text="UpDown").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-badge]')?.textContent === 'UpDown'"
+    )
+    assert source_select.input_value() == updown_id
+    assert source_choices.filter(has_text="UpDown").get_attribute("aria-pressed") == "true"
+    page.get_by_role("button", name="Play with UpDown").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === 'https://updown.icu/embed-updownasset-1280x640.html'"
+    )
+
+    page.get_by_role("button", name="Change source").click()
+    source_choices.filter(has_text="OK.ru").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-badge]')?.textContent === 'OK.ru'"
+    )
+    assert source_select.input_value() == ok_id
+    page.get_by_role("button", name="Play with OK.ru").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === 'https://ok.ru/videoembed/7593181055685'"
+    )
+
+    page.get_by_role("button", name="Change source").click()
+    source_choices.filter(has_text="VidSrc").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-badge]')?.textContent === 'VidSrc'"
+    )
+    assert source_select.input_value() == "vidsrc"
     assert frame.get_attribute("src") == "about:blank"
     page.get_by_role("button", name="Play with VidSrc").click()
-    assert frame.get_attribute("src") == "https://embed.vidsrc.example/tt2543164"
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === 'https://embed.vidsrc.example/tt2543164'"
+    )
     assert frame.get_attribute("sandbox") is None
 
 

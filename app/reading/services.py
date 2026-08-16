@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import suppress
+from datetime import timedelta
 from urllib.parse import urlsplit
 
+from flask import current_app
 from sqlalchemy import or_
 
 from app.extensions import db
@@ -23,6 +26,7 @@ def article_item(article: Article) -> dict:
     return {
         "id": article.id,
         "title": article.title,
+        "url": article.url,
         "direction": text_direction(article.title),
         "source": article.source.name if article.source else "Unknown source",
         "source_id": article.source_id,
@@ -144,14 +148,11 @@ class ReadingService:
         }
 
     @staticmethod
-    def sync_sources(client) -> dict[str, int]:
-        sources = list(
-            db.session.scalars(
-                db.select(ReadingSource)
-                .where(ReadingSource.active.is_(True))
-                .order_by(ReadingSource.name)
-            )
-        )
+    def sync_sources(client, *, source_ids: set[str] | None = None) -> dict[str, int]:
+        query = db.select(ReadingSource).where(ReadingSource.active.is_(True))
+        if source_ids is not None:
+            query = query.where(ReadingSource.id.in_(source_ids))
+        sources = list(db.session.scalars(query.order_by(ReadingSource.name)))
         counts = {
             "sources": len(sources),
             "sources_synced": 0,
@@ -191,28 +192,39 @@ class ReadingService:
                     "author": str(entry.get("author") or "")[:240],
                     "topic": str(entry.get("topic") or "")[:160],
                     "excerpt": str(entry.get("excerpt") or "")[:20_000],
-                    "image_url": str(entry.get("image_url") or "")[:1000],
+                    "image_url": (
+                        str(entry.get("image_url") or "")[:1000] if source.download_images else ""
+                    ),
                     "published_at": entry.get("published_at"),
                 }
                 if article is None:
-                    db.session.add(Article(source=source, **values))
+                    article = Article(source=source, **values)
+                    db.session.add(article)
                     counts["created"] += 1
-                    continue
-                changed = False
-                for field, value in values.items():
-                    if getattr(article, field) != value:
-                        setattr(article, field, value)
-                        changed = True
-                if changed:
-                    counts["updated"] += 1
+                else:
+                    changed = False
+                    for field, value in values.items():
+                        if getattr(article, field) != value:
+                            setattr(article, field, value)
+                            changed = True
+                    if changed:
+                        counts["updated"] += 1
+                if source.download_fulltext:
+                    extractor = current_app.extensions.get("dragon_article_extractor")
+                    if extractor is not None:
+                        db.session.flush()
+                        with suppress(ValueError):
+                            ReadingService.extract_fulltext(article, extractor)
 
             source.health_state = "healthy"
             source.health_message = f"Synced {len(entries)} feed entries."
             source.last_success_at = utc_now()
             counts["sources_synced"] += 1
+            counts["trimmed"] += ReadingService.trim_source_cache(
+                source.id, maximum=source.maximum_articles
+            )
 
         counts["changed"] = counts["created"] + counts["updated"]
-        counts["trimmed"] = ReadingService.trim_cache(maximum=READING_CACHE_LIMIT)
         checksum = hashlib.sha256("\n".join(sorted(seen)).encode()).hexdigest()
         snapshot = db.session.scalar(
             db.select(SnapshotRecord).where(SnapshotRecord.domain == "reading")
@@ -239,21 +251,58 @@ class ReadingService:
         return counts
 
     @staticmethod
+    def trim_source_cache(source_id: str, *, maximum: int) -> int:
+        articles = list(
+            db.session.scalars(
+                db.select(Article)
+                .where(Article.source_id == source_id)
+                .order_by(Article.published_at.desc(), Article.created_at.desc())
+            )
+        )
+        if len(articles) <= maximum:
+            return 0
+        protected = {
+            article.id for article in articles if article.status in PROTECTED_READING_STATUSES
+        }
+        remaining_slots = max(0, maximum - len(protected))
+        kept_ids = set(protected)
+        for article in articles:
+            if article.id in kept_ids:
+                continue
+            if remaining_slots <= 0:
+                break
+            kept_ids.add(article.id)
+            remaining_slots -= 1
+        trimmed = 0
+        for article in articles:
+            if article.id not in kept_ids:
+                db.session.delete(article)
+                trimmed += 1
+        return trimmed
+
+    @staticmethod
+    def trim_by_age(*, days: int, protect_saved: bool = True) -> int:
+        cutoff = utc_now() - timedelta(days=days)
+        query = db.select(Article).where(Article.created_at < cutoff)
+        if protect_saved:
+            query = query.where(Article.status.not_in(PROTECTED_READING_STATUSES))
+        articles = list(db.session.scalars(query))
+        for article in articles:
+            db.session.delete(article)
+        return len(articles)
+
+    @staticmethod
     def trim_cache(*, maximum: int = READING_CACHE_LIMIT) -> int:
         articles = list(
             db.session.scalars(
-                db.select(Article).order_by(
-                    Article.published_at.desc(), Article.created_at.desc()
-                )
+                db.select(Article).order_by(Article.published_at.desc(), Article.created_at.desc())
             )
         )
         if len(articles) <= maximum:
             return 0
 
         protected = [
-            article
-            for article in articles
-            if article.status in PROTECTED_READING_STATUSES
+            article for article in articles if article.status in PROTECTED_READING_STATUSES
         ]
         remaining_slots = max(0, maximum - len(protected))
         kept_ids = {article.id for article in protected}

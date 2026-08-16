@@ -17,11 +17,20 @@
     </form>
   </div>
 </header>
+<nav class="quick-links" aria-label="News views">
+  <a href="{{ url_for('reading.index', feed='today') }}"{% if feed == 'today' %} aria-current="page"{% endif %}>Today</a>
+  <a href="{{ url_for('reading.index', feed='recent') }}"{% if feed == 'recent' %} aria-current="page"{% endif %}>Recent</a>
+  <a href="{{ url_for('reading.index', feed='saved') }}"{% if feed == 'saved' %} aria-current="page"{% endif %}>Saved</a>
+  <a href="{{ url_for('reading.index', feed='sources') }}"{% if feed == 'sources' %} aria-current="page"{% endif %}>Sources</a>
+</nav>
+{% if feed != 'sources' %}
 <form class="compact-filters compact-filters--wide" method="get">
+  <input type="hidden" name="feed" value="{{ feed }}">
   <label class="field"><span>Search</span><input type="search" name="q" value="{{ q }}"></label>
   <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for source in sources %}<option value="{{ source.id }}"{% if source_id == source.id %} selected{% endif %}>{{ source.name }}</option>{% endfor %}</select></label>
   <label class="field"><span>Status</span><select name="status"><option value="">All</option>{% for value in ['unread','reading','saved','finished'] %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
   <label class="field"><span>View</span><select name="view"><option value="grid"{% if view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if view == 'list' %} selected{% endif %}>Compact list</option></select></label>
+  <label class="field"><span>Sort</span><select name="sort"><option value="recent"{% if sort == 'recent' %} selected{% endif %}>Most recent</option><option value="title"{% if sort == 'title' %} selected{% endif %}>Title A–Z</option></select></label>
   <button class="button button--primary" type="submit">Apply</button>
 </form>
 {% if dragon_feature('reading', 'source_health') and sources %}<div class="source-health" aria-label="Source health">{% for source in sources %}<span dir="auto">{{ source.name }} <small>{{ source.health_state }}</small></span>{% endfor %}</div>{% endif %}
@@ -29,12 +38,12 @@
 <div class="article-list{% if view == 'grid' %} article-list--grid{% endif %}" aria-label="Reading results">
   {% for article in articles %}
   <article class="article-card{% if view == 'list' and article.direction == 'rtl' %} article-card--rtl{% endif %}">
-    <a class="article-card__image" data-media-frame data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">
+    {% if dragon_feature('reading', 'images') %}<a class="article-card__image" data-media-frame{% if dragon_feature('reading', 'reader_mode') %} data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}"{% else %} href="{{ article.url }}" target="_blank" rel="noreferrer"{% endif %}>
       {% if article.image_url %}<img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="320" height="180"><span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% endif %}
-    </a>
+    </a>{% endif %}
     <div class="article-card__body">
-      <span class="eyebrow" dir="auto">{{ article.source }}{% if article.topic %} · {{ article.topic }}{% endif %}</span>
-      <h2 dir="auto"><a data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h2>
+      {% if dragon_feature('reading', 'source') or dragon_feature('reading', 'publication_date') %}<span class="eyebrow" dir="auto">{% if dragon_feature('reading', 'source') %}{{ article.source }}{% endif %}{% if dragon_feature('reading', 'source') and dragon_feature('reading', 'publication_date') and article.published_at %} · {% endif %}{% if dragon_feature('reading', 'publication_date') and article.published_at %}{{ article.published_at[:10] }}{% endif %}</span>{% endif %}
+      <h2 dir="auto"><a{% if dragon_feature('reading', 'reader_mode') %} data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}"{% else %} href="{{ article.url }}" target="_blank" rel="noreferrer"{% endif %}>{{ article.title }}</a></h2>
       {% if article.excerpt %}<p dir="auto">{{ article.excerpt }}</p>{% endif %}
       {{ badge(article.status|title, 'accent' if article.status == 'reading' else '') }}
     </div>
@@ -47,4 +56,10 @@
 <form data-article-open-form method="post" action="{{ url_for('reading.index') }}" hidden>
   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
 </form>
+{% else %}
+<section class="reading-source-directory" aria-labelledby="news-source-title">
+  <div><span class="eyebrow">News sources</span><h2 id="news-source-title">Connected feeds</h2><p>Source health stays separate from your reading preferences.</p></div>
+  {% if sources %}<div class="source-health" aria-label="Connected News sources">{% for source in sources %}<span dir="auto"><strong>{{ source.name }}</strong> <small>{{ source.health_state|title }}</small></span>{% endfor %}</div>{% else %}{{ empty_state('No News sources', 'Add an RSS source before synchronizing News.') }}{% endif %}
+</section>
+{% endif %}
 {% endblock %}

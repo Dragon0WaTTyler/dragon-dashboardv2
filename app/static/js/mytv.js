@@ -5,27 +5,36 @@
   );
   const state = {
     bootstrap: null,
-    activeGroups: [],
     manageGroups: [],
+    manageChannels: [],
     channels: [],
     page: 1,
     pages: 1,
     total: 0,
+    manageChannelPage: 1,
+    manageChannelPages: 1,
+    manageChannelTotal: 0,
+    loadingChannels: false,
+    loadingManageChannels: false,
     activeChannel: null,
     requestedChannel: null,
     retryChannel: null,
+    pendingBulk: null,
+    savingGroups: new Set(),
+    savingFavorites: new Set(),
     syncTimer: null,
     healthTimer: null,
+    epgTimer: null,
     playbackTimer: null,
     requestTokens: {
       bootstrap: 0,
-      activeGroups: 0,
       manageGroups: 0,
+      manageChannels: 0,
       channels: 0,
     },
     requestControllers: {
-      activeGroups: null,
       manageGroups: null,
+      manageChannels: null,
       channels: null,
     },
   };
@@ -47,6 +56,20 @@
     return String(value).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#039;");
   }
   function number(value) { return new Intl.NumberFormat().format(value || 0); }
+  function relativeTime(value) {
+    if (!value) return "not updated yet";
+    const seconds = Math.round((new Date(value).getTime() - Date.now()) / 1000);
+    const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+    if (Math.abs(seconds) < 90) return formatter.format(seconds, "second");
+    const minutes = Math.round(seconds / 60);
+    if (Math.abs(minutes) < 90) return formatter.format(minutes, "minute");
+    const hours = Math.round(minutes / 60);
+    if (Math.abs(hours) < 36) return formatter.format(hours, "hour");
+    return formatter.format(Math.round(hours / 24), "day");
+  }
+  function clock(value) {
+    return value ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(new Date(value)) : "";
+  }
   function isAbortError(error) { return error?.name === "AbortError"; }
   function beginAbortableRequest(key) {
     state.requestTokens[key] += 1;
@@ -59,6 +82,11 @@
   function channelOverrideValue(item) {
     return item.enabled_override === null ? "default" : item.enabled_override ? "on" : "off";
   }
+  function mergeChannels(current, incoming) {
+    const byId = new Map(current.map((item) => [item.id, item]));
+    incoming.forEach((item) => byId.set(item.id, item));
+    return [...byId.values()];
+  }
   function setNowLogo(name = "TV", logoUrl = "") {
     const fallback = escapeHtml((name || "TV").slice(0, 2).toUpperCase());
     elements.nowLogo.innerHTML = logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="" referrerpolicy="no-referrer" data-tv-fallback="${fallback}">` : fallback;
@@ -68,20 +96,61 @@
       elements.nowPlayingTitle.textContent = channel.name;
       elements.nowPlayingMeta.textContent = message;
       setNowLogo(channel.name, channel.logo_url || "");
+      const current = channel.epg?.now;
+      const upcoming = channel.epg?.next;
+      elements.nowPlayingGuide.textContent = current
+        ? `Now · ${current.title}${upcoming ? `  ·  Next ${clock(upcoming.starts_at)} · ${upcoming.title}` : ""}`
+        : "Schedule unavailable";
+      elements.nowPlayingGuide.hidden = false;
     }
     else {
       elements.nowPlayingTitle.textContent = "Nothing selected";
       elements.nowPlayingMeta.textContent = message;
       setNowLogo();
+      elements.nowPlayingGuide.hidden = true;
     }
     elements.liveBadge.hidden = !live;
+    elements.pictureInPicture.hidden = !live || !document.pictureInPictureEnabled;
   }
-  function toast(message, error = false) {
+  function toast(message, error = false, action = null) {
     const item = document.createElement("div");
     item.className = `tv-toast${error ? " is-error" : ""}`;
-    item.textContent = message;
+    const copy = document.createElement("span");
+    copy.textContent = message;
+    item.append(copy);
+    if (action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = action.label;
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        try { await action.run(); item.remove(); }
+        catch (caught) { toast(caught.message, true); button.disabled = false; }
+      });
+      item.append(button);
+    }
     elements.toastRegion.append(item);
-    window.setTimeout(() => item.remove(), 4200);
+    window.setTimeout(() => item.remove(), action ? 18000 : 5200);
+  }
+
+  function syncChannelViewControls() {
+    document.querySelectorAll("[data-channel-view]").forEach((button) => {
+      button.setAttribute("aria-pressed", String(button.dataset.channelView === elements.stateFilter.value));
+    });
+  }
+
+  function updateChannelViewContext(view, total) {
+    const labels = {
+      enabled: "Ready to watch",
+      favorites: "Favorites",
+      recent: "Recently watched",
+      all: "All channels",
+      disabled: "Disabled channels",
+    };
+    elements.channelViewTitle.textContent = labels[view] || "Channels";
+    elements.channelViewCount.textContent = total === null
+      ? "Loading…"
+      : `${number(total)} ${total === 1 ? "channel" : "channels"}`;
   }
 
   async function loadBootstrap({ quiet = false } = {}) {
@@ -95,32 +164,35 @@
       elements.statTotal.textContent = number(data.stats.total_channels);
       elements.statGroups.textContent = number(data.stats.groups);
       elements.statSources.textContent = number(data.stats.repo_files);
+      elements.statFavorites.textContent = number(data.stats.favorite_channels);
       elements.sourceRepoFiles.textContent = number(data.stats.repo_files);
       elements.sourceSyncedFiles.textContent = number(data.stats.imported_playlists);
       elements.sourcePendingFiles.textContent = number(data.stats.pending_files);
       updateSyncBanner(data.sync);
       updateHealthBanner(data.health);
+      updateEpgStatus(data.epg);
+      const guideStatus = data.epg?.last_success_at ? `guide ${relativeTime(data.epg.last_success_at)}` : "guide waiting";
+      const healthStatus = data.health?.last_checked_at ? `checked ${relativeTime(data.health.last_checked_at)}` : "not checked yet";
+      elements.tvTrustSummary.textContent = `${number(data.stats.enabled_channels)} ready · ${number(data.stats.favorite_channels)} favorites · ${healthStatus} · ${guideStatus}`;
+      if (data.last_channel) {
+        elements.resumeLastChannel.hidden = false;
+        elements.resumeLastChannel.dataset.channelId = data.last_channel.id;
+        elements.resumeLastChannel.textContent = `Resume ${data.last_channel.name}`;
+        elements.playerEmptyText.textContent = `Last watched ${relativeTime(data.last_channel.last_watched_at)}.`;
+      } else {
+        elements.resumeLastChannel.hidden = true;
+        elements.playerEmptyText.textContent = "Your favorites and recent channels stay close.";
+      }
       if (!data.stats.repo_files && data.sync.state !== "running" && elements.tvConfig.dataset.autoCatalog === "true") {
         await startSync("fetch", [], true);
         return;
       }
-      await loadActiveGroups();
       await loadChannels();
       if (data.sync.state === "running") pollSync();
       if (data.health.state === "running") pollHealth();
       else if (data.health.needs_check && data.stats.enabled_channels && elements.tvConfig.dataset.autoHealth === "true") startHealthCheck({ quiet: true });
+      if (data.epg?.state === "running") pollEpg();
     } catch (error) { if (!quiet && !isAbortError(error)) toast(error.message, true); }
-  }
-
-  async function loadActiveGroups() {
-    const { token, signal } = beginAbortableRequest("activeGroups");
-    const params = new URLSearchParams({ active_only: "1" });
-    const data = await api(`/my-tv/api/groups?${params}`, { signal });
-    if (!isCurrentRequest("activeGroups", token)) return;
-    state.activeGroups = data.groups;
-    const current = elements.groupFilter.value;
-    elements.groupFilter.innerHTML = '<option value="">All active bouquets</option>' + data.groups.map((item) => `<option value="${item.id}">${escapeHtml(item.name)} · ${number(item.channel_count)}</option>`).join("");
-    elements.groupFilter.value = data.groups.some((item) => String(item.id) === current) ? current : "";
   }
 
   async function loadManageGroups() {
@@ -138,42 +210,70 @@
     elements.bouquetList.hidden = state.manageGroups.length === 0;
     if (state.manageGroups.length === 0) {
       const labels = {
-        on: ["No bouquets are on", "Switch to All bouquets or turn on a bouquet."],
-        off: ["No bouquets are off", "Switch to All bouquets or turn off a bouquet."],
-        all: ["No bouquets found", "Try another search."],
+        on: ["No active groups", "Switch to All groups or activate one."],
+        off: ["No inactive groups", "Switch to All groups or deactivate one."],
+        all: ["No groups found", "Try another search."],
       };
       const [title, text] = labels[elements.bouquetVisibility.value];
       elements.bouquetEmptyTitle.textContent = title;
       elements.bouquetEmptyText.textContent = text;
     }
-    elements.bouquetList.innerHTML = state.manageGroups.map((item) => `<article class="tv-bouquet-row">
-      <div class="tv-bouquet-copy"><strong>${escapeHtml(item.name)}</strong><p>${number(item.channel_count)} unique channels · ${number(item.raw_group_count)} source copies merged · ${item.enabled_exceptions} on / ${item.disabled_exceptions} off</p></div>
-      <button class="tv-switch" type="button" role="switch" aria-checked="${item.enabled}" aria-label="${item.enabled ? "Disable" : "Enable"} bouquet ${escapeHtml(item.name)}" data-toggle-group="${item.id}"></button>
-      <div class="tv-bouquet-actions" aria-label="Bulk channel actions"><button class="button button--secondary" type="button" data-group-action="enable" data-group-id="${item.id}">All on</button><button class="button button--danger" type="button" data-group-action="disable" data-group-id="${item.id}">All off</button><button class="button button--quiet" type="button" data-group-action="inherit" data-group-id="${item.id}">Use default</button></div>
-    </article>`).join("");
+    elements.bouquetList.innerHTML = state.manageGroups.map((item) => {
+      const saving = state.savingGroups.has(item.id);
+      const confirming = state.pendingBulk?.groupId === item.id;
+      const confirmingDeactivate = confirming && state.pendingBulk.action === "deactivate";
+      return `<article class="tv-bouquet-row"${saving ? ' aria-busy="true"' : ""}>
+      <div class="tv-bouquet-copy"><strong>${escapeHtml(item.name)}</strong><p>${number(item.channel_count)} channels · ${item.enabled_exceptions} forced on · ${item.disabled_exceptions} forced off</p></div>
+      <button class="tv-switch" type="button" role="switch" aria-checked="${item.enabled}" aria-label="${item.enabled ? "Deactivate" : "Activate"} group ${escapeHtml(item.name)}" data-toggle-group="${item.id}"${saving ? " disabled" : ""}></button>
+      <div class="tv-bouquet-actions" aria-label="Bulk channel actions"><button class="button button--secondary" type="button" data-group-action="enable" data-group-id="${item.id}"${saving ? " disabled" : ""}>Turn all on</button><button class="button button--danger" type="button" data-group-action="disable" data-group-id="${item.id}"${saving ? " disabled" : ""}>Turn all off</button><button class="button button--quiet" type="button" data-group-action="inherit" data-group-id="${item.id}"${saving ? " disabled" : ""}>Clear exceptions</button></div>
+      ${confirming ? `<div class="tv-inline-confirm" role="alert"><p><strong>${confirmingDeactivate ? `Deactivate ${escapeHtml(item.name)}` : `Turn off ${number(item.channel_count)} channels`}?</strong><span>${confirmingDeactivate ? `${number(item.channel_count)} channels will leave your lineup.` : "This replaces the group's channel exceptions."} You can undo for 20 seconds.</span></p><div><button class="button button--danger" type="button" ${confirmingDeactivate ? "data-confirm-group-toggle" : 'data-confirm-group-action="disable"'} data-group-id="${item.id}">${confirmingDeactivate ? "Deactivate group" : "Turn all off"}</button><button class="button button--quiet" type="button" data-cancel-group-action>Cancel</button></div></div>` : ""}
+    </article>`;
+    }).join("");
   }
 
-  async function loadChannels() {
+  async function loadChannels({ append = false } = {}) {
+    if (append && (state.loadingChannels || state.page >= state.pages)) return;
+    state.loadingChannels = true;
+    const targetPage = append ? state.page + 1 : 1;
     elements.channelGrid.setAttribute("aria-busy", "true");
+    elements.channelLoadStatus.hidden = !append;
     const { token, signal } = beginAbortableRequest("channels");
-    const params = new URLSearchParams({ page: state.page, per_page: 36, state: elements.stateFilter.value });
-    if (elements.groupFilter.value) params.set("theme_id", elements.groupFilter.value);
-    if (elements.channelSearch.value.trim()) params.set("q", elements.channelSearch.value.trim());
+    const selectedView = elements.stateFilter.value;
+    if (!append) updateChannelViewContext(selectedView, null);
+    const selectedSort = selectedView === "recent"
+      ? "recent"
+      : selectedView === "favorites" || selectedView === "all"
+        ? "name"
+        : elements.tvConfig.dataset.defaultSort || "name";
+    const params = new URLSearchParams({ page: targetPage, per_page: 100, state: selectedView, active_only: selectedView === "enabled" ? "true" : "false", favorites_first: elements.tvConfig.dataset.favoritesFirst || "false", sort: selectedSort });
+    const query = elements.channelSearch.value.trim();
+    if (query) params.set("q", query);
     try {
       const data = await api(`/my-tv/api/channels?${params}`, { signal });
       if (!isCurrentRequest("channels", token)) return;
-      state.channels = data.channels;
+      state.channels = append ? mergeChannels(state.channels, data.channels) : data.channels;
       state.page = data.pagination.page;
       state.pages = data.pagination.pages;
       state.total = data.pagination.total;
+      syncChannelViewControls();
+      updateChannelViewContext(selectedView, state.total);
+      elements.loadMoreChannels.hidden = state.page >= state.pages;
       renderChannels();
-      elements.pagination.hidden = state.total === 0 || state.pages <= 1;
-      elements.previousPage.disabled = state.page <= 1;
-      elements.nextPage.disabled = state.page >= state.pages;
-      elements.pageStatus.textContent = `Page ${number(state.page)} of ${number(state.pages)} · ${number(state.total)} channels`;
     } finally {
-      if (isCurrentRequest("channels", token)) elements.channelGrid.removeAttribute("aria-busy");
+      if (isCurrentRequest("channels", token)) {
+        state.loadingChannels = false;
+        elements.channelGrid.removeAttribute("aria-busy");
+        elements.channelLoadStatus.hidden = true;
+      }
     }
+  }
+
+  function guideMarkup(item) {
+    if (!item.favorite) return `<small class="tv-channel-group" title="${escapeHtml(item.group_name)}">${escapeHtml(item.group_name)}</small>`;
+    if (!item.epg?.now && !item.epg?.next) return `<small class="tv-channel-guide is-missing">Schedule unavailable</small>`;
+    const current = item.epg.now ? `<small class="tv-channel-guide"><b>Now</b> ${escapeHtml(item.epg.now.title)}</small>` : "";
+    const upcoming = item.epg.next ? `<small class="tv-channel-next"><b>${escapeHtml(clock(item.epg.next.starts_at))}</b> ${escapeHtml(item.epg.next.title)}</small>` : "";
+    return `${current}${upcoming}`;
   }
 
   function logo(item, className = "tv-channel-logo") {
@@ -195,10 +295,47 @@
   function renderChannels() {
     elements.channelEmpty.hidden = state.channels.length > 0;
     elements.channelGrid.hidden = state.channels.length === 0;
-    elements.channelGrid.innerHTML = state.channels.map((item) => `<article class="tv-channel-card${item.enabled ? "" : " is-disabled"}${state.activeChannel?.id === item.id ? " is-playing" : ""}${state.requestedChannel?.id === item.id ? " is-requested" : ""}">
-      ${logo(item)}<div class="tv-channel-copy"><h3 title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</h3><p title="${escapeHtml(item.group_name)}">${escapeHtml(item.group_name)}</p><small>${item.enabled_override === null ? "Bouquet default" : item.enabled_override ? "Always on" : "Always off"} · ${item.health_status === "online" ? "Online" : "Unchecked"}</small></div>
-      <div class="tv-channel-actions"><button class="tv-favorite-button" type="button" aria-label="${item.favorite ? "Remove" : "Add"} ${escapeHtml(item.name)} ${item.favorite ? "from" : "to"} favorites" aria-pressed="${item.favorite}" data-favorite-channel="${item.id}">★</button><button class="tv-play-button" type="button" aria-label="Play ${escapeHtml(item.name)}" data-play-channel="${item.id}" ${item.enabled ? "" : "disabled"}></button></div>
-      <label class="tv-channel-mode"><span class="sr-only">Channel availability for ${escapeHtml(item.name)}</span><select aria-label="Channel availability for ${escapeHtml(item.name)}" data-channel-override="${item.id}"><option value="default"${channelOverrideValue(item) === "default" ? " selected" : ""}>Use bouquet default</option><option value="on"${channelOverrideValue(item) === "on" ? " selected" : ""}>Always on</option><option value="off"${channelOverrideValue(item) === "off" ? " selected" : ""}>Always off</option></select></label>
+    elements.channelGrid.innerHTML = state.channels.map((item) => `<article class="tv-channel-card${item.enabled ? "" : " is-disabled"}${state.activeChannel?.id === item.id ? " is-playing" : ""}${state.requestedChannel?.id === item.id ? " is-requested" : ""}" role="listitem">
+      <button class="tv-channel-main" type="button" aria-label="Play ${escapeHtml(item.name)}" data-play-channel="${item.id}" ${item.enabled ? "" : "disabled"}>${logo(item)}<span class="tv-channel-copy"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>${guideMarkup(item)}</span><span class="tv-row-play" aria-hidden="true"></span></button>
+      <button class="tv-favorite-button" type="button" aria-label="${item.favorite ? "Remove" : "Add"} ${escapeHtml(item.name)} ${item.favorite ? "from" : "to"} favorites" aria-pressed="${item.favorite}" data-favorite-channel="${item.id}"${state.savingFavorites.has(item.id) ? ' disabled aria-busy="true"' : ""}>★</button>
+    </article>`).join("");
+  }
+
+  async function loadManageChannels({ append = false } = {}) {
+    if (append && (state.loadingManageChannels || state.manageChannelPage >= state.manageChannelPages)) return;
+    state.loadingManageChannels = true;
+    const targetPage = append ? state.manageChannelPage + 1 : 1;
+    elements.manageChannelList.setAttribute("aria-busy", "true");
+    elements.manageChannelLoadStatus.hidden = !append;
+    const { token, signal } = beginAbortableRequest("manageChannels");
+    const params = new URLSearchParams({ page: targetPage, per_page: 100, state: "all", sort: "name" });
+    const query = elements.manageChannelSearch.value.trim();
+    if (query) params.set("q", query);
+    try {
+      const data = await api(`/my-tv/api/channels?${params}`, { signal });
+      if (!isCurrentRequest("manageChannels", token)) return;
+      state.manageChannels = append ? mergeChannels(state.manageChannels, data.channels) : data.channels;
+      state.manageChannelPage = data.pagination.page;
+      state.manageChannelPages = data.pagination.pages;
+      state.manageChannelTotal = data.pagination.total;
+      elements.loadMoreManageChannels.hidden = state.manageChannelPage >= state.manageChannelPages;
+      renderManageChannels();
+    } finally {
+      if (isCurrentRequest("manageChannels", token)) {
+        state.loadingManageChannels = false;
+        elements.manageChannelList.removeAttribute("aria-busy");
+        elements.manageChannelLoadStatus.hidden = true;
+      }
+    }
+  }
+
+  function renderManageChannels() {
+    elements.manageChannelEmpty.hidden = state.manageChannels.length > 0;
+    elements.manageChannelList.hidden = state.manageChannels.length === 0;
+    elements.manageChannelList.innerHTML = state.manageChannels.map((item) => `<article class="tv-manage-channel-row${item.enabled ? "" : " is-disabled"}" role="listitem">
+      ${logo(item)}
+      <span class="tv-channel-copy"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong><small title="${escapeHtml(item.group_name)}">${escapeHtml(item.group_name)} · ${item.enabled ? "Enabled" : "Disabled"}</small></span>
+      <label class="tv-manage-channel-mode"><span class="sr-only">Channel availability for ${escapeHtml(item.name)}</span><select aria-label="Channel availability for ${escapeHtml(item.name)}" data-channel-override="${item.id}"><option value="default"${channelOverrideValue(item) === "default" ? " selected" : ""}>Use group default — currently ${item.resolved_default ? "ON" : "OFF"}</option><option value="on"${channelOverrideValue(item) === "on" ? " selected" : ""}>Always on</option><option value="off"${channelOverrideValue(item) === "off" ? " selected" : ""}>Always off</option></select></label>
     </article>`).join("");
   }
 
@@ -207,7 +344,7 @@
       const result = await api("/my-tv/api/sync", { method: "POST", body: JSON.stringify({ mode, playlist_ids: ids }) });
       updateSyncBanner(result.sync);
       pollSync();
-      if (!quiet) toast(mode === "fetch" ? "Fetching changed files…" : mode === "catalog" ? "Refreshing source catalogue…" : "Import started…");
+      if (!quiet) toast(mode === "fetch" ? "Updating packages used by your choices…" : mode === "catalog" ? "Refreshing source catalogue…" : "Import started…");
     } catch (error) { if (!quiet) toast(error.message, true); }
   }
 
@@ -245,6 +382,8 @@
     elements.healthMessage.textContent = status.error || status.message || "Checking live sources…";
     elements.healthCount.textContent = status.total ? `${number(status.current)}/${number(status.total)} · ${number(status.online)} online · ${number(status.offline)} unavailable` : "Preparing checks…";
     elements.healthCheck.disabled = running;
+    if (status.last_checked_at) elements.healthStatusText.textContent = `Availability last checked ${relativeTime(status.last_checked_at)} · ${number(status.known_online)} online · ${number(status.known_offline)} unavailable.`;
+    else elements.healthStatusText.textContent = "Availability has not been checked yet.";
   }
 
   async function startHealthCheck({ quiet = false, themeId = null } = {}) {
@@ -274,6 +413,40 @@
     state.healthTimer = window.setTimeout(poll, 900);
   }
 
+  function updateEpgStatus(status) {
+    if (!status) return;
+    const suffix = status.last_success_at ? ` Last updated ${relativeTime(status.last_success_at)}.` : "";
+    elements.epgStatusText.textContent = `${status.message || "Guide status unavailable."}${status.stale ? " Saved guide may be outdated." : ""}${suffix}`;
+    elements.refreshEpg.disabled = status.state === "running";
+  }
+
+  async function startEpgRefresh({ quiet = false } = {}) {
+    try {
+      const result = await api("/my-tv/api/epg", { method: "POST", body: "{}" });
+      updateEpgStatus(result.epg);
+      pollEpg();
+      if (!quiet) toast("Refreshing schedules for favorite channels…");
+    } catch (error) {
+      if (!quiet || !String(error.message).includes("already running")) toast(error.message, true);
+    }
+  }
+
+  function pollEpg() {
+    window.clearTimeout(state.epgTimer);
+    const poll = async () => {
+      try {
+        const status = await api("/my-tv/api/epg");
+        updateEpgStatus(status);
+        if (status.state === "running") state.epgTimer = window.setTimeout(poll, 1800);
+        else {
+          if (status.state === "error") toast(status.error || status.message, true);
+          await loadBootstrap({ quiet: true });
+        }
+      } catch (error) { toast(error.message, true); }
+    };
+    state.epgTimer = window.setTimeout(poll, 1000);
+  }
+
   function stopPlayback() {
     window.clearTimeout(state.playbackTimer);
     state.playbackTimer = null;
@@ -288,6 +461,7 @@
   }
 
   function showPlaybackStatus(message, error = false) {
+    elements.playerEmpty.hidden = true;
     elements.playerLoadingText.textContent = message;
     elements.playerSpinner.hidden = error;
     elements.retryPlayback.hidden = !error;
@@ -306,7 +480,14 @@
     elements.retryPlayback.hidden = true;
     elements.playerEmpty.hidden = true;
     elements.videoPlayer.hidden = false;
-    if (state.activeChannel) setNowPlaying(state.activeChannel, state.activeChannel.group_name, { live: true });
+    elements.playerShell.classList.add("has-playback");
+    if (state.activeChannel) {
+      state.activeChannel.last_watched_at = new Date().toISOString();
+      setNowPlaying(state.activeChannel, state.activeChannel.group_name, { live: true });
+      elements.resumeLastChannel.hidden = false;
+      elements.resumeLastChannel.dataset.channelId = state.activeChannel.id;
+      elements.resumeLastChannel.textContent = `Resume ${state.activeChannel.name}`;
+    }
     renderChannels();
     elements.videoPlayer.play().catch(() => {});
   }
@@ -326,14 +507,15 @@
     elements.videoPlayer.removeAttribute("src");
     elements.videoPlayer.load();
     elements.videoPlayer.hidden = true;
-    elements.playerEmpty.hidden = false;
+    elements.playerShell.classList.remove("has-playback");
     setNowPlaying(retryChannel, message);
     renderChannels();
     showPlaybackStatus(message, true);
   }
 
   async function playChannel(id) {
-    const item = state.channels.find((channel) => channel.id === id);
+    const item = state.channels.find((channel) => channel.id === id)
+      || (state.bootstrap?.last_channel?.id === id ? state.bootstrap.last_channel : null);
     if (!item) return;
     stopPlayback();
     state.requestedChannel = item;
@@ -345,14 +527,15 @@
     try {
       const playback = await api(`/my-tv/api/channels/${id}/playback`);
       elements.playerEmpty.hidden = true;
-      setNowPlaying({ ...item, name: playback.name, logo_url: playback.logo_url || item.logo_url }, `${item.group_name} · Opening stream…`);
+      const sourceNote = playback.source_count > 1 ? ` · ${playback.source_count} fallback sources` : "";
+      setNowPlaying({ ...item, name: playback.name, logo_url: playback.logo_url || item.logo_url }, `${item.group_name} · Opening stream${sourceNote}…`);
       elements.videoPlayer.onloadeddata = playbackReady;
       elements.videoPlayer.oncanplay = playbackReady;
       elements.videoPlayer.onplaying = playbackReady;
-      elements.videoPlayer.onerror = () => playbackFailed("This channel is offline or its stream has expired.");
+      elements.videoPlayer.onerror = () => playbackFailed("No working source is available for this channel.");
       state.playbackTimer = window.setTimeout(() => {
         if (elements.videoPlayer.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) playbackReady();
-        else playbackFailed("This channel did not respond within 15 seconds. Try it again or choose another channel.");
+        else playbackFailed("This channel did not respond within 15 seconds.");
       }, 15000);
       elements.videoPlayer.src = playback.url;
       elements.videoPlayer.load();
@@ -375,7 +558,78 @@
       if (panel) panel.hidden = !selected;
     });
     if (focus) tab.focus();
-    if (tab.dataset.view === "manage") loadManageGroups().catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
+    if (tab.dataset.view === "manage") {
+      Promise.all([loadManageGroups(), loadManageChannels()]).catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
+    }
+  }
+
+  async function refreshManage({ focusSelector = "" } = {}) {
+    await Promise.all([loadBootstrap({ quiet: true }), loadManageGroups(), loadManageChannels()]);
+    if (focusSelector) document.querySelector(focusSelector)?.focus();
+  }
+
+  async function toggleGroup(item) {
+    if (!item || state.savingGroups.has(item.id)) return;
+    const previous = item.enabled;
+    const enabling = !previous;
+    state.savingGroups.add(item.id);
+    renderBouquets();
+    try {
+      const result = await api(`/my-tv/api/groups/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled: enabling }) });
+      await refreshManage({ focusSelector: `[data-toggle-group="${item.id}"]` });
+      toast(`${number(result.affected_channels)} channels ${enabling ? "activated" : "deactivated"}.`, false, {
+        label: "Undo",
+        run: async () => {
+          await api(`/my-tv/api/groups/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled: previous }) });
+          await refreshManage({ focusSelector: `[data-toggle-group="${item.id}"]` });
+        },
+      });
+      if (enabling) startHealthCheck({ quiet: true, themeId: item.id });
+    } finally {
+      state.savingGroups.delete(item.id);
+      renderBouquets();
+    }
+  }
+
+  async function performBulkGroupAction(groupId, action) {
+    const item = state.manageGroups.find((group) => group.id === groupId);
+    if (!item || state.savingGroups.has(groupId)) return;
+    state.pendingBulk = null;
+    state.savingGroups.add(groupId);
+    renderBouquets();
+    try {
+      const result = await api(`/my-tv/api/groups/${groupId}/channels`, { method: "POST", body: JSON.stringify({ action }) });
+      const copy = action === "inherit" ? "Channel exceptions cleared." : `${number(result.affected_channels)} channels turned ${action === "enable" ? "on" : "off"}.`;
+      await refreshManage({ focusSelector: `[data-group-action="${action}"][data-group-id="${groupId}"]` });
+      toast(copy, false, {
+        label: "Undo",
+        run: async () => {
+          await api(`/my-tv/api/groups/${groupId}/channels/undo`, { method: "POST", body: JSON.stringify({ token: result.undo_token }) });
+          await refreshManage({ focusSelector: `[data-group-action="${action}"][data-group-id="${groupId}"]` });
+        },
+      });
+    } finally {
+      state.savingGroups.delete(groupId);
+      renderBouquets();
+    }
+  }
+
+  async function toggleFavorite(item, { restoreFocus = false } = {}) {
+    if (!item || state.savingFavorites.has(item.id)) return;
+    const nextValue = !item.favorite;
+    state.savingFavorites.add(item.id);
+    renderChannels();
+    try {
+      await api(`/my-tv/api/channels/${item.id}/favorite`, { method: "PATCH", body: JSON.stringify({ favorite: nextValue }) });
+      item.favorite = nextValue;
+      toast(nextValue ? "Saved to favorites. Schedule refresh queued." : "Removed from favorites.");
+      await loadBootstrap({ quiet: true });
+      if (nextValue) pollEpg();
+    } finally {
+      state.savingFavorites.delete(item.id);
+      renderChannels();
+      if (restoreFocus) document.querySelector(`[data-favorite-channel="${item.id}"]`)?.focus();
+    }
   }
 
   document.addEventListener("click", async (event) => {
@@ -386,60 +640,179 @@
     }
     const play = event.target.closest("[data-play-channel]");
     if (play) return playChannel(Number(play.dataset.playChannel));
+    const channelView = event.target.closest("[data-channel-view]");
+    if (channelView) {
+      elements.stateFilter.value = channelView.dataset.channelView;
+      state.page = 1;
+      elements.channelGrid.scrollTop = 0;
+      syncChannelViewControls();
+      return loadChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
+    }
     const favorite = event.target.closest("[data-favorite-channel]");
     if (favorite) {
       const item = state.channels.find((channel) => channel.id === Number(favorite.dataset.favoriteChannel));
-      try { await api(`/my-tv/api/channels/${item.id}/favorite`, { method: "PATCH", body: JSON.stringify({ favorite: !item.favorite }) }); toast(item.favorite ? "Removed from favorites" : "Saved to favorites"); await loadChannels(); } catch (error) { toast(error.message, true); }
+      if (!item) return;
+      try {
+        await toggleFavorite(item, { restoreFocus: true });
+      } catch (error) { toast(error.message, true); }
       return;
     }
     const groupToggle = event.target.closest("[data-toggle-group]");
     if (groupToggle) {
       const item = state.manageGroups.find((group) => group.id === Number(groupToggle.dataset.toggleGroup));
-      const enabling = !item.enabled;
-      try { await api(`/my-tv/api/groups/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled: enabling }) }); await loadBootstrap({ quiet: true }); await loadManageGroups(); if (enabling) startHealthCheck({ quiet: true, themeId: item.id }); } catch (error) { toast(error.message, true); }
+      if (item?.enabled && item.channel_count >= 25) {
+        state.pendingBulk = { groupId: item.id, action: "deactivate" };
+        renderBouquets();
+        document.querySelector(`[data-confirm-group-toggle][data-group-id="${item.id}"]`)?.focus();
+        return;
+      }
+      try { await toggleGroup(item); } catch (error) { toast(error.message, true); }
+      return;
+    }
+    if (event.target.closest("[data-cancel-group-action]")) {
+      state.pendingBulk = null;
+      renderBouquets();
+      return;
+    }
+    const confirmedGroupAction = event.target.closest("[data-confirm-group-action]");
+    if (confirmedGroupAction) {
+      try { await performBulkGroupAction(Number(confirmedGroupAction.dataset.groupId), confirmedGroupAction.dataset.confirmGroupAction); }
+      catch (error) { toast(error.message, true); }
+      return;
+    }
+    const confirmedGroupToggle = event.target.closest("[data-confirm-group-toggle]");
+    if (confirmedGroupToggle) {
+      const item = state.manageGroups.find((group) => group.id === Number(confirmedGroupToggle.dataset.groupId));
+      state.pendingBulk = null;
+      try { await toggleGroup(item); } catch (error) { toast(error.message, true); }
       return;
     }
     const groupAction = event.target.closest("[data-group-action]");
     if (groupAction) {
-      try { await api(`/my-tv/api/groups/${groupAction.dataset.groupId}/channels`, { method: "POST", body: JSON.stringify({ action: groupAction.dataset.groupAction }) }); toast(groupAction.dataset.groupAction === "inherit" ? "Overrides cleared" : `All channels set ${groupAction.dataset.groupAction === "enable" ? "on" : "off"}`); await loadBootstrap({ quiet: true }); await loadManageGroups(); } catch (error) { toast(error.message, true); }
+      const groupId = Number(groupAction.dataset.groupId);
+      const item = state.manageGroups.find((group) => group.id === groupId);
+      if (groupAction.dataset.groupAction === "disable" && item?.channel_count >= 25) {
+        state.pendingBulk = { groupId, action: "disable" };
+        renderBouquets();
+        document.querySelector(`[data-confirm-group-action][data-group-id="${groupId}"]`)?.focus();
+        return;
+      }
+      try { await performBulkGroupAction(groupId, groupAction.dataset.groupAction); }
+      catch (error) { toast(error.message, true); }
       return;
     }
+    if (event.target.closest("#resumeLastChannel")) {
+      return playChannel(Number(elements.resumeLastChannel.dataset.channelId));
+    }
+    if (event.target.closest("#loadMoreChannels")) return loadChannels({ append: true });
+    if (event.target.closest("#loadMoreManageChannels")) return loadManageChannels({ append: true });
     if (event.target.closest("[data-empty-sync]")) startSync("fetch");
   });
 
   document.addEventListener("change", async (event) => {
-    if (event.target === elements.groupFilter || event.target === elements.stateFilter) {
+    if (event.target === elements.stateFilter) {
       state.page = 1;
+      elements.channelGrid.scrollTop = 0;
+      syncChannelViewControls();
       try { await loadChannels(); } catch (error) { if (!isAbortError(error)) toast(error.message, true); }
     }
     if (event.target === elements.bouquetVisibility) {
       try { await loadManageGroups(); } catch (error) { if (!isAbortError(error)) toast(error.message, true); }
     }
     if (event.target.matches("[data-channel-override]")) {
-      const item = state.channels.find((channel) => channel.id === Number(event.target.dataset.channelOverride));
+      const item = state.manageChannels.find((channel) => channel.id === Number(event.target.dataset.channelOverride));
+      if (!item) return;
       const enabled = ({ default: null, on: true, off: false })[event.target.value];
+      const select = event.target;
+      select.disabled = true;
       try {
         await api(`/my-tv/api/channels/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
-        toast(enabled === null ? "Channel reset to bouquet default" : enabled ? "Channel forced on" : "Channel forced off");
-        await loadBootstrap({ quiet: true });
+        item.enabled_override = enabled;
+        item.enabled = enabled === null ? item.resolved_default : enabled;
+        select.disabled = false;
+        select.closest(".tv-manage-channel-row")?.classList.toggle("is-disabled", !item.enabled);
+        select.focus();
+        toast(enabled === null ? "Channel now follows its group." : enabled ? "Channel is always on." : "Channel is always off.");
+        loadBootstrap({ quiet: true });
       } catch (error) {
         toast(error.message, true);
+        select.disabled = false;
+        renderManageChannels();
+        document.querySelector(`[data-channel-override="${item.id}"]`)?.focus();
       }
     }
   });
 
   elements.refreshCatalog.addEventListener("click", () => startSync("fetch"));
   elements.healthCheck.addEventListener("click", () => startHealthCheck());
+  elements.refreshEpg.addEventListener("click", () => startEpgRefresh());
+  elements.pictureInPicture.addEventListener("click", async () => {
+    try {
+      if (document.pictureInPictureElement) await document.exitPictureInPicture();
+      else await elements.videoPlayer.requestPictureInPicture();
+    } catch (error) { toast(error.message || "Picture in picture is unavailable.", true); }
+  });
   elements.retryPlayback.addEventListener("click", () => {
     const retryTarget = state.retryChannel || state.activeChannel;
     if (retryTarget) playChannel(retryTarget.id);
   });
-  elements.previousPage.addEventListener("click", () => { if (state.page > 1) { state.page -= 1; loadChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); }); } });
-  elements.nextPage.addEventListener("click", () => { if (state.page < state.pages) { state.page += 1; loadChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); }); } });
-  elements.channelSearch.addEventListener("input", debounce(() => { state.page = 1; loadChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); }); }));
   elements.groupSearch.addEventListener("input", debounce(() => loadManageGroups().catch((error) => { if (!isAbortError(error)) toast(error.message, true); })));
+  elements.channelSearch.addEventListener("input", debounce(() => {
+    state.page = 1;
+    elements.channelGrid.scrollTop = 0;
+    loadChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
+  }));
+  elements.manageChannelSearch.addEventListener("input", debounce(() => {
+    state.manageChannelPage = 1;
+    elements.manageChannelList.scrollTop = 0;
+    loadManageChannels().catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
+  }));
+  elements.channelGrid.addEventListener("scroll", () => {
+    const nearEnd = elements.channelGrid.scrollTop + elements.channelGrid.clientHeight >= elements.channelGrid.scrollHeight - 180;
+    if (nearEnd) loadChannels({ append: true }).catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
+  });
+  elements.manageChannelList.addEventListener("scroll", () => {
+    const nearEnd = elements.manageChannelList.scrollTop + elements.manageChannelList.clientHeight >= elements.manageChannelList.scrollHeight - 180;
+    if (nearEnd) loadManageChannels({ append: true }).catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
+  });
+  elements.channelGrid.addEventListener("keydown", (event) => {
+    const current = event.target.closest("[data-play-channel]");
+    if (!current || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    const buttons = [...elements.channelGrid.querySelectorAll("[data-play-channel]:not(:disabled)")];
+    const index = buttons.indexOf(current);
+    if (index < 0 || buttons.length === 0) return;
+    let nextIndex = index;
+    if (event.key === "ArrowDown") nextIndex = Math.min(index + 1, buttons.length - 1);
+    if (event.key === "ArrowUp") nextIndex = Math.max(index - 1, 0);
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = buttons.length - 1;
+    event.preventDefault();
+    buttons[nextIndex].focus();
+  });
+  document.addEventListener("keydown", (event) => {
+    const editable = event.target.matches("input, select, textarea, [contenteditable='true']");
+    if (event.key === "/" && !editable) {
+      event.preventDefault();
+      const manageOpen = !document.getElementById("tv-panel-manage").hidden;
+      (manageOpen ? elements.manageChannelSearch : elements.channelSearch).focus();
+      return;
+    }
+    if (editable || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key.toLowerCase() === "f" && state.activeChannel) {
+      event.preventDefault();
+      toggleFavorite(state.activeChannel).catch((error) => toast(error.message, true));
+    }
+    if (event.key.toLowerCase() === "m" && !elements.videoPlayer.hidden) {
+      event.preventDefault();
+      elements.videoPlayer.muted = !elements.videoPlayer.muted;
+      toast(elements.videoPlayer.muted ? "Muted." : "Sound on.");
+    }
+  });
   elements.playerEmpty.hidden = false;
   setNowPlaying(null, "Choose an enabled channel below.");
+  const defaultView = elements.tvConfig.dataset.defaultView || "watch";
+  if (defaultView === "favorites") elements.stateFilter.value = "favorites";
+  if (defaultView === "manage") activateTab(document.getElementById("tv-tab-manage"));
   document.querySelector(".tv-tabs").addEventListener("keydown", (event) => {
     const tabs = [...document.querySelectorAll('[role="tab"]')];
     const currentIndex = tabs.findIndex((item) => item === event.target);

@@ -16,6 +16,7 @@ from app.playback.models import (
     ProviderAvailability,
 )
 from app.playback.providers import (
+    ID_CATALOG_EMBED_PROVIDER_SPECS,
     INDEXED_EMBED_PROVIDER_SPECS,
     PlaybackProvider,
     ProviderProbeResult,
@@ -29,10 +30,12 @@ MAGNET_HASH_PATTERN = re.compile(r"^(?:[A-Fa-f0-9]{40,64}|[A-Za-z2-7]{32})$")
 PROVIDER_AVAILABILITY_STATUSES = {"UNKNOWN", "AVAILABLE", "UNAVAILABLE", "DEGRADED"}
 PROVIDER_PROBE_LEVELS = {"", "REACHABLE", "EMBED_READY", "PLAYBACK_CONFIRMED"}
 AUTHORIZED_EMBED_AUTHORIZATION_STATUSES = frozenset(
-    {"catalog_authorized", "manual_authorized"}
+    {"account_authorized", "catalog_authorized", "manual_authorized"}
 )
+INDEXED_EMBED_SOURCE_TYPES = frozenset({"account_catalog", "known_embed"})
 DEFAULT_PROVIDER_PRIORITIES = {
     **{spec.key: spec.default_priority for spec in INDEXED_EMBED_PROVIDER_SPECS},
+    **{spec.key: spec.default_priority for spec in ID_CATALOG_EMBED_PROVIDER_SPECS},
     "vidsrc": 100,
 }
 
@@ -229,7 +232,7 @@ class PlaybackService:
         filters = [
             PlaybackSource.movie_id == movie_id,
             PlaybackSource.kind == "embed",
-            PlaybackSource.source_type == "known_embed",
+            PlaybackSource.source_type.in_(INDEXED_EMBED_SOURCE_TYPES),
             PlaybackSource.scope_key == scope_key,
             PlaybackSource.enabled.is_(True),
             PlaybackSource.authorization_status.in_(AUTHORIZED_EMBED_AUTHORIZATION_STATUSES),
@@ -466,6 +469,9 @@ class PlaybackService:
         subtitle_languages: list[str] | None = None,
         quality: str = "",
         provenance: dict | None = None,
+        authorization_status: str = "manual_authorized",
+        enabled: bool = True,
+        source_type: str = "known_embed",
     ) -> PlaybackSource:
         normalized_provider = str(provider or "").strip().lower()
         normalized_asset_id = str(provider_asset_id or "").strip()
@@ -476,6 +482,10 @@ class PlaybackService:
             raise ValueError("Provider must use its canonical key.")
         if not re.fullmatch(spec.asset_id_pattern, normalized_asset_id):
             raise ValueError("Provider asset ID is invalid.")
+        if authorization_status not in AUTHORIZED_EMBED_AUTHORIZATION_STATUSES:
+            raise ValueError("Indexed embed source authorization status is invalid.")
+        if source_type not in INDEXED_EMBED_SOURCE_TYPES:
+            raise ValueError("Indexed embed source type is invalid.")
         scoped_identity = PlaybackIdentity(
             movie_id=movie_id,
             season=season,
@@ -495,13 +505,13 @@ class PlaybackService:
             "locator": normalized_asset_id,
             "season": season,
             "episode": episode,
-            "source_type": "known_embed",
+            "source_type": source_type,
             "language": str(language or "")[:24],
             "subtitle_languages": list(subtitle_languages or []),
             "quality": str(quality or "")[:80],
             "provenance": dict(provenance or {"origin": "manual"}),
-            "authorization_status": "manual_authorized",
-            "enabled": True,
+            "authorization_status": authorization_status,
+            "enabled": bool(enabled),
             "metadata_json": {"playback_mode": "embed"},
         }
         if source is None:

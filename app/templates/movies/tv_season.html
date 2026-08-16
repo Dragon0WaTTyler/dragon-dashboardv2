@@ -2,7 +2,7 @@
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Season {{ workspace.season.season_number }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=subtitle-panel-2">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=tv-season-pack-picker-rollback-1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=subtitle-panel-2" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=tv-season-pack-picker-rollback-1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=subtitle-status-3" defer></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.detail', movie_id=movie.id) }}">← Back to series</a>
 <article class="movie-detail">
@@ -50,11 +50,14 @@
       <label class="field movie-player__source">
         <span>Player source</span>
         <select data-player-source>
-          {% for embed_source in embed_player_sources %}<option value="{{ embed_source.id }}" data-kind="embed" data-provider="{{ embed_source.provider }}" data-provider-label="{{ embed_source.label }}" data-embed-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if embed_source.provider == 'vidsrc' else url_for('playback.indexed_embed_source', movie_id=movie.id, source_id=embed_source.id) }}"{% if embed_source.id == last_selected_source_id or embed_source.provider == last_selected_provider or (not last_selected_source_id and not has_selected_player_source and loop.first) %} selected{% endif %}>{{ 'Player 1 · ' if embed_source.provider == 'vidsrc' else '' }}{{ embed_source.label }}{% if embed_source.quality %} · {{ embed_source.quality }}{% endif %}</option>{% endfor %}
+          {% for embed_source in embed_player_sources %}<option value="{{ embed_source.id }}" data-kind="embed" data-provider="{{ embed_source.provider }}" data-provider-label="{{ embed_source.label }}" data-embed-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if embed_source.provider == 'vidsrc' else url_for('playback.id_catalog_source', movie_id=movie.id, provider_key=embed_source.provider) if embed_source.id_catalog else url_for('playback.indexed_embed_source', movie_id=movie.id, source_id=embed_source.id) }}"{% if embed_source.id == last_selected_source_id or embed_source.provider == last_selected_provider or (not last_selected_source_id and not has_selected_player_source and loop.first) %} selected{% endif %}>{{ 'Player 1 · ' if embed_source.provider == 'vidsrc' else '' }}{{ embed_source.label }}{% if embed_source.quality %} · {{ embed_source.quality }}{% endif %}</option>{% endfor %}
           {% for source in player_sources %}<option value="{{ source.id }}" data-kind="local" data-source-season-pack="{{ 'true' if source.season_pack else 'false' }}" data-source-season="{{ source.season or '' }}" data-source-episode="{{ source.episode or '' }}" data-source-release-mode="{{ source.release_mode }}" data-source-quality="{{ source.player_metadata.quality }}" data-source-codec="{{ source.player_metadata.codec }}" data-source-playback="{{ source.player_metadata.playback }}" data-source-size="{{ source.player_metadata.size }}" data-source-hdr="{{ 'true' if source.player_metadata.hdr else 'false' }}"{% if source.id == last_selected_source_id %} selected{% endif %}>Local · {{ source.label }}</option>{% endfor %}
         </select>
       </label>
-      <a class="button button--quiet" href="{{ url_for('playback_settings.index') }}">Provider settings</a>
+      <div class="movie-player__source-choices" data-player-source-choices role="group" aria-label="Quick selection">
+        {% for embed_source in embed_player_sources %}{% set is_selected = embed_source.id == last_selected_source_id or embed_source.provider == last_selected_provider or (not last_selected_source_id and not has_selected_player_source and loop.first) %}<button class="movie-player__source-choice{% if is_selected %} is-active{% endif %}" type="button" data-player-source-choice data-source-id="{{ embed_source.id }}" aria-pressed="{{ 'true' if is_selected else 'false' }}"><span>{{ embed_source.label }}{% if embed_source.quality %} · {{ embed_source.quality }}{% endif %}</span><small>Embed</small></button>{% endfor %}
+        {% for source in player_sources %}{% set is_selected = source.id == last_selected_source_id %}<button class="movie-player__source-choice{% if is_selected %} is-active{% endif %}" type="button" data-player-source-choice data-source-id="{{ source.id }}" aria-pressed="{{ 'true' if is_selected else 'false' }}"><span>Local · {{ source.label }}</span><small>Local</small></button>{% endfor %}
+      </div>
       {% if movie.external_ids.tmdb_id %}
       <div class="movie-player__pack-browser" data-player-pack-browser hidden>
         <label class="field movie-player__pack-field">
@@ -67,7 +70,7 @@
       </div>
       {% endif %}
       {% if subtitles_enabled %}
-      <p class="movie-player__subtitle-status" data-subtitle-status aria-live="polite">{% if initial_embed and not has_selected_player_source %}Use {{ initial_embed.label }} captions or switch to Local to unlock Dragon subtitle controls.{% else %}Arabic will be selected first; switch or turn subtitles off from the player controls.{% endif %}</p>
+      <p class="movie-player__subtitle-status" data-subtitle-status aria-live="polite" hidden></p>
       {% else %}
       <p>Nothing starts before you press play.</p>
       {% endif %}
@@ -213,7 +216,7 @@
       </form>
     </details>
     {% endif %}
-    {% if movie.external_ids.tmdb_id and jackett_eligible %}
+    {% if jackett_search_available %}
     {% set first_episode = workspace.episodes|first %}
     <section
       id="release-browser"
@@ -229,9 +232,9 @@
       data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}"
     >
       <div class="movie-release-browser__header">
-        <div><span class="eyebrow">Authorized local sources</span><h2>Search a source for Season {{ workspace.season.season_number }}</h2></div>
+        <div><span class="eyebrow">Manual quality comparison</span><h2>Search Jackett for Season {{ workspace.season.season_number }}</h2></div>
       </div>
-      <p class="movie-release-browser__summary" data-release-summary>No direct source is available. Choose an episode for an explicit local search, or browse full-season packs.</p>
+      <p class="movie-release-browser__summary" data-release-summary>Compare releases whenever you want. Choose an episode for Jackett, or browse full-season packs.</p>
       <div class="movie-release-browser__controls release-dialog__episode-picker">
         <label class="field"><span>Season</span><select data-season-select aria-label="Season"><option value="{{ workspace.season.season_number }}" selected>Season {{ workspace.season.season_number }}</option></select></label>
         <label class="field"><span>Episode</span><select data-episode-select disabled aria-label="Episode"><option value="">Choose an episode</option></select></label>
@@ -253,7 +256,7 @@
         {% endif %}
       </div>
       <p class="movie-release-browser__summary">
-        {% if selected_episode.has_exact_source %}An exact episode magnet is already saved for this page.{% elif selected_episode.has_fallback_source %}A season-pack fallback is already saved for this page.{% elif jackett_eligible %}No direct source is available. You can explicitly search configured local sources for this episode.{% else %}A direct playback source is already available for this episode.{% endif %}
+        {% if selected_episode.has_exact_source %}An exact episode magnet is already saved for this page.{% elif selected_episode.has_fallback_source %}A season-pack fallback is already saved for this page.{% elif jackett_search_available %}Use the Jackett search above to compare a different release for this episode.{% else %}A TMDb identity is needed before Jackett can search this title.{% endif %}
       </p>
       <div class="tv-season-summary__meta">
         {% if selected_episode.runtime_minutes %}<span>{{ selected_episode.runtime_minutes }} min</span>{% endif %}

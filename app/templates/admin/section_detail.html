@@ -1,63 +1,94 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% set section = section_state.definition %}
-{% block title %}{{ section.label }} controls · Dragon{% endblock %}
+{% set card_copy = {
+  'today': ('Home workspace', 'Choose what the daily workspace remembers and shows.'),
+  'movies': ('Library display', 'Set the default movie view and keep finished titles out when you want focus.'),
+  'mytv': ('Live TV browsing', 'Choose the first view and how favorite channels are prioritized.'),
+  'youtube': ('Video browsing', 'Set the feed you open first and the detail you want beside each video.'),
+  'reading': ('News reading', 'Choose the first feed and the information shown with each article.'),
+  'books': ('Library display', 'Set the shelf that opens first and the reading information you keep visible.'),
+  'chess': ('Training', 'Choose the starting board and the practice details you want in the section.'),
+  'german': ('Learning', 'Set the starting mode for your German practice.'),
+  'history': ('Timeline', 'Control whether your private activity timeline is available in Dragon.'),
+  'ai': ('Workspace', 'Control whether the optional AI workspace is available in Dragon.')
+}[section.key] %}
+{% block title %}{{ section.label }} settings · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/control-center.css') }}">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/source-manager.js') }}" defer></script>{% endblock %}
 {% block content %}
-<a class="back-link" href="{{ url_for('admin.index') }}">← Control Center</a>
+<a class="back-link" href="{{ url_for('admin.index') }}">← Settings</a>
 <header class="section-control-header section-control-header--{{ section_state.status }}">
-  <div><span class="eyebrow">{{ section_state.status }} · section {{ section.key }}</span><h1>{{ section.label }}</h1><p>{{ section.description }}</p></div>
+  <div><span class="eyebrow">{{ section.label }} · settings</span><h1>{{ section.label }}</h1><p>{{ section.description }}</p></div>
   <div class="section-control-header__actions">
-    {{ badge(section_state.count ~ ' records' if section_state.count is not none else 'Runtime module', 'success' if section_state.status == 'healthy' else 'warning') }}
-    {% if section_state.available %}<a class="button button--secondary" href="{{ url_for(section.endpoint) }}">Open section ↗</a>{% endif %}
+    {{ badge(section_state.count ~ ' records' if section_state.count is not none else 'Local module', 'success' if section_state.status == 'healthy' else 'warning') }}
+    {% if section_state.available %}<a class="button button--secondary" href="{{ url_for(section.endpoint) }}">Open {{ section.label }} ↗</a>{% endif %}
   </div>
 </header>
 
-<div class="section-control-grid">
-  <section class="control-panel" aria-labelledby="preferences-title">
-    <div class="section-heading"><span class="eyebrow">Persistent preferences</span><h2 id="preferences-title">Shape this section</h2></div>
-    <form method="post" action="{{ url_for('admin.update_section_preferences', section_key=section.key) }}" class="preference-form">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <label class="preference-switch"><span><strong>Primary navigation</strong><small>Show {{ section.label }} in the header, mobile nav, and command menu.</small></span><input type="checkbox" name="show_in_navigation"{% if section_state.preferences.show_in_navigation %} checked{% endif %}></label>
-      {% if section.show_on_today %}<label class="preference-switch"><span><strong>Today workspace</strong><small>Include this module’s live card on the home screen.</small></span><input type="checkbox" name="show_on_today"{% if section_state.preferences.show_on_today %} checked{% endif %}></label>{% endif %}
+<form method="post" action="{{ url_for('admin.update_section_preferences', section_key=section.key) }}" class="section-settings-form">
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  <section class="section-settings-card" aria-labelledby="access-title">
+    <div class="section-heading"><span class="eyebrow">Section</span><h2 id="access-title">Access &amp; placement</h2><p>These controls change where {{ section.label }} appears; they do not touch its local data or sources.</p></div>
+    <div class="preference-form">
+      <label class="preference-switch"><span><strong>Section enabled</strong><small>Turn {{ section.label }} on or off.</small></span><input type="checkbox" name="enabled"{% if section_state.preferences.enabled %} checked{% endif %}></label>
+      <label class="preference-switch"><span><strong>Primary navigation</strong><small>Show it in navigation and quick access.</small></span><input type="checkbox" name="show_in_navigation"{% if section_state.preferences.show_in_navigation %} checked{% endif %}></label>
+      {% if section.show_on_today %}<label class="preference-switch"><span><strong>Show on Home</strong><small>Allow {{ section.label }} blocks in your Home layout.</small></span><input type="checkbox" name="show_on_home"{% if section_state.preferences.show_on_home %} checked{% endif %}></label>{% endif %}
+    </div>
+  </section>
+
+  {% if section.key not in ('history', 'ai') %}
+  <section class="section-settings-card" aria-labelledby="display-title">
+    <div class="section-heading"><span class="eyebrow">{{ section.label }}</span><h2 id="display-title">{{ card_copy[0] }}</h2><p>{{ card_copy[1] }}</p></div>
+    <div class="section-settings-fields">
+      <label class="field"><span>Default view</span><select name="default_view">{% for key, label in section.default_views %}<option value="{{ key }}"{% if section_state.preferences.default_view == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+      <label class="field"><span>Default sort</span><select name="default_sort">{% for key, label in section.default_sorts %}<option value="{{ key }}"{% if section_state.preferences.default_sort == key %} selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+    </div>
+    <div class="preference-form">
+      {% if section.key == 'movies' %}<label class="preference-switch"><span><strong>Hide completed</strong><small>Keep completed titles out of the default library view.</small></span><input type="checkbox" name="hide_completed"{% if section_state.preferences.hide_completed %} checked{% endif %}></label>{% endif %}
+      {% if section.key == 'mytv' %}<label class="preference-switch"><span><strong>Favorites first</strong><small>Put favorite channels before the rest of the catalogue.</small></span><input type="checkbox" name="favorites_first"{% if section_state.preferences.favorites_first %} checked{% endif %}></label>{% endif %}
       {% for feature in section.features %}<label class="preference-switch"><span><strong>{{ feature.label }}</strong><small>{{ feature.description }}</small></span><input type="checkbox" name="feature_{{ feature.key }}"{% if section_state.preferences.features[feature.key] %} checked{% endif %}></label>{% endfor %}
-      <button class="button button--primary" type="submit">Save preferences</button>
-    </form>
-  </section>
-
-  <aside class="control-panel" aria-labelledby="health-title">
-    <div class="section-heading"><span class="eyebrow">Section pulse</span><h2 id="health-title">State and next action</h2></div>
-    {% if section_state.issues %}<ul class="control-signals">{% for issue in section_state.issues %}<li><span aria-hidden="true">!</span>{{ issue }}</li>{% endfor %}</ul>{% else %}<p class="control-clear"><span aria-hidden="true">✓</span> No active issue detected.</p>{% endif %}
-    <dl class="control-facts"><div><dt>Records</dt><dd>{{ section_state.count if section_state.count is not none else 'Not applicable' }}</dd></div><div><dt>Navigation</dt><dd>{{ 'Visible' if section_state.preferences.show_in_navigation else 'Hidden' }}</dd></div><div><dt>Last operation</dt><dd>{{ section_state.last_operation.status|title if section_state.last_operation else 'Never' }}</dd></div></dl>
-  </aside>
-
-  <section class="control-panel" aria-labelledby="capabilities-title">
-    <div class="section-heading"><span class="eyebrow">Read-only runtime</span><h2 id="capabilities-title">Capabilities</h2></div>
-    <div class="capability-list">{% for capability in section_state.capabilities %}<div><span class="capability-dot capability-dot--{{ 'on' if capability.enabled else 'off' }}" aria-hidden="true"></span><span><strong>{{ capability.label }}</strong><small>{{ capability.note }}</small></span></div>{% endfor %}</div>
-    <p class="control-note">Secret values are never rendered here. Runtime changes stay in your private environment and require a restart.</p>
-  </section>
-
-  {% if section_state.playback_cache %}
-  <section class="control-panel" aria-labelledby="playback-cache-title">
-    <div class="section-heading"><span class="eyebrow">Local playback</span><h2 id="playback-cache-title">Torrent cache</h2></div>
-    <dl class="control-facts">
-      <div><dt>Usage</dt><dd>{{ section_state.playback_cache.used_label }} / {{ section_state.playback_cache.limit_label }}</dd></div>
-      <div><dt>Entries</dt><dd>{{ section_state.playback_cache.entries }}</dd></div>
-      <div><dt>Active</dt><dd>{{ section_state.playback_cache.active_entries }}</dd></div>
-      <div><dt>Retention</dt><dd>{{ section_state.playback_cache.ttl_hours }} hours</dd></div>
-    </dl>
-    <p class="control-note">Stop disconnects peers but keeps reusable pieces. Cleanup never removes an active torrent.</p>
-    <form method="post" action="{{ url_for('admin.clear_playback_cache') }}">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="button button--secondary" type="submit">Clear inactive cache</button>
-    </form>
+    </div>
   </section>
   {% endif %}
 
-  <section class="control-panel" aria-labelledby="freshness-title">
-    <div class="section-heading"><span class="eyebrow">Local data</span><h2 id="freshness-title">Freshness and operations</h2></div>
-    {% if section_state.freshness %}<div class="freshness-list">{% for item in section_state.freshness %}<div><span><strong>{{ item.domain|replace('_', ' ')|title }}</strong><small>{{ item.message }}</small></span>{{ badge(item.state|title, 'success' if item.state == 'fresh' else 'warning') }}</div>{% endfor %}</div>{% else %}<p class="muted">This module does not depend on an external snapshot.</p>{% endif %}
-    {% if section.operation_domain %}<form class="section-operation" method="post" action="{{ url_for('admin.run_operation') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="domain" value="{{ section.operation_domain }}"><input type="hidden" name="next" value="{{ request.path }}"><label class="field"><span>Operation</span><select name="kind"><option value="refresh">Refresh snapshot</option><option value="sync">Synchronize</option><option value="repair">Repair metadata</option><option value="diagnose">Diagnose</option></select></label><button class="button button--secondary" type="submit">Run for {{ section.label }}</button></form>{% endif %}
+  {% if section.key == 'reading' %}
+  <section class="section-settings-card" aria-labelledby="retention-title">
+    <div class="section-heading"><span class="eyebrow">News data</span><h2 id="retention-title">Retention</h2><p>Remove old normal articles while preserving stories you deliberately kept.</p></div>
+    <label class="field"><span>Keep normal articles</span><select name="retention_days">{% for days in [7, 30, 90] %}<option value="{{ days }}"{% if section_state.preferences.retention_days == days %} selected{% endif %}>{{ days }} days</option>{% endfor %}</select></label>
+    <div class="preference-form"><label class="preference-switch"><span><strong>Never delete saved articles</strong><small>Saved and in-progress stories stay outside automatic retention.</small></span><input type="checkbox" name="never_delete_saved"{% if section_state.preferences.never_delete_saved %} checked{% endif %}></label></div>
   </section>
+  {% endif %}
+
+  <footer class="section-settings-actions"><button class="button button--primary" type="submit">Save {{ section.label }} settings</button></footer>
+</form>
+
+{% if section.key == 'mytv' %}{% include 'admin/_mytv_managers.html' %}{% endif %}
+{% if section.key == 'reading' %}{% include 'admin/_reading_managers.html' %}{% endif %}
+
+<div class="section-system-grid">
+  <aside class="section-status-card" aria-labelledby="health-title">
+    <div class="section-heading"><span class="eyebrow">{{ section.label }} status</span><h2 id="health-title">State</h2></div>
+    {% if section_state.issues %}<ul class="control-signals">{% for issue in section_state.issues %}<li><span aria-hidden="true">!</span>{{ issue }}</li>{% endfor %}</ul>{% else %}<p class="control-clear"><span aria-hidden="true">✓</span> No active issue detected.</p>{% endif %}
+    <dl class="control-facts"><div><dt>Records</dt><dd>{{ section_state.count if section_state.count is not none else 'Not applicable' }}</dd></div><div><dt>Navigation</dt><dd>{{ 'Visible' if section_state.preferences.enabled and section_state.preferences.show_in_navigation else 'Hidden' }}</dd></div><div><dt>Last operation</dt><dd>{{ section_state.last_operation.status|title if section_state.last_operation else 'Never' }}</dd></div></dl>
+  </aside>
+
+  {% if section_state.freshness or section.operation_domain %}
+  <section class="section-status-card" aria-labelledby="data-title">
+    <div class="section-heading"><span class="eyebrow">{{ section.label }} data</span><h2 id="data-title">Source &amp; refresh</h2></div>
+    {% if section_state.freshness %}<div class="freshness-list">{% for item in section_state.freshness %}<div><span><strong>{{ item.domain|replace('_', ' ')|title }}</strong><small>{{ item.message }}</small></span>{{ badge(item.state|title, 'success' if item.state == 'fresh' else 'warning') }}</div>{% endfor %}</div>{% endif %}
+    {% if section.operation_domain %}<form class="section-operation" method="post" action="{{ url_for('admin.run_operation') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="domain" value="{{ section.operation_domain }}"><input type="hidden" name="next" value="{{ request.path }}"><label class="field"><span>Action</span><select name="kind"><option value="refresh">Refresh snapshot</option><option value="sync">Synchronize</option><option value="repair">Repair metadata</option><option value="diagnose">Diagnose</option></select></label><button class="button button--secondary" type="submit">Run for {{ section.label }}</button></form>{% endif %}
+  </section>
+  {% endif %}
+
+  {% if section_state.playback_cache %}
+  <section class="section-status-card" aria-labelledby="playback-cache-title">
+    <div class="section-heading"><span class="eyebrow">Movies playback</span><h2 id="playback-cache-title">Torrent cache</h2></div>
+    <dl class="control-facts"><div><dt>Usage</dt><dd>{{ section_state.playback_cache.used_label }} / {{ section_state.playback_cache.limit_label }}</dd></div><div><dt>Entries</dt><dd>{{ section_state.playback_cache.entries }}</dd></div><div><dt>Active</dt><dd>{{ section_state.playback_cache.active_entries }}</dd></div><div><dt>Retention</dt><dd>{{ section_state.playback_cache.ttl_hours }} hours</dd></div></dl>
+    <form method="post" action="{{ url_for('admin.clear_playback_cache') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--secondary" type="submit">Clear inactive cache</button></form>
+  </section>
+  {% endif %}
 </div>
+
+<form class="section-reset-form" method="post" action="{{ url_for('admin.reset_section_preferences', section_key=section.key) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><span>Restore only {{ section.label }} settings. Your sources and personal data stay untouched.</span><button class="button button--quiet" type="submit">Restore defaults</button></form>
 {% endblock %}

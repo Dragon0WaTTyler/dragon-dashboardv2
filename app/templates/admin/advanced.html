@@ -1,0 +1,8 @@
+{% extends "layouts/app.html" %}
+{% block title %}Advanced settings · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/control-center.css') }}">{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('admin.index') }}">← Settings</a>
+<header class="section-control-header"><div><span class="eyebrow">Advanced</span><h1>Diagnostics &amp; operations</h1><p>Protected actions for data refresh, sync, repair, and diagnosis.</p></div></header>
+<section class="settings-detail-card control-actions" aria-labelledby="global-action-title"><div><h2 id="global-action-title">Run across the workspace</h2><p>Every run creates a local report.</p></div><form class="operation-form" method="post" action="{{ url_for('admin.run_operation') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span>Operation</span><select name="kind"><option value="refresh">Refresh snapshot</option><option value="sync">Synchronize</option><option value="repair">Metadata repair</option><option value="diagnose">Diagnose sources</option></select></label><label class="field"><span>Domain</span><select name="domain"><option value="all">All sections</option>{% for value in ['movies','youtube_watch_later','youtube_pockettube','reading','books','chess'] %}<option value="{{ value }}">{{ value|replace('_',' ')|title }}</option>{% endfor %}</select></label><label class="check-field"><input type="checkbox" name="confirmed" value="yes"> Confirm global sync</label><button class="button button--secondary" type="submit">Run operation</button></form></section>
+{% endblock %}

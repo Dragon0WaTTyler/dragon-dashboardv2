@@ -35,6 +35,8 @@ class SectionDefinition:
     operation_domain: str | None = None
     show_on_today: bool = False
     features: tuple[FeatureDefinition, ...] = field(default_factory=tuple)
+    default_views: tuple[tuple[str, str], ...] = (("overview", "Overview"),)
+    default_sorts: tuple[tuple[str, str], ...] = (("recent", "Recently added"),)
 
 
 SECTIONS: tuple[SectionDefinition, ...] = (
@@ -60,6 +62,23 @@ SECTIONS: tuple[SectionDefinition, ...] = (
             FeatureDefinition(
                 "recommendation", "What should I watch?", "Show the recommendation engine."
             ),
+            FeatureDefinition("progress", "Watching progress", "Show progress on movie cards."),
+            FeatureDefinition(
+                "personal_score", "Personal score", "Show your score beside each title."
+            ),
+        ),
+        (
+            ("watching", "Watching"),
+            ("library", "Library"),
+            ("finished", "Finished"),
+            ("wishlist", "Wishlist"),
+        ),
+        (
+            ("recent", "Recently added"),
+            ("last_watched", "Last watched"),
+            ("rating", "Rating"),
+            ("year", "Year"),
+            ("title", "Title"),
         ),
     ),
     SectionDefinition(
@@ -68,6 +87,13 @@ SECTIONS: tuple[SectionDefinition, ...] = (
         "Live channel packages and local playback controls.",
         "mytv.index",
         "tv_channels",
+        show_on_today=True,
+        default_views=(("watch", "Watch"), ("favorites", "Favorites"), ("manage", "Manage")),
+        default_sorts=(
+            ("favorites", "Favorites first"),
+            ("name", "Channel name"),
+            ("recent", "Recently added"),
+        ),
     ),
     SectionDefinition(
         "youtube",
@@ -86,11 +112,13 @@ SECTIONS: tuple[SectionDefinition, ...] = (
                 "related", "Continue watching", "Show related videos on the detail page."
             ),
         ),
+        (("watch_later", "Watch Later"), ("groups", "Groups"), ("favorites", "Favorites")),
+        (("recent", "Recently added"), ("title", "Title")),
     ),
     SectionDefinition(
         "reading",
-        "Reading",
-        "Articles, full-text extraction, and source monitoring.",
+        "News",
+        "Articles, reader mode, saved stories, and source monitoring.",
         "reading.index",
         "articles",
         ("reading",),
@@ -100,7 +128,22 @@ SECTIONS: tuple[SectionDefinition, ...] = (
             FeatureDefinition(
                 "source_health", "Source health strip", "Show feed health above the article list."
             ),
+            FeatureDefinition(
+                "reader_mode", "Reader mode by default", "Open stories inside Dragon first."
+            ),
+            FeatureDefinition("images", "Article images", "Show story images in lists and reader."),
+            FeatureDefinition("source", "Source name", "Show the publication source."),
+            FeatureDefinition(
+                "publication_date", "Publication date", "Show when each story was published."
+            ),
+            FeatureDefinition(
+                "mark_read_automatically",
+                "Mark as reading automatically",
+                "Move unread stories to Reading when they are opened.",
+            ),
         ),
+        (("today", "Today"), ("recent", "Recent"), ("saved", "Saved"), ("sources", "Sources")),
+        (("recent", "Recently added"), ("title", "Title")),
     ),
     SectionDefinition(
         "books",
@@ -112,6 +155,18 @@ SECTIONS: tuple[SectionDefinition, ...] = (
         "books",
         True,
         (FeatureDefinition("quotes", "Quotes notebook", "Show saved quotes and the quote form."),),
+        (
+            ("reading", "Reading"),
+            ("library", "Library"),
+            ("finished", "Finished"),
+            ("wishlist", "Wishlist"),
+        ),
+        (
+            ("recent", "Recently read"),
+            ("progress", "Progress"),
+            ("rating", "Rating"),
+            ("title", "Title"),
+        ),
     ),
     SectionDefinition(
         "chess",
@@ -123,9 +178,22 @@ SECTIONS: tuple[SectionDefinition, ...] = (
         "chess",
         True,
         (FeatureDefinition("recent_games", "Recent games", "Show the recent-games review table."),),
+        (("today", "Today"), ("puzzles", "Puzzles"), ("games", "Games")),
+        (("recent", "Recent activity"), ("rating", "Rating")),
     ),
     SectionDefinition(
-        "german", "German", "Learning resources and vocabulary.", "german.index", "german_resources"
+        "german",
+        "German",
+        "Learning resources and vocabulary.",
+        "german.index",
+        "german_resources",
+        default_views=(
+            ("today", "Today"),
+            ("vocabulary", "Vocabulary"),
+            ("listening", "Listening"),
+            ("review", "Review"),
+        ),
+        default_sorts=(("recent", "Recent activity"), ("title", "Title")),
     ),
     SectionDefinition(
         "history",
@@ -140,8 +208,51 @@ SECTIONS: tuple[SectionDefinition, ...] = (
 SECTION_MAP = {section.key: section for section in SECTIONS}
 
 
+@dataclass(frozen=True, slots=True)
+class HomeBlockDefinition:
+    key: str
+    label: str
+    description: str
+    section_key: str
+    default_enabled: bool = True
+    default_limit: int = 5
+
+
+HOME_BLOCKS: tuple[HomeBlockDefinition, ...] = (
+    HomeBlockDefinition(
+        "continue_watching", "Continue watching", "Pick up your active movie or series.", "movies"
+    ),
+    HomeBlockDefinition(
+        "continue_reading", "Continue reading", "Return to the book currently in progress.", "books"
+    ),
+    HomeBlockDefinition(
+        "favorite_iptv",
+        "Favorite IPTV",
+        "Keep live favorites close to the home screen.",
+        "mytv",
+        False,
+    ),
+    HomeBlockDefinition(
+        "latest_articles", "Latest articles", "A fresh mix from your saved sources.", "reading"
+    ),
+    HomeBlockDefinition(
+        "youtube_feed", "YouTube feed", "A rotating Watch Later selection.", "youtube"
+    ),
+    HomeBlockDefinition(
+        "chess_training", "Chess training", "Your next puzzles and practice queue.", "chess"
+    ),
+    HomeBlockDefinition(
+        "recommended_movie",
+        "Recommended movie",
+        "One deliberate pick from your watch queue.",
+        "movies",
+    ),
+)
+HOME_BLOCK_MAP = {block.key: block for block in HOME_BLOCKS}
+
+
 class PreferenceStore:
-    version = 1
+    version = 2
 
     def __init__(self, root: str | Path):
         self.path = Path(root).resolve() / "control-center.json"
@@ -149,12 +260,42 @@ class PreferenceStore:
     @staticmethod
     def defaults() -> dict[str, Any]:
         return {
-            "version": PreferenceStore.version,
+            "schema_version": PreferenceStore.version,
+            "general": {
+                "appearance": "system",
+                "layout_density": "comfortable",
+                "language": "en",
+                "start_destination": "home",
+                "remember_filters": True,
+                "remember_tabs": True,
+                "remember_scroll_position": False,
+            },
+            "home": {
+                "layout": [
+                    {
+                        "section": block.key,
+                        "enabled": block.default_enabled,
+                        "position": index,
+                        "item_limit": block.default_limit,
+                    }
+                    for index, block in enumerate(HOME_BLOCKS)
+                ]
+            },
             "sections": {
                 section.key: {
+                    "enabled": True,
                     "show_in_navigation": True,
-                    "show_on_today": section.show_on_today,
+                    "show_on_home": section.show_on_today,
+                    "default_view": section.default_views[0][0],
+                    "default_sort": section.default_sorts[0][0],
+                    "hide_completed": False,
+                    "favorites_first": False,
                     "features": {feature.key: feature.default for feature in section.features},
+                    **(
+                        {"retention_days": 30, "never_delete_saved": True}
+                        if section.key == "reading"
+                        else {}
+                    ),
                 }
                 for section in SECTIONS
             },
@@ -168,34 +309,81 @@ class PreferenceStore:
             return defaults
         if not isinstance(raw, dict) or not isinstance(raw.get("sections"), dict):
             return defaults
+        general = raw.get("general")
+        if isinstance(general, dict):
+            allowed = {
+                "appearance": {"system", "light", "dark"},
+                "layout_density": {"compact", "comfortable"},
+                "language": {"ar", "en", "fr"},
+                "start_destination": {"home", "last_section"},
+            }
+            for key, values in allowed.items():
+                if general.get(key) in values:
+                    defaults["general"][key] = general[key]
+            for key in ("remember_filters", "remember_tabs", "remember_scroll_position"):
+                if isinstance(general.get(key), bool):
+                    defaults["general"][key] = general[key]
+        home = raw.get("home")
+        if isinstance(home, dict) and isinstance(home.get("layout"), list):
+            saved_blocks = {
+                item.get("section"): item
+                for item in home["layout"]
+                if isinstance(item, dict) and item.get("section") in HOME_BLOCK_MAP
+            }
+            layout = []
+            for index, block in enumerate(HOME_BLOCKS):
+                saved = saved_blocks.get(block.key, {})
+                layout.append(
+                    {
+                        "section": block.key,
+                        "enabled": saved.get("enabled")
+                        if isinstance(saved.get("enabled"), bool)
+                        else block.default_enabled,
+                        "position": saved.get("position")
+                        if isinstance(saved.get("position"), int) and saved["position"] >= 0
+                        else index,
+                        "item_limit": saved.get("item_limit")
+                        if saved.get("item_limit") in {5, 10, 20}
+                        else block.default_limit,
+                    }
+                )
+            defaults["home"]["layout"] = sorted(layout, key=lambda item: item["position"])
         for section in SECTIONS:
             saved = raw["sections"].get(section.key)
             if not isinstance(saved, dict):
                 continue
             target = defaults["sections"][section.key]
-            for key in ("show_in_navigation", "show_on_today"):
+            for key in (
+                "enabled",
+                "show_in_navigation",
+                "show_on_home",
+                "hide_completed",
+                "favorites_first",
+            ):
                 if isinstance(saved.get(key), bool):
+                    target[key] = saved[key]
+            # Version 1 stored this setting under its old screen name.
+            if isinstance(saved.get("show_on_today"), bool):
+                target["show_on_home"] = saved["show_on_today"]
+            for key, allowed in (
+                ("default_view", dict(section.default_views)),
+                ("default_sort", dict(section.default_sorts)),
+            ):
+                if saved.get(key) in allowed:
                     target[key] = saved[key]
             features = saved.get("features")
             if isinstance(features, dict):
                 for feature in section.features:
                     if isinstance(features.get(feature.key), bool):
                         target["features"][feature.key] = features[feature.key]
+            if section.key == "reading":
+                if saved.get("retention_days") in {7, 30, 90}:
+                    target["retention_days"] = saved["retention_days"]
+                if isinstance(saved.get("never_delete_saved"), bool):
+                    target["never_delete_saved"] = saved["never_delete_saved"]
         return defaults
 
-    def update(self, section_key: str, values: dict[str, bool]) -> dict[str, Any]:
-        section = SECTION_MAP.get(section_key)
-        if section is None:
-            raise ValueError("Unknown section.")
-        payload = self.read()
-        target = payload["sections"][section.key]
-        target["show_in_navigation"] = bool(values.get("show_in_navigation"))
-        target["show_on_today"] = (
-            bool(values.get("show_on_today")) if section.show_on_today else False
-        )
-        target["features"] = {
-            feature.key: bool(values.get(f"feature_{feature.key}")) for feature in section.features
-        }
+    def _write(self, payload: dict[str, Any]) -> dict[str, Any]:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         fd, temporary_name = tempfile.mkstemp(
             prefix=".control-center-", suffix=".tmp", dir=self.path.parent
@@ -212,6 +400,79 @@ class PreferenceStore:
             temporary.unlink(missing_ok=True)
         return payload
 
+    def update(self, section_key: str, values: dict[str, Any]) -> dict[str, Any]:
+        section = SECTION_MAP.get(section_key)
+        if section is None:
+            raise ValueError("Unknown section.")
+        payload = self.read()
+        target = payload["sections"][section.key]
+        target["enabled"] = bool(values.get("enabled"))
+        target["show_in_navigation"] = bool(values.get("show_in_navigation"))
+        target["show_on_home"] = (
+            bool(values.get("show_on_home")) if section.show_on_today else False
+        )
+        target["default_view"] = (
+            values.get("default_view")
+            if values.get("default_view") in dict(section.default_views)
+            else section.default_views[0][0]
+        )
+        target["default_sort"] = (
+            values.get("default_sort")
+            if values.get("default_sort") in dict(section.default_sorts)
+            else section.default_sorts[0][0]
+        )
+        target["hide_completed"] = bool(values.get("hide_completed"))
+        target["favorites_first"] = bool(values.get("favorites_first"))
+        target["features"] = {
+            feature.key: bool(values.get(f"feature_{feature.key}")) for feature in section.features
+        }
+        if section.key == "reading":
+            retention = str(values.get("retention_days") or "30")
+            target["retention_days"] = int(retention) if retention in {"7", "30", "90"} else 30
+            target["never_delete_saved"] = bool(values.get("never_delete_saved"))
+        return self._write(payload)
+
+    def update_general(self, values: dict[str, Any]) -> dict[str, Any]:
+        payload = self.read()
+        target = payload["general"]
+        for key, allowed in {
+            "appearance": {"system", "light", "dark"},
+            "layout_density": {"compact", "comfortable"},
+            "language": {"ar", "en", "fr"},
+            "start_destination": {"home", "last_section"},
+        }.items():
+            if values.get(key) in allowed:
+                target[key] = values[key]
+        for key in ("remember_filters", "remember_tabs", "remember_scroll_position"):
+            target[key] = bool(values.get(key))
+        return self._write(payload)
+
+    def update_home(self, values: dict[str, Any]) -> dict[str, Any]:
+        payload = self.read()
+        ordered_keys = [
+            key for key in str(values.get("layout_order") or "").split(",") if key in HOME_BLOCK_MAP
+        ]
+        ordered_keys.extend(key for key in HOME_BLOCK_MAP if key not in ordered_keys)
+        payload["home"]["layout"] = [
+            {
+                "section": key,
+                "enabled": bool(values.get(f"home_{key}_enabled")),
+                "position": index,
+                "item_limit": int(values.get(f"home_{key}_limit"))
+                if str(values.get(f"home_{key}_limit")) in {"5", "10", "20"}
+                else HOME_BLOCK_MAP[key].default_limit,
+            }
+            for index, key in enumerate(ordered_keys)
+        ]
+        return self._write(payload)
+
+    def reset_section(self, section_key: str) -> dict[str, Any]:
+        if section_key not in SECTION_MAP:
+            raise ValueError("Unknown section.")
+        payload = self.read()
+        payload["sections"][section_key] = self.defaults()["sections"][section_key]
+        return self._write(payload)
+
 
 def preference_store() -> PreferenceStore:
     root = current_app.config.get("DRAGON_CONTROL_CENTER_ROOT", current_app.instance_path)
@@ -220,14 +481,45 @@ def preference_store() -> PreferenceStore:
 
 def section_visible(section_key: str) -> bool:
     section = _request_preferences()["sections"].get(section_key, {})
-    return bool(section.get("show_in_navigation", True))
+    return bool(section.get("enabled", True) and section.get("show_in_navigation", True))
 
 
 def feature_enabled(section_key: str, feature_key: str) -> bool:
     section = _request_preferences()["sections"].get(section_key, {})
     if feature_key == "today":
-        return bool(section.get("show_on_today", False))
-    return bool(section.get("features", {}).get(feature_key, True))
+        return bool(section.get("enabled", True) and section.get("show_on_home", False))
+    return bool(section.get("enabled", True) and section.get("features", {}).get(feature_key, True))
+
+
+def home_layout() -> list[dict[str, Any]]:
+    preferences = _request_preferences()
+    sections = preferences["sections"]
+    result = []
+    for item in preferences["home"]["layout"]:
+        block = HOME_BLOCK_MAP[item["section"]]
+        result.append(
+            {
+                **item,
+                "definition": block,
+                "visible": bool(
+                    item["enabled"]
+                    and sections[block.section_key]["enabled"]
+                    and sections[block.section_key]["show_on_home"]
+                ),
+            }
+        )
+    return result
+
+
+def home_block_visible(block_key: str) -> bool:
+    return any(item["section"] == block_key and item["visible"] for item in home_layout())
+
+
+def home_block_position(block_key: str) -> int:
+    for item in home_layout():
+        if item["section"] == block_key:
+            return int(item["position"])
+    return len(HOME_BLOCKS)
 
 
 def _request_preferences() -> dict[str, Any]:
@@ -314,7 +606,9 @@ def build_section_state(section: SectionDefinition) -> dict[str, Any]:
     if count is None and section.table:
         status = "warning" if status == "healthy" else status
         issues.append("The module database table is not installed yet.")
-    if not preferences["show_in_navigation"]:
+    if not preferences["enabled"]:
+        issues.append("Disabled by preference.")
+    elif not preferences["show_in_navigation"]:
         issues.append("Hidden from primary navigation by preference.")
     playback_cache = None
     if section.key == "movies":
@@ -332,6 +626,12 @@ def build_section_state(section: SectionDefinition) -> dict[str, Any]:
         "last_operation": last_operation,
         "capabilities": _capabilities(section),
         "playback_cache": playback_cache,
+        "default_view_label": dict(section.default_views).get(
+            preferences["default_view"], preferences["default_view"]
+        ),
+        "default_sort_label": dict(section.default_sorts).get(
+            preferences["default_sort"], preferences["default_sort"]
+        ),
     }
 
 
@@ -342,4 +642,5 @@ def build_control_center() -> dict[str, Any]:
         "healthy": sum(item["status"] == "healthy" for item in sections),
         "attention": sum(item["status"] != "healthy" for item in sections),
         "hidden": sum(not item["preferences"]["show_in_navigation"] for item in sections),
+        "disabled": sum(not item["preferences"]["enabled"] for item in sections),
     }

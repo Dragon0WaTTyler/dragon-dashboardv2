@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import String, cast, func, or_
+from sqlalchemy import String, cast, func, not_, or_
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
@@ -70,6 +70,8 @@ class MovieRepository:
             conditions.append(Movie.personal_score >= filters["score_min"])
         if filters.get("score_max") is not None:
             conditions.append(Movie.personal_score <= filters["score_max"])
+        if filters.get("hide_completed"):
+            conditions.append(not_(Movie.status.in_(("finished", "watched"))))
         if conditions:
             query = query.where(*conditions)
             count_query = count_query.where(*conditions)
@@ -98,7 +100,11 @@ class MovieRepository:
             db.select(Movie)
             .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
             .where(Movie.status == "want_to_watch")
-            .order_by(Movie.personal_score.desc().nullslast(), Movie.runtime_minutes.asc().nullslast(), Movie.updated_at.desc())
+            .order_by(
+                Movie.personal_score.desc().nullslast(),
+                Movie.runtime_minutes.asc().nullslast(),
+                Movie.updated_at.desc(),
+            )
             .limit(limit)
         )
         if library_ids is not None:

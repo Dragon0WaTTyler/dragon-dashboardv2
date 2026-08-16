@@ -33,6 +33,9 @@ def test_feature_flags_default_safe(tmp_path: Path):
     assert settings.youtube_delete_enabled is False
     assert settings.youtube_sync_enabled is False
     assert settings.reading_tts_enabled is False
+    assert settings.tv_epg_enabled is True
+    assert settings.tv_epg_refresh_minutes == 360
+    assert settings.tv_epg_urls == ""
     assert settings.vidsrc_embed_url == "https://v2.vidsrc.me/embed"
     assert settings.subtitle_languages == "ar,en"
 
@@ -43,6 +46,21 @@ def test_prefixed_feature_flag_override(tmp_path: Path):
         {"TESTING": True, "DRAGON_EXTERNAL_SYNC_ENABLED": "true"},
     )
     assert settings.external_sync_enabled is True
+
+
+def test_tv_epg_configuration_is_typed(tmp_path: Path):
+    settings = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "DRAGON_TV_EPG_ENABLED": "false",
+            "DRAGON_TV_EPG_REFRESH_MINUTES": "120",
+            "DRAGON_TV_EPG_URLS": "https://guide.example/one.xml",
+        },
+    )
+    assert settings.tv_epg_enabled is False
+    assert settings.tv_epg_refresh_minutes == 120
+    assert settings.tv_epg_urls == "https://guide.example/one.xml"
 
 
 def test_playback_cache_limits_are_typed(tmp_path: Path):
@@ -91,12 +109,36 @@ def test_vidsrc_configuration_is_typed_and_private(tmp_path: Path):
         )
 
 
+def test_cinesrc_is_an_explicitly_disabled_by_default_direct_provider(tmp_path: Path):
+    disabled = Settings.load(tmp_path, {"TESTING": True})
+    enabled = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "DRAGON_CINESRC_ENABLED": "true",
+            "DRAGON_VIDCORE_ENABLED": "true",
+            "DRAGON_VIDZEE_ENABLED": "true",
+        },
+    )
+
+    assert disabled.cinesrc_enabled is False
+    assert enabled.cinesrc_enabled is True
+    assert enabled.vidcore_enabled is True
+    assert enabled.vidzee_enabled is True
+    assert enabled.safe_summary()["cinesrc_enabled"] is True
+
+
 def test_indexed_embed_provider_urls_are_typed_and_private(tmp_path: Path):
     secrets_dir = tmp_path / "secrets"
     secrets_dir.mkdir()
     (secrets_dir / "streamwish_embed_url").write_text(
         "https://streamwish.com/e/{asset_id}", encoding="utf-8"
     )
+    (secrets_dir / "streamwish_api_key").write_text("private-streamwish-key", encoding="utf-8")
+    (secrets_dir / "mixdrop_api_email").write_text("private-mixdrop@example.test", encoding="utf-8")
+    (secrets_dir / "mixdrop_api_key").write_text("private-mixdrop-key", encoding="utf-8")
+    (secrets_dir / "streamtape_api_login").write_text("private-streamtape-login", encoding="utf-8")
+    (secrets_dir / "streamtape_api_key").write_text("private-streamtape-key", encoding="utf-8")
     settings = Settings.load(
         tmp_path,
         {
@@ -104,6 +146,10 @@ def test_indexed_embed_provider_urls_are_typed_and_private(tmp_path: Path):
             "DRAGON_UPDOWN_ENABLED": True,
             "DRAGON_UPDOWN_EMBED_URL": "https://updown.icu/embed-{asset_id}-1280x640.html",
             "DRAGON_STREAMWISH_ENABLED": True,
+            "DRAGON_STREAMWISH_LIBRARY_SYNC_ENABLED": True,
+            "DRAGON_MIXDROP_ENABLED": True,
+            "DRAGON_MIXDROP_EMBED_URL": "https://mixdrop.ag/e/{asset_id}",
+            "DRAGON_MIXDROP_LIBRARY_SYNC_ENABLED": True,
             "DRAGON_DOODSTREAM_ENABLED": True,
             "DRAGON_DOODSTREAM_EMBED_URL": "https://dood.to/e/{asset_id}",
             "DRAGON_FILELIONS_ENABLED": True,
@@ -112,6 +158,7 @@ def test_indexed_embed_provider_urls_are_typed_and_private(tmp_path: Path):
             "DRAGON_OK_EMBED_URL": "https://ok.ru/videoembed/{asset_id}",
             "DRAGON_STREAMTAPE_ENABLED": True,
             "DRAGON_STREAMTAPE_EMBED_URL": "https://streamtape.com/e/{asset_id}",
+            "DRAGON_STREAMTAPE_LIBRARY_SYNC_ENABLED": True,
             "DRAGON_LULUSTREAM_ENABLED": True,
             "DRAGON_LULUSTREAM_EMBED_URL": "https://lulustream.com/e/{asset_id}",
         },
@@ -120,17 +167,33 @@ def test_indexed_embed_provider_urls_are_typed_and_private(tmp_path: Path):
     assert settings.updown_enabled is True
     assert settings.streamwish_enabled is True
     assert settings.streamwish_embed_url == "https://streamwish.com/e/{asset_id}"
+    assert settings.streamwish_library_sync_enabled is True
+    assert settings.streamwish_api_key == "private-streamwish-key"
+    assert settings.mixdrop_enabled is True
+    assert settings.mixdrop_embed_url == "https://mixdrop.ag/e/{asset_id}"
+    assert settings.mixdrop_library_sync_enabled is True
+    assert settings.mixdrop_api_email == "private-mixdrop@example.test"
+    assert settings.mixdrop_api_key == "private-mixdrop-key"
     assert settings.doodstream_enabled is True
     assert settings.filelions_enabled is True
     assert settings.ok_enabled is True
     assert settings.streamtape_enabled is True
+    assert settings.streamtape_library_sync_enabled is True
+    assert settings.streamtape_api_login == "private-streamtape-login"
+    assert settings.streamtape_api_key == "private-streamtape-key"
     assert settings.lulustream_enabled is True
     assert "updown_embed_url" not in settings.safe_summary()
     assert "streamwish_embed_url" not in settings.safe_summary()
+    assert "streamwish_api_key" not in settings.safe_summary()
+    assert "mixdrop_embed_url" not in settings.safe_summary()
+    assert "mixdrop_api_email" not in settings.safe_summary()
+    assert "mixdrop_api_key" not in settings.safe_summary()
     assert "doodstream_embed_url" not in settings.safe_summary()
     assert "filelions_embed_url" not in settings.safe_summary()
     assert "ok_embed_url" not in settings.safe_summary()
     assert "streamtape_embed_url" not in settings.safe_summary()
+    assert "streamtape_api_login" not in settings.safe_summary()
+    assert "streamtape_api_key" not in settings.safe_summary()
     assert "lulustream_embed_url" not in settings.safe_summary()
 
 

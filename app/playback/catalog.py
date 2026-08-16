@@ -18,7 +18,11 @@ from app.playback.providers import (
     catalog_provider_for_host,
     indexed_embed_provider_spec,
 )
-from app.playback.services import PlaybackService
+from app.playback.services import (
+    AUTHORIZED_EMBED_AUTHORIZATION_STATUSES,
+    INDEXED_EMBED_SOURCE_TYPES,
+    PlaybackService,
+)
 from app.shared.time import utc_now
 
 CATALOG_PROVIDER_KEYS = frozenset(spec.key for spec in INDEXED_EMBED_PROVIDER_SPECS)
@@ -120,6 +124,13 @@ def _subtitle_languages(value: Any) -> list[str]:
     )
 
 
+def _asset_is_playable(value: Any) -> bool:
+    """Treat missing capability as unknown, but respect an explicit provider no."""
+    if value is None or str(value).strip() == "":
+        return True
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _sanitized_row(row: dict[str, Any]) -> dict[str, Any]:
     values: dict[str, Any] = {}
     for key in (
@@ -140,6 +151,8 @@ def _sanitized_row(row: dict[str, Any]) -> dict[str, Any]:
         "language",
         "subtitle_languages",
         "quality",
+        "asset_playable",
+        "folder_id",
     ):
         if SENSITIVE_FIELD_PATTERN.search(key):
             continue
@@ -162,9 +175,15 @@ class CatalogImportService:
         import_method: str,
         source_name: str,
         filename: str = "",
+        source_type: str = "known_embed",
+        authorization_status: str = "catalog_authorized",
     ) -> ImportBatch:
-        if import_method not in {"csv", "json", "manual"}:
+        if import_method not in {"account_api", "csv", "json", "manual"}:
             raise CatalogImportError("Catalog import method is invalid.")
+        if source_type not in INDEXED_EMBED_SOURCE_TYPES:
+            raise CatalogImportError("Catalog source type is invalid.")
+        if authorization_status not in AUTHORIZED_EMBED_AUTHORIZATION_STATUSES:
+            raise CatalogImportError("Catalog source authorization status is invalid.")
         if not rows:
             raise CatalogImportError("Catalog contains no rows.")
         _limited_rows(rows)
@@ -178,7 +197,13 @@ class CatalogImportService:
         db.session.flush()
 
         for row_number, values in enumerate(rows, start=1):
-            outcome = cls._process_row(batch, row_number, values)
+            outcome = cls._process_row(
+                batch,
+                row_number,
+                values,
+                source_type=source_type,
+                authorization_status=authorization_status,
+            )
             if outcome.match_status == "accepted":
                 batch.accepted_rows += 1
             elif outcome.match_status == "review_required":
@@ -193,7 +218,15 @@ class CatalogImportService:
         return batch
 
     @classmethod
-    def _process_row(cls, batch: ImportBatch, row_number: int, values: dict[str, Any]) -> ImportRow:
+    def _process_row(
+        cls,
+        batch: ImportBatch,
+        row_number: int,
+        values: dict[str, Any],
+        *,
+        source_type: str,
+        authorization_status: str,
+    ) -> ImportRow:
         sanitized = _sanitized_row(values if isinstance(values, dict) else {})
         row = ImportRow(
             batch_id=batch.id,
@@ -210,6 +243,10 @@ class CatalogImportService:
             row.provider = provider
             row.provider_asset_id = asset_id
             row.raw_reference = asset_id
+            if not _asset_is_playable(_value(values, "asset_playable")):
+                row.match_status = "review_required"
+                row.reason = "Provider asset is not currently playable."
+                return row
             movie, status, reason, confidence, season, episode = cls._match_content(values)
             row.match_status = status
             row.reason = reason
@@ -243,13 +280,15 @@ class CatalogImportService:
                 subtitle_languages=_subtitle_languages(_value(values, "subtitle_languages")),
                 quality=_text(_value(values, "quality"), limit=80),
                 provenance={
-                    "origin": "catalog_import",
+                    "origin": "account_library_sync" if batch.import_method == "account_api" else "catalog_import",
                     "import_batch_id": batch.id,
                     "import_method": batch.import_method,
                     "source_name": batch.source_name,
                 },
+                authorization_status=authorization_status,
+                enabled=False,
+                source_type=source_type,
             )
-            source.authorization_status = "catalog_authorized"
             source.match_confidence = confidence
             source.priority_override = _nonnegative_int(_value(values, "priority_override"))
             db.session.flush()
@@ -264,7 +303,7 @@ class CatalogImportService:
 
     @staticmethod
     def _provider_asset(values: dict[str, Any]) -> tuple[str, str]:
-        provider = _text(_value(values, "provider", "server"), limit=40).lower()
+        provider = _text(_value(values, "provider", "provider_key", "server"), limit=40).lower()
         provider = canonical_indexed_embed_provider_key(provider) or provider
         reference = _text(_value(values, "embed_url", "url"), limit=1000)
         asset_id = _text(_value(values, "provider_asset_id", "asset_id"), limit=300)

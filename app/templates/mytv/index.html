@@ -11,25 +11,14 @@
 {% endblock %}
 
 {% block content %}
-<div id="tvConfig" data-auto-catalog="{{ 'false' if config['TESTING'] else 'true' }}" data-auto-health="{{ 'false' if config['TESTING'] else 'true' }}" hidden></div>
-<header class="page-header tv-page-header">
-  <div>
-    <span class="eyebrow">Private live catalogue</span>
-    <h1>My TV</h1>
-    <p>Smart themes, channel choices, and favorites survive every source refresh.</p>
+<div id="tvConfig" data-auto-catalog="{{ 'false' if config['TESTING'] else 'true' }}" data-auto-health="false" data-favorites-first="{{ 'true' if favorites_first else 'false' }}" data-default-view="{{ default_view }}" data-default-sort="{{ default_sort }}" hidden></div>
+<header class="tv-page-header">
+  <div class="tv-page-title">
+    <span class="tv-live-dot" aria-hidden="true"></span>
+    <div><h1>My TV</h1><p id="tvTrustSummary">Loading your lineup…</p></div>
   </div>
-  <div class="tv-header-actions">
-    <button class="button button--secondary" id="healthCheck" type="button">Check channels</button>
-    <button class="button button--secondary" id="refreshCatalog" type="button">Fetch updates</button>
-  </div>
+  <p class="tv-shortcut-hint"><kbd>/</kbd> Search <span aria-hidden="true">·</span> <kbd>F</kbd> Favorite <span aria-hidden="true">·</span> <kbd>M</kbd> Mute</p>
 </header>
-
-<section class="tv-stats" aria-label="TV catalogue summary">
-  <div><span>Available now</span><strong id="statEnabled">—</strong><small>enabled channels</small></div>
-  <div><span>Catalogue</span><strong id="statTotal">—</strong><small>total channels</small></div>
-  <div><span>Bouquets</span><strong id="statGroups">—</strong><small>channel groups</small></div>
-  <div><span>GitHub files</span><strong id="statSources">—</strong><small>synced automatically</small></div>
-</section>
 
 <section class="tv-sync" id="syncBanner" hidden aria-live="polite">
   <span class="spinner" aria-hidden="true"></span>
@@ -49,14 +38,25 @@
 </nav>
 
 <section class="tv-panel" id="tv-panel-watch" role="tabpanel" aria-labelledby="tv-tab-watch" data-panel="watch">
+  <div class="tv-watch-toolbar">
+    <div class="tv-view-switcher" aria-label="Channel view">
+      <button type="button" data-channel-view="enabled" aria-pressed="true">Ready</button>
+      <button type="button" data-channel-view="favorites" aria-pressed="false">Favorites</button>
+      <button type="button" data-channel-view="recent" aria-pressed="false">Recent</button>
+      <button type="button" data-channel-view="all" aria-pressed="false">All</button>
+    </div>
+    <label class="field tv-visibility-filter" aria-hidden="true"><span>Channel view</span><select id="stateFilter" tabindex="-1"><option value="enabled">Ready to watch</option><option value="favorites">Favorites</option><option value="recent">Recently watched</option><option value="all">All channels</option><option value="disabled">Disabled channels</option></select></label>
+  </div>
+
   <div class="tv-watch-layout">
-    <section class="tv-player-shell" aria-labelledby="nowPlayingTitle">
+    <section class="tv-player-shell" id="playerShell" aria-labelledby="nowPlayingTitle">
       <div class="tv-player-frame" id="playerFrame">
         <video id="videoPlayer" controls playsinline preload="metadata" hidden></video>
         <div class="tv-player-empty" id="playerEmpty">
           <span class="tv-signal-mark" aria-hidden="true"><i></i><i></i><i></i></span>
           <strong>Choose a channel to start</strong>
-          <span>Streams stay server-side and open inside Dragon.</span>
+          <span id="playerEmptyText">Your favorites and recent channels stay close.</span>
+          <button class="button button--secondary" id="resumeLastChannel" type="button" hidden>Resume last channel</button>
         </div>
         <div class="tv-player-loading" id="playerLoading" role="status" aria-live="polite" hidden>
           <span class="spinner" id="playerSpinner" aria-hidden="true"></span>
@@ -70,59 +70,70 @@
           <small>Now playing</small>
           <h2 id="nowPlayingTitle">Nothing selected</h2>
           <p id="nowPlayingMeta">Choose an enabled channel below.</p>
+          <p class="tv-now-next" id="nowPlayingGuide" hidden></p>
         </div>
-        <span class="badge badge--error" id="liveBadge" hidden>Live</span>
+        <div class="tv-player-actions"><button class="button button--quiet" id="pictureInPicture" type="button" hidden>Picture in picture</button><span class="badge tv-live-badge" id="liveBadge" hidden>Live</span></div>
       </div>
     </section>
 
-    <aside class="tv-filters" aria-labelledby="browseTitle">
-      <span class="eyebrow">Quick control</span>
-      <h2 id="browseTitle">Browse catalogue</h2>
-      <label class="field"><span>Bouquet</span><select id="groupFilter"><option value="">All active bouquets</option></select></label>
-      <label class="field"><span>Visibility</span><select id="stateFilter"><option value="enabled">Enabled channels</option><option value="favorites">Favorites</option><option value="all">All channels</option><option value="disabled">Disabled channels</option></select></label>
-      <div class="tv-control-note"><strong>Persistent memory</strong><p>Disabled bouquets stay hidden here. Favorites and channel overrides return when updated files are imported.</p></div>
+    <aside class="tv-filters" id="channelPanel" aria-label="Channels">
+      <div class="tv-watch-search">
+        <div class="tv-channel-context" aria-live="polite">
+          <strong id="channelViewTitle">Ready to watch</strong>
+          <span id="channelViewCount">Loading…</span>
+        </div>
+        <label class="field"><span class="sr-only">Search watch channels</span><input id="channelSearch" type="search" placeholder="Search channels…" autocomplete="off"></label>
+      </div>
+      <div class="tv-channel-list" id="channelGrid" role="list" aria-label="Available channels"></div>
+      <section class="empty-state tv-channel-empty" id="channelEmpty" hidden>
+        <div class="empty-state__mark" aria-hidden="true"></div>
+        <div><h3>No channels here yet</h3><p>Refresh the source or change Visibility.</p></div>
+        <button class="button button--primary" type="button" data-empty-sync>Import latest</button>
+      </section>
+      <div class="tv-channel-load-status" id="channelLoadStatus" role="status" aria-live="polite" hidden>Loading more channels…</div>
+      <button class="button button--quiet tv-load-more" id="loadMoreChannels" type="button" hidden>Load more channels</button>
     </aside>
   </div>
-
-  <section class="tv-channel-section" aria-labelledby="channelHeading">
-    <div class="tv-section-heading">
-      <div><span class="eyebrow">Channel guide</span><h2 id="channelHeading">Available channels</h2></div>
-      <label class="field tv-search"><span>Search channels</span><input id="channelSearch" type="search" placeholder="Channel or bouquet…" autocomplete="off"></label>
-    </div>
-    <div class="tv-channel-grid" id="channelGrid" aria-live="polite"></div>
-    <section class="empty-state" id="channelEmpty" hidden>
-      <div class="empty-state__mark" aria-hidden="true"></div>
-      <div><h3>No channels here yet</h3><p>Refresh the source, import a package, or change your filters.</p></div>
-      <button class="button button--primary" type="button" data-empty-sync>Import latest</button>
-    </section>
-    <div class="pagination" id="pagination" hidden>
-      <button class="button button--secondary" id="previousPage" type="button">Previous</button>
-      <span id="pageStatus">Page 1</span>
-      <button class="button button--secondary" id="nextPage" type="button">Next</button>
-    </div>
-  </section>
 </section>
 
 <section class="tv-panel" id="tv-panel-manage" role="tabpanel" aria-labelledby="tv-tab-manage" data-panel="manage" hidden>
-  <section class="tv-source-summary" aria-labelledby="sourcesHeading">
+  <div class="tv-manage-toolbar" aria-label="Lineup maintenance">
+    <div><span class="eyebrow">Lineup maintenance</span><h2>Keep channels current</h2><p id="epgStatusText">Guide status is loading…</p><p id="healthStatusText">Availability has not been checked yet.</p></div>
+    <div class="tv-header-actions">
+      <button class="button button--secondary" id="refreshEpg" type="button">Refresh guide</button>
+      <button class="button button--secondary" id="healthCheck" type="button">Check availability</button>
+      <button class="button button--secondary" id="refreshCatalog" type="button">Refresh my lineup</button>
+    </div>
+  </div>
+
+  <section class="tv-stats" aria-label="TV catalogue summary">
+    <div><span>Ready now</span><strong id="statEnabled">—</strong><small>channels in your lineup</small></div>
+    <div><span>Favorites</span><strong id="statFavorites">—</strong><small>channels with guide priority</small></div>
+    <div><span>Groups</span><strong id="statGroups">—</strong><small>lineup categories</small></div>
+    <div><span>Catalogue</span><strong id="statTotal">—</strong><small>available source channels</small></div>
+    <strong id="statSources" hidden>—</strong>
+  </section>
+
+  <details class="tv-source-summary" aria-labelledby="sourcesHeading">
+    <summary><span><small>Source details</small><strong id="sourcesHeading">Catalogue cache</strong></span><span aria-hidden="true">＋</span></summary>
+    <div class="tv-source-summary__body">
     <div>
-      <span class="eyebrow">Automatic source</span>
-      <h2 id="sourcesHeading">GitHub catalogue</h2>
-      <p>Every M3U file is merged automatically from <a href="https://github.com/{{ source_repo }}" target="_blank" rel="noreferrer">{{ source_repo }}</a>.</p>
+      <p>Dragon refreshes only the source packages backing your favorites and lineup choices. Repository: <a href="https://github.com/{{ source_repo }}" target="_blank" rel="noreferrer">{{ source_repo }}</a>.</p>
     </div>
     <dl class="tv-source-metrics">
       <div><dt>Repository</dt><dd id="sourceRepoFiles">—</dd></div>
-      <div><dt>Synced</dt><dd id="sourceSyncedFiles">—</dd></div>
+      <div><dt>Cached now</dt><dd id="sourceSyncedFiles">—</dd></div>
       <div><dt>Pending</dt><dd id="sourcePendingFiles">—</dd></div>
     </dl>
-  </section>
+    </div>
+  </details>
 
   <section class="tv-manage-section" aria-labelledby="bouquetsHeading">
     <div class="tv-section-heading">
-      <div><span class="eyebrow">Smart theme control</span><h2 id="bouquetsHeading">Channel groups</h2><p>All repository files are merged here. Choose only the bouquets and channels you want.</p></div>
+      <div><span class="eyebrow">My lineup</span><h2 id="bouquetsHeading">Active groups</h2><p>Choose the groups that belong in your lineup. Broad changes show their impact and can be undone.</p></div>
       <div class="tv-manage-controls">
-        <label class="field tv-search"><span>Search bouquets</span><input id="groupSearch" type="search" placeholder="Find a bouquet…" autocomplete="off"></label>
-        <label class="field"><span>Show bouquets</span><select id="bouquetVisibility"><option value="all">All bouquets</option><option value="on">On only</option><option value="off">Off only</option></select></label>
+        <label class="field tv-search"><span>Search groups</span><input id="groupSearch" type="search" placeholder="Find a group…" autocomplete="off"></label>
+        <label class="field"><span>Show groups</span><select id="bouquetVisibility"><option value="all">All groups</option><option value="on">Active only</option><option value="off">Inactive only</option></select></label>
       </div>
     </div>
     <div class="tv-bouquet-list" id="bouquetList"></div>
@@ -130,6 +141,20 @@
       <div class="empty-state__mark" aria-hidden="true"></div>
       <div><h3 id="bouquetEmptyTitle">No bouquets found</h3><p id="bouquetEmptyText">Try another view or search.</p></div>
     </section>
+  </section>
+
+  <section class="tv-manage-section" aria-labelledby="channelControlsHeading">
+    <div class="tv-section-heading">
+      <div><span class="eyebrow">My exceptions</span><h2 id="channelControlsHeading">Channel exceptions</h2><p>Change one channel without changing its group. The current inherited result stays visible.</p></div>
+      <label class="field tv-search"><span>Search channels</span><input id="manageChannelSearch" type="search" placeholder="Find a channel…" autocomplete="off"></label>
+    </div>
+    <div class="tv-manage-channel-list" id="manageChannelList" role="list" aria-label="Channel exceptions"></div>
+    <section class="empty-state" id="manageChannelEmpty" hidden>
+      <div class="empty-state__mark" aria-hidden="true"></div>
+      <div><h3>No channels found</h3><p>Try another channel name.</p></div>
+    </section>
+    <div class="tv-channel-load-status" id="manageChannelLoadStatus" role="status" aria-live="polite" hidden>Loading more channels…</div>
+    <button class="button button--quiet tv-load-more" id="loadMoreManageChannels" type="button" hidden>Load more channels</button>
   </section>
 </section>
 

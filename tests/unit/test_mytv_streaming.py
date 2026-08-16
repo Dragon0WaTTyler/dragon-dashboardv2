@@ -75,3 +75,16 @@ def test_transcode_rejects_an_offline_source_before_empty_200(monkeypatch):
     assert process.stopped is True
     assert streaming._transcode_slots.acquire(blocking=False) is True
     assert streaming._transcode_slots.acquire(blocking=False) is True
+
+
+def test_closing_unconsumed_transcode_response_releases_playback_slot(monkeypatch):
+    process, _commands = _mock_transcoder(monkeypatch, [b"first"])
+    app = Flask(__name__)
+
+    with app.test_request_context("/"):
+        response = streaming.transcode_stream("https://stream.example/live.m3u8")
+        response.close()
+
+    assert process.stopped is True
+    assert streaming._transcode_slots.acquire(blocking=False) is True
+    assert streaming._transcode_slots.acquire(blocking=False) is True

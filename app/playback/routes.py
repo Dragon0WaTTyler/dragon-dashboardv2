@@ -33,6 +33,7 @@ from app.playback.catalog import (
 from app.playback.identity import PlaybackIdentity
 from app.playback.models import ImportBatch, MagnetCandidate, PlaybackSource
 from app.playback.providers import (
+    ID_CATALOG_EMBED_PROVIDER_SPECS,
     INDEXED_EMBED_PROVIDER_SPECS,
     build_provider_registry_from_config,
     validate_indexed_embed_url_template,
@@ -43,6 +44,7 @@ from app.playback.runtime import (
 )
 from app.playback.services import (
     AUTHORIZED_EMBED_AUTHORIZATION_STATUSES,
+    INDEXED_EMBED_SOURCE_TYPES,
     PlaybackService,
     ProviderAvailabilityService,
 )
@@ -265,6 +267,66 @@ def vidsrc_source(movie_id: str):
     return response
 
 
+@bp.get("/movie/<movie_id>/providers/<provider_key>")
+@login_required
+def id_catalog_source(movie_id: str, provider_key: str):
+    """Resolve one configured TMDb-backed provider only after Watch is requested."""
+    _require_playback()
+    canonical_key = str(provider_key or "").strip().lower()
+    if canonical_key not in {spec.key for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}:
+        abort(404)
+    context = get_playback_context(movie_id)
+    if context is None:
+        abort(404)
+    season = _optional_positive_int(request.args.get("season"))
+    episode = _optional_positive_int(request.args.get("episode"))
+    if (season is None) != (episode is None):
+        return _playback_source_error(
+            "TV playback requires both a season and an episode.",
+            code="invalid_playback_scope",
+            status=400,
+        )
+    if context["media_type"] == "tv" and (
+        season is None
+        or episode is None
+        or not tv_episode_exists(movie_id, season=season, episode=episode)
+    ):
+        return _playback_source_error(
+            "A valid TV season and episode are required for playback.",
+            code="invalid_playback_scope",
+            status=400,
+        )
+    if context["media_type"] != "tv" and (season is not None or episode is not None):
+        return _playback_source_error(
+            "Movie playback does not accept a TV season or episode.",
+            code="invalid_playback_scope",
+            status=400,
+        )
+    provider = _provider_registry().get(canonical_key)
+    if provider is None or not _provider_is_enabled(canonical_key):
+        return _playback_source_error(
+            "The selected provider is not enabled.", code="provider_disabled", status=409
+        )
+    try:
+        identity = PlaybackIdentity.from_context(context, season=season, episode=episode)
+        resolved = provider.resolve(identity)
+    except ValueError as exc:
+        return _playback_source_error(str(exc), code="identity_unavailable", status=503)
+    source_row = PlaybackService.upsert_resolved_source(identity=identity, resolved=resolved)
+    availability = ProviderAvailabilityService.revalidate_if_stale(
+        source_row, identity=identity, provider=provider
+    )
+    if availability.status == "UNAVAILABLE":
+        return _playback_source_error(
+            "The selected source is currently unavailable.",
+            code="source_unavailable",
+            status=503,
+        )
+    response = jsonify({"ok": True, "source": resolved.response_item() | {"source_id": source_row.id}})
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
 @bp.get("/movie/<movie_id>/sources")
 @login_required
 def playback_sources(movie_id: str):
@@ -298,7 +360,9 @@ def playback_sources(movie_id: str):
                 season=season,
                 episode=episode,
                 enabled_providers=PlaybackService.enabled_provider_keys(
-                    _provider_registry().keys() - {"vidsrc"}
+                    _provider_registry().keys()
+                    - {"vidsrc"}
+                    - {spec.key for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
                 ),
                 provider_priorities=_provider_priorities(),
             ),
@@ -352,7 +416,7 @@ def provider_activation_status(movie_id: str):
             db.select(PlaybackSource).where(
                 PlaybackSource.movie_id == movie_id,
                 PlaybackSource.kind == "embed",
-                PlaybackSource.source_type == "known_embed",
+                PlaybackSource.source_type.in_(INDEXED_EMBED_SOURCE_TYPES),
                 PlaybackSource.scope_key == identity.scope_key,
             )
         )
@@ -455,7 +519,7 @@ def indexed_embed_source(movie_id: str, source_id: str):
             PlaybackSource.id == source_id,
             PlaybackSource.movie_id == movie_id,
             PlaybackSource.kind == "embed",
-            PlaybackSource.source_type == "known_embed",
+            PlaybackSource.source_type.in_(INDEXED_EMBED_SOURCE_TYPES),
             PlaybackSource.enabled.is_(True),
             PlaybackSource.authorization_status.in_(AUTHORIZED_EMBED_AUTHORIZATION_STATUSES),
         )
@@ -513,6 +577,49 @@ def mark_source_selected(movie_id: str, source_id: str):
         abort(404)
     PlaybackService.mark_source_selected(source)
     response = jsonify({"ok": True})
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@bp.post("/movie/<movie_id>/sources/<source_id>/enabled")
+@login_required
+def set_indexed_embed_source_enabled(movie_id: str, source_id: str):
+    """Explicitly activate or deactivate one already-authorized catalog source."""
+    _require_playback()
+    if get_playback_context(movie_id) is None:
+        abort(404)
+    source = db.session.scalar(
+        db.select(PlaybackSource).where(
+            PlaybackSource.id == source_id,
+            PlaybackSource.movie_id == movie_id,
+            PlaybackSource.kind == "embed",
+            PlaybackSource.source_type.in_(INDEXED_EMBED_SOURCE_TYPES),
+            PlaybackSource.authorization_status.in_(AUTHORIZED_EMBED_AUTHORIZATION_STATUSES),
+        )
+    )
+    if source is None:
+        abort(404)
+    payload = request.get_json(silent=True) if request.is_json else request.form
+    raw_enabled = payload.get("enabled") if payload is not None else None
+    if str(raw_enabled).strip().lower() not in {"true", "1", "on", "false", "0", "off"}:
+        return _playback_source_error(
+            "enabled must be true or false.", code="invalid_source_activation", status=400
+        )
+    source.enabled = str(raw_enabled).strip().lower() in {"true", "1", "on"}
+    if not source.enabled:
+        source.selected = False
+    db.session.commit()
+    response = jsonify(
+        {
+            "ok": True,
+            "source": {
+                "id": source.id,
+                "provider": source.provider,
+                "enabled": source.enabled,
+                "authorization_status": source.authorization_status,
+            },
+        }
+    )
     response.headers["Cache-Control"] = "private, no-store"
     return response
 

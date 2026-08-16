@@ -5,6 +5,39 @@
   align-items: end;
 }
 
+.today-grid--custom-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(280px, 0.7fr);
+  gap: var(--space-16);
+  align-items: start;
+}
+
+.today-grid--custom-layout .today-main,
+.today-grid--custom-layout .today-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-10);
+  min-width: 0;
+}
+
+.today-grid--custom-layout .today-section,
+.today-grid--custom-layout .today-aside > section {
+  width: 100%;
+  margin-top: 0;
+}
+
+.today-grid--custom-layout .today-aside {
+  padding-inline-start: var(--space-6);
+  border-inline-start: 1px solid var(--color-border);
+}
+
+.today-iptv-block {
+  padding: var(--space-6);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-container);
+  background: var(--color-surface);
+}
+
 .section-heading--action > a,
 .today-heading-actions > a {
   display: inline-flex;
@@ -295,6 +328,19 @@
 @media (max-width: 1100px) {
   .today-poster-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .today-book { grid-template-columns: 96px minmax(0, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .today-grid--custom-layout {
+    grid-template-columns: 1fr;
+    gap: var(--space-10);
+  }
+
+  .today-grid--custom-layout .today-aside {
+    padding: var(--space-6) 0 0;
+    border-block-start: 1px solid var(--color-border);
+    border-inline-start: 0;
+  }
 }
 
 @media (max-width: 720px) {

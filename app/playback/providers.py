@@ -21,6 +21,18 @@ class IndexedEmbedProviderSpec:
     default_priority: int
 
 
+@dataclass(frozen=True, slots=True)
+class IdCatalogEmbedProviderSpec:
+    """An iframe provider that resolves canonical TMDb identity directly."""
+
+    key: str
+    display_name: str
+    allowed_domains: frozenset[str]
+    movie_url_template: str
+    tv_url_template: str
+    default_priority: int
+
+
 # These are provider identification and rendering rules only. A provider still
 # requires its own local, authorized template and enabled preference to play.
 INDEXED_EMBED_PROVIDER_SPECS = (
@@ -56,6 +68,15 @@ INDEXED_EMBED_PROVIDER_SPECS = (
         asset_id_pattern=r"^[a-z0-9]{12}$",
         default_embed_url_template="https://streamwish.com/e/{asset_id}",
         default_priority=30,
+    ),
+    IndexedEmbedProviderSpec(
+        key="mixdrop",
+        display_name="MixDrop",
+        aliases=frozenset(),
+        allowed_domains=frozenset({"mixdrop.ag"}),
+        asset_id_pattern=r"^[A-Za-z0-9_-]{1,300}$",
+        default_embed_url_template="https://mixdrop.ag/e/{asset_id}",
+        default_priority=35,
     ),
     IndexedEmbedProviderSpec(
         key="doodstream",
@@ -122,7 +143,43 @@ INDEXED_EMBED_PROVIDER_SPECS = (
         default_embed_url_template="https://lulustream.com/e/{asset_id}",
         default_priority=80,
     ),
+    IndexedEmbedProviderSpec(
+        key="uqload",
+        display_name="Uqload",
+        aliases=frozenset(),
+        allowed_domains=frozenset({"uqload.cx", "uqload.io", "uqload.com"}),
+        asset_id_pattern=r"^[A-Za-z0-9_-]{1,300}$",
+        default_embed_url_template="https://uqload.cx/embed-{asset_id}.html",
+        default_priority=90,
+    ),
 )
+ID_CATALOG_EMBED_PROVIDER_SPECS = (
+    IdCatalogEmbedProviderSpec(
+        key="cinesrc",
+        display_name="CineSrc",
+        allowed_domains=frozenset({"cinesrc.st"}),
+        movie_url_template="https://cinesrc.st/embed/movie/{tmdb_id}",
+        tv_url_template="https://cinesrc.st/embed/tv/{tmdb_id}?s={season}&e={episode}",
+        default_priority=15,
+    ),
+    IdCatalogEmbedProviderSpec(
+        key="vidcore",
+        display_name="VidCore",
+        allowed_domains=frozenset({"vidcore.org", "www.vidcore.org"}),
+        movie_url_template="https://vidcore.org/embed/movie/{tmdb_id}",
+        tv_url_template="https://vidcore.org/embed/tv/{tmdb_id}/{season}/{episode}",
+        default_priority=16,
+    ),
+    IdCatalogEmbedProviderSpec(
+        key="vidzee",
+        display_name="VidZee",
+        allowed_domains=frozenset({"player.vidzee.wtf"}),
+        movie_url_template="https://player.vidzee.wtf/embed/movie/{tmdb_id}",
+        tv_url_template="https://player.vidzee.wtf/embed/tv/{tmdb_id}/{season}/{episode}",
+        default_priority=17,
+    ),
+)
+ID_CATALOG_EMBED_PROVIDER_BY_KEY = {spec.key: spec for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
 INDEXED_EMBED_PROVIDER_BY_KEY = {spec.key: spec for spec in INDEXED_EMBED_PROVIDER_SPECS}
 INDEXED_EMBED_PROVIDER_ALIAS_KEYS = {
     alias: spec.key for spec in INDEXED_EMBED_PROVIDER_SPECS for alias in spec.aliases
@@ -138,6 +195,10 @@ def indexed_embed_provider_spec(key: str) -> IndexedEmbedProviderSpec | None:
 def canonical_indexed_embed_provider_key(key: str) -> str | None:
     spec = indexed_embed_provider_spec(key)
     return spec.key if spec else None
+
+
+def id_catalog_embed_provider_spec(key: str) -> IdCatalogEmbedProviderSpec | None:
+    return ID_CATALOG_EMBED_PROVIDER_BY_KEY.get(str(key or "").strip().lower())
 
 
 def catalog_provider_for_host(host: str) -> str | None:
@@ -312,6 +373,33 @@ def validate_indexed_embed_url_template(provider_key: str, value: str) -> str:
     return normalized
 
 
+def _validate_id_catalog_template(
+    spec: IdCatalogEmbedProviderSpec, value: str, *, tv: bool
+) -> str:
+    required = {"{tmdb_id}"}
+    if tv:
+        required |= {"{season}", "{episode}"}
+    normalized = str(value or "").strip()
+    if any(normalized.count(placeholder) != 1 for placeholder in required):
+        raise ValueError(f"{spec.display_name} identity template is invalid.")
+    remainder = normalized
+    for placeholder in required:
+        remainder = remainder.replace(placeholder, "")
+    if "{" in remainder or "}" in remainder:
+        raise ValueError(f"{spec.display_name} identity template has an unsupported placeholder.")
+    parsed = urlsplit(normalized)
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.hostname not in spec.allowed_domains
+        or parsed.username
+        or parsed.password
+        or parsed.fragment
+    ):
+        raise ValueError(f"{spec.display_name} identity template is not allowlisted.")
+    return normalized
+
+
 @dataclass(frozen=True, slots=True)
 class IndexedEmbedProviderConfig:
     key: str
@@ -357,6 +445,44 @@ class IndexedEmbedProvider:
         return ProviderProbeResult(status="UNKNOWN")
 
 
+class IdCatalogEmbedProvider:
+    """Direct TMDb movie/episode iframe provider with no per-title mapping."""
+
+    def __init__(self, key: str) -> None:
+        spec = id_catalog_embed_provider_spec(key)
+        if spec is None:
+            raise ValueError("ID catalog provider is not supported.")
+        self.key = spec.key
+        self.display_name = spec.display_name
+        self._movie_template = _validate_id_catalog_template(spec, spec.movie_url_template, tv=False)
+        self._tv_template = _validate_id_catalog_template(spec, spec.tv_url_template, tv=True)
+
+    def resolve(self, identity: PlaybackIdentity, *, source=None) -> ResolvedPlayback:
+        if not identity.tmdb_id:
+            raise ValueError(f"{self.display_name} requires a TMDb ID.")
+        if identity.is_tv:
+            if identity.season is None or identity.episode is None:
+                raise ValueError("TV playback requires a season and an episode.")
+            url = self._tv_template.format(
+                tmdb_id=identity.tmdb_id, season=identity.season, episode=identity.episode
+            )
+        else:
+            url = self._movie_template.format(tmdb_id=identity.tmdb_id)
+        return ResolvedPlayback(
+            provider=self.key,
+            label=self.display_name,
+            url=url,
+            provider_asset_id=identity.tmdb_id,
+            source_type="id_catalog",
+            playback_mode="embed",
+            match="tmdb",
+        )
+
+    def probe(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult:
+        self.resolve(identity)
+        return ProviderProbeResult(status="UNKNOWN")
+
+
 def build_provider_registry(
     *,
     vidsrc_embed_url: str,
@@ -366,6 +492,8 @@ def build_provider_registry(
     updown_embed_url: str = "",
     streamwish_enabled: bool = False,
     streamwish_embed_url: str = "",
+    mixdrop_enabled: bool = False,
+    mixdrop_embed_url: str = "",
     doodstream_enabled: bool = False,
     doodstream_embed_url: str = "",
     filelions_enabled: bool = False,
@@ -376,17 +504,24 @@ def build_provider_registry(
     streamtape_embed_url: str = "",
     lulustream_enabled: bool = False,
     lulustream_embed_url: str = "",
+    uqload_enabled: bool = False,
+    uqload_embed_url: str = "",
+    cinesrc_enabled: bool = False,
+    vidcore_enabled: bool = False,
+    vidzee_enabled: bool = False,
 ) -> ProviderRegistry:
     providers: list[PlaybackProvider] = [VidSrcProvider(base_url=vidsrc_embed_url)]
     provider_options = {
         "videotube": (videotube_enabled, videotube_embed_url),
         "updown": (updown_enabled, updown_embed_url),
         "streamwish": (streamwish_enabled, streamwish_embed_url),
+        "mixdrop": (mixdrop_enabled, mixdrop_embed_url),
         "doodstream": (doodstream_enabled, doodstream_embed_url),
         "filelions": (filelions_enabled, filelions_embed_url),
         "ok": (ok_enabled, ok_embed_url),
         "streamtape": (streamtape_enabled, streamtape_embed_url),
         "lulustream": (lulustream_enabled, lulustream_embed_url),
+        "uqload": (uqload_enabled, uqload_embed_url),
     }
     for spec in INDEXED_EMBED_PROVIDER_SPECS:
         enabled, embed_url = provider_options[spec.key]
@@ -405,15 +540,43 @@ def build_provider_registry(
                 )
             )
         )
+    direct_provider_options = {
+        "cinesrc": cinesrc_enabled,
+        "vidcore": vidcore_enabled,
+        "vidzee": vidzee_enabled,
+    }
+    providers.extend(
+        IdCatalogEmbedProvider(spec.key)
+        for spec in ID_CATALOG_EMBED_PROVIDER_SPECS
+        if direct_provider_options[spec.key]
+    )
     return ProviderRegistry(tuple(providers))
 
 
 def build_provider_registry_from_config(config) -> ProviderRegistry:
-    options = {"vidsrc_embed_url": str(config["DRAGON_VIDSRC_EMBED_URL"])}
+    providers: list[PlaybackProvider] = [
+        VidSrcProvider(base_url=str(config["DRAGON_VIDSRC_EMBED_URL"]))
+    ]
     for spec in INDEXED_EMBED_PROVIDER_SPECS:
         config_key = spec.key.upper()
-        options[f"{spec.key}_enabled"] = bool(
-            config.get(f"DRAGON_{config_key}_ENABLED", False)
-        )
-        options[f"{spec.key}_embed_url"] = str(config.get(f"DRAGON_{config_key}_EMBED_URL", ""))
-    return build_provider_registry(**options)
+        if not config.get(f"DRAGON_{config_key}_ENABLED", False):
+            continue
+        template = str(config.get(f"DRAGON_{config_key}_EMBED_URL", ""))
+        try:
+            providers.append(
+                IndexedEmbedProvider(
+                    IndexedEmbedProviderConfig(
+                        key=spec.key,
+                        embed_url_template=template,
+                    )
+                )
+            )
+        except ValueError:
+            # A stale or malformed optional provider must never take down the
+            # selector or a separately configured provider. The local-only
+            # activation report exposes this configuration failure.
+            continue
+    for spec in ID_CATALOG_EMBED_PROVIDER_SPECS:
+        if config.get(f"DRAGON_{spec.key.upper()}_ENABLED", False):
+            providers.append(IdCatalogEmbedProvider(spec.key))
+    return ProviderRegistry(tuple(providers))

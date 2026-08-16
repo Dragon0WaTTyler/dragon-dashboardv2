@@ -5,14 +5,16 @@ import re
 import threading
 import unicodedata
 import uuid
+from contextlib import ExitStack
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 import requests
 from flask import Flask
-from sqlalchemy import delete, func, select, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.extensions import db
@@ -23,7 +25,9 @@ from app.mytv.models import (
     TVChannelRepresentative,
     TVGroup,
     TVPlaylist,
+    TVSource,
     TVTheme,
+    TVThemePreference,
 )
 
 GITHUB_API = "https://api.github.com"
@@ -52,6 +56,138 @@ THEME_PHRASE_ALIASES = {
 
 class TVSyncError(RuntimeError):
     pass
+
+
+def persist_theme_preference(theme: TVTheme) -> None:
+    """Store only the durable ON/OFF policy, never catalogue relationships."""
+    now = datetime.now(UTC)
+    statement = sqlite_insert(TVThemePreference).values(
+        theme_key=theme.key,
+        enabled=theme.enabled,
+        channel_policy=theme.channel_policy,
+        created_at=now,
+        updated_at=now,
+    )
+    db.session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[TVThemePreference.theme_key],
+            set_={
+                "enabled": statement.excluded.enabled,
+                "channel_policy": statement.excluded.channel_policy,
+                "updated_at": statement.excluded.updated_at,
+            },
+        )
+    )
+
+
+def relevant_playlist_ids(candidate_ids: list[int] | None = None) -> list[int]:
+    """Return packages that currently back a favorite or an explicit ON/OFF choice."""
+    conditions = [
+        TVPlaylist.imported.is_(True),
+        TVPlaylist.available.is_(True),
+        TVPlaylist.enabled.is_(True),
+        or_(
+            TVTheme.enabled.is_(True),
+            TVChannelPreference.favorite.is_(True),
+            TVChannelPreference.enabled_override.is_not(None),
+        ),
+    ]
+    if candidate_ids is not None:
+        if not candidate_ids:
+            return []
+        conditions.append(TVPlaylist.id.in_(candidate_ids))
+    return list(
+        db.session.scalars(
+            select(TVPlaylist.id)
+            .join(TVChannel, TVChannel.playlist_id == TVPlaylist.id)
+            .join(TVGroup, TVGroup.id == TVChannel.group_id)
+            .join(TVTheme, TVTheme.id == TVGroup.theme_id)
+            .outerjoin(
+                TVChannelPreference,
+                TVChannelPreference.preference_key == TVChannel.preference_key,
+            )
+            .where(*conditions)
+            .distinct()
+            .order_by(TVPlaylist.id)
+        )
+    )
+
+
+def purge_unavailable_playlists(source_id: int) -> int:
+    """Delete stale catalogue cache while leaving personal preference tables intact."""
+    stale_ids = list(
+        db.session.scalars(
+            select(TVPlaylist.id).where(
+                TVPlaylist.source_id == source_id,
+                TVPlaylist.available.is_(False),
+            )
+        )
+    )
+    if not stale_ids:
+        return 0
+    stale_channel_ids = select(TVChannel.id).where(TVChannel.playlist_id.in_(stale_ids))
+    db.session.execute(
+        delete(TVChannelRepresentative).where(
+            TVChannelRepresentative.channel_id.in_(stale_channel_ids)
+        )
+    )
+    db.session.execute(delete(TVChannel).where(TVChannel.playlist_id.in_(stale_ids)))
+    db.session.execute(delete(TVGroup).where(TVGroup.playlist_id.in_(stale_ids)))
+    db.session.execute(delete(TVPlaylist).where(TVPlaylist.id.in_(stale_ids)))
+    orphan_theme_ids = select(TVTheme.id).outerjoin(TVGroup).group_by(TVTheme.id).having(
+        func.count(TVGroup.id) == 0
+    )
+    db.session.execute(delete(TVTheme).where(TVTheme.id.in_(orphan_theme_ids)))
+    db.session.commit()
+    query_cache.invalidate()
+    return len(stale_ids)
+
+
+def prune_irrelevant_playlist_cache(source_id: int) -> int:
+    """Keep channel cache only for packages backing current personal choices."""
+    relevant = set(relevant_playlist_ids())
+    candidates = list(
+        db.session.scalars(
+            select(TVPlaylist.id).where(
+                TVPlaylist.source_id == source_id,
+                TVPlaylist.available.is_(True),
+                TVPlaylist.imported.is_(True),
+            )
+        )
+    )
+    disposable_ids = [playlist_id for playlist_id in candidates if playlist_id not in relevant]
+    if not disposable_ids:
+        return 0
+    disposable_channel_ids = select(TVChannel.id).where(
+        TVChannel.playlist_id.in_(disposable_ids)
+    )
+    db.session.execute(
+        delete(TVChannelRepresentative).where(
+            TVChannelRepresentative.channel_id.in_(disposable_channel_ids)
+        )
+    )
+    db.session.execute(delete(TVChannel).where(TVChannel.playlist_id.in_(disposable_ids)))
+    db.session.execute(delete(TVGroup).where(TVGroup.playlist_id.in_(disposable_ids)))
+    db.session.execute(
+        update(TVPlaylist)
+        .where(TVPlaylist.id.in_(disposable_ids))
+        .values(
+            imported=False,
+            imported_sha="",
+            channel_count=0,
+            group_count=0,
+            sync_status="catalogued",
+            sync_error="",
+            last_synced_at=None,
+        )
+    )
+    orphan_theme_ids = select(TVTheme.id).outerjoin(TVGroup).group_by(TVTheme.id).having(
+        func.count(TVGroup.id) == 0
+    )
+    db.session.execute(delete(TVTheme).where(TVTheme.id.in_(orphan_theme_ids)))
+    db.session.commit()
+    query_cache.invalidate()
+    return len(disposable_ids)
 
 
 @dataclass(slots=True)
@@ -97,9 +233,9 @@ def smart_theme(group_name: str) -> ThemeIdentity:
     """Collapse equivalent source bouquets into one stable cross-package theme."""
     display = re.sub(r"\s+", " ", str(group_name or "Ungrouped")).strip()
     display = re.sub(r"\s*[|:»›]+\s*", " · ", display).strip(" ·-") or "Ungrouped"
-    folded = unicodedata.normalize("NFKD", display.casefold()).encode(
-        "ascii", "ignore"
-    ).decode("ascii")
+    folded = (
+        unicodedata.normalize("NFKD", display.casefold()).encode("ascii", "ignore").decode("ascii")
+    )
     for phrase, replacement in THEME_PHRASE_ALIASES.items():
         folded = folded.replace(phrase, replacement)
     tokens = re.findall(r"[a-z0-9]+", folded)
@@ -139,9 +275,7 @@ def parse_m3u(lines):
         if not line:
             continue
         if line.startswith("#EXTINF"):
-            attributes = {
-                key.lower(): value.strip() for key, value in ATTRIBUTE_RE.findall(line)
-            }
+            attributes = {key.lower(): value.strip() for key, value in ATTRIBUTE_RE.findall(line)}
             name = line.rsplit(",", 1)[-1].strip() if "," in line else "Unknown channel"
             pending = {
                 "name": name or attributes.get("tvg-name", "Unknown channel"),
@@ -178,6 +312,7 @@ class GithubTVSync:
         self.new_ids: list[int] = []
         self.changed_ids: list[int] = []
         self.pending_ids: list[int] = []
+        self.source_id: int | None = None
         self.session.headers.update(
             {
                 "Accept": "application/vnd.github+json",
@@ -186,6 +321,23 @@ class GithubTVSync:
         )
 
     def discover(self) -> list[int]:
+        source = db.session.scalar(select(TVSource).where(TVSource.protected.is_(True)))
+        if source is None:
+            source = TVSource(
+                name="Dragon IPTV catalogue",
+                source_type="github_repository",
+                locator=f"{SOURCE_OWNER}/{SOURCE_REPOSITORY}",
+                branch=SOURCE_BRANCH,
+                file_pattern="*.m3u",
+                enabled=True,
+                auto_refresh=True,
+                refresh_interval_minutes=360,
+                protected=True,
+                status="untested",
+            )
+            db.session.add(source)
+            db.session.flush()
+        self.source_id = source.id
         response = self.session.get(
             f"{GITHUB_API}/repos/{SOURCE_OWNER}/{SOURCE_REPOSITORY}/contents",
             params={"ref": SOURCE_BRANCH},
@@ -206,18 +358,19 @@ class GithubTVSync:
             key=lambda item: str(item.get("name") or ""),
         )
 
-        db.session.execute(update(TVPlaylist).values(available=False))
+        db.session.execute(
+            update(TVPlaylist).where(TVPlaylist.source_id == source.id).values(available=False)
+        )
         self.new_ids = []
         self.changed_ids = []
         self.pending_ids = []
         ids: list[int] = []
         for item in files:
             path = str(item["path"])
-            playlist = db.session.scalar(
-                select(TVPlaylist).where(TVPlaylist.github_path == path)
-            )
+            playlist = db.session.scalar(select(TVPlaylist).where(TVPlaylist.github_path == path))
             if playlist is None:
                 playlist = TVPlaylist(
+                    source_id=source.id,
                     name=friendly_playlist_name(str(item["name"])),
                     github_path=path,
                     source_url=str(item["download_url"]),
@@ -227,11 +380,11 @@ class GithubTVSync:
                 is_new = True
             else:
                 is_new = False
+            playlist.source_id = source.id
             playlist.name = friendly_playlist_name(str(item["name"]))
             playlist.source_url = str(item["download_url"])
             playlist.source_sha = str(item.get("sha") or "")
             playlist.size_bytes = int(item.get("size") or 0)
-            playlist.enabled = True
             playlist.available = True
             playlist.discovered_at = datetime.now(UTC)
             db.session.flush()
@@ -242,6 +395,9 @@ class GithubTVSync:
                 self.changed_ids.append(playlist.id)
             if not playlist.imported:
                 self.pending_ids.append(playlist.id)
+        source.status = "healthy"
+        source.last_error = ""
+        source.last_tested_at = datetime.now(UTC)
         db.session.commit()
         query_cache.invalidate()
         return ids
@@ -264,38 +420,65 @@ class GithubTVSync:
             )
         }
         themes = {item.key: item for item in db.session.scalars(select(TVTheme))}
+        theme_preferences = {
+            item.theme_key: item
+            for item in db.session.scalars(select(TVThemePreference))
+        }
+        custom_source = bool(playlist.source and not playlist.source.protected)
+        auto_enabled_themes: dict[str, TVTheme] = {}
+        for theme_key, theme in themes.items():
+            durable = theme_preferences.get(theme_key)
+            if durable is not None:
+                theme.enabled = durable.enabled
+                theme.channel_policy = durable.channel_policy
         preferences = {
-            item.preference_key: item
-            for item in db.session.scalars(select(TVChannelPreference))
+            item.preference_key: item for item in db.session.scalars(select(TVChannelPreference))
         }
         affected_theme_ids = {item.theme_id for item in groups.values()}
         parsed_count = 0
         batch: list[dict[str, Any]] = []
         try:
-            with self.session.get(
-                playlist.source_url,
-                stream=True,
-                timeout=(self.timeout_seconds, max(60, self.timeout_seconds * 6)),
-            ) as response:
-                if response.status_code != 200:
-                    raise TVSyncError(
-                        f"Playlist download returned HTTP {response.status_code}."
+            with ExitStack() as stack:
+                local_path = Path(playlist.source_url)
+                if playlist.source and playlist.source.source_type == "local_file":
+                    if not local_path.is_file():
+                        raise TVSyncError("The uploaded playlist file is missing.")
+                    lines = stack.enter_context(
+                        local_path.open("r", encoding="utf-8-sig", errors="replace")
                     )
-                response.encoding = response.encoding or "utf-8"
-                for position, entry in enumerate(
-                    parse_m3u(response.iter_lines(decode_unicode=True)), start=1
-                ):
+                else:
+                    response = stack.enter_context(
+                        self.session.get(
+                            playlist.source_url,
+                            stream=True,
+                            timeout=(self.timeout_seconds, max(60, self.timeout_seconds * 6)),
+                        )
+                    )
+                    if response.status_code != 200:
+                        raise TVSyncError(
+                            f"Playlist download returned HTTP {response.status_code}."
+                        )
+                    response.encoding = response.encoding or "utf-8"
+                    lines = response.iter_lines(decode_unicode=True)
+                for position, entry in enumerate(parse_m3u(lines), start=1):
                     identity = smart_theme(entry.group)
                     theme = themes.get(identity.key)
                     if theme is None:
+                        durable = theme_preferences.get(identity.key)
                         theme = TVTheme(
                             key=identity.key,
                             name=identity.name,
-                            enabled=False,
+                            enabled=durable.enabled if durable else custom_source,
+                            channel_policy=durable.channel_policy if durable else None,
                         )
                         db.session.add(theme)
                         db.session.flush()
                         themes[identity.key] = theme
+                        if custom_source and durable is None:
+                            auto_enabled_themes[identity.key] = theme
+                    elif custom_source and identity.key not in theme_preferences:
+                        theme.enabled = True
+                        auto_enabled_themes[identity.key] = theme
                     group = groups.get(entry.group)
                     if group is None:
                         group = TVGroup(
@@ -379,9 +562,7 @@ class GithubTVSync:
                     theme.group_count, theme.channel_count = counts
             stored_count = int(
                 db.session.scalar(
-                    select(func.count(TVChannel.id)).where(
-                        TVChannel.playlist_id == playlist_id
-                    )
+                    select(func.count(TVChannel.id)).where(TVChannel.playlist_id == playlist_id)
                 )
                 or 0
             )
@@ -392,13 +573,18 @@ class GithubTVSync:
                 or 0
             )
             playlist.imported = True
-            playlist.enabled = True
             playlist.imported_sha = playlist.source_sha
             playlist.channel_count = stored_count
             playlist.group_count = stored_groups
             playlist.sync_status = "ready"
             playlist.sync_error = ""
             playlist.last_synced_at = datetime.now(UTC)
+            if playlist.source:
+                playlist.source.status = "healthy"
+                playlist.source.last_error = ""
+                playlist.source.last_success_at = datetime.now(UTC)
+            for auto_enabled_theme in auto_enabled_themes.values():
+                persist_theme_preference(auto_enabled_theme)
             db.session.commit()
             if refresh_representatives:
                 self.refresh_representatives()
@@ -430,7 +616,7 @@ class GithubTVSync:
                 SELECT channels.preference_key, MAX(channels.id)
                 FROM tv_channels AS channels
                 JOIN tv_playlists AS playlists ON playlists.id = channels.playlist_id
-                WHERE playlists.imported = 1 AND playlists.available = 1
+                WHERE playlists.imported = 1 AND playlists.available = 1 AND playlists.enabled = 1
                 GROUP BY channels.preference_key
                 """
             )
@@ -516,9 +702,10 @@ class TVSyncCoordinator:
                 if mode == "catalog":
                     selected: list[int] = []
                 elif mode == "fetch":
-                    selected = list(
-                        dict.fromkeys([*sync.changed_ids, *sync.pending_ids])
-                    )
+                    changed = list(dict.fromkeys([*sync.changed_ids, *sync.pending_ids]))
+                    selected = relevant_playlist_ids(changed)
+                    if not selected and not db.session.scalar(select(func.count(TVTheme.id))):
+                        selected = changed[-1:]
                 elif mode == "all":
                     selected = discovered
                 elif mode == "selected":
@@ -536,9 +723,7 @@ class TVSyncCoordinator:
                 for index, playlist_id in enumerate(selected, start=1):
                     with self._lock:
                         self._status["current"] = index
-                        self._status["message"] = (
-                            f"Importing package {index} of {len(selected)}"
-                        )
+                        self._status["message"] = f"Importing package {index} of {len(selected)}"
 
                     def update_progress(count: int, base: int = total_channels) -> None:
                         with self._lock:
@@ -552,21 +737,30 @@ class TVSyncCoordinator:
                     total_channels += result["channels"]
                     with self._lock:
                         self._status["channels"] = total_channels
+                purged = purge_unavailable_playlists(sync.source_id) if sync.source_id else 0
+                pruned = (
+                    prune_irrelevant_playlist_cache(sync.source_id)
+                    if sync.source_id and mode in {"catalog", "fetch"}
+                    else 0
+                )
                 sync.refresh_representatives()
+                if sync.source_id:
+                    source = db.session.get(TVSource, sync.source_id)
+                    if source:
+                        source.last_success_at = datetime.now(UTC)
+                        db.session.commit()
                 with self._lock:
                     self._status.update(
                         state="complete",
                         message=(
-                            "Source catalogue refreshed"
+                            f"Catalogue refreshed · {purged + pruned} unused package(s) cleaned"
                             if not selected
-                            else f"Imported {total_channels:,} channels"
+                            else f"Updated {len(selected)} selected package(s)"
                         ),
                     )
         except Exception as error:
             with self._lock:
-                self._status.update(
-                    state="error", message="Sync failed", error=str(error)[:500]
-                )
+                self._status.update(state="error", message="Sync failed", error=str(error)[:500])
 
 
 sync_coordinator = TVSyncCoordinator()

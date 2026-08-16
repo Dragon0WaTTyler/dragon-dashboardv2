@@ -84,22 +84,43 @@ class Settings:
     playback_enabled: bool
     vidsrc_enabled: bool
     vidsrc_embed_url: str
+    cinesrc_enabled: bool
+    vidcore_enabled: bool
+    vidzee_enabled: bool
     videotube_enabled: bool
     videotube_embed_url: str
     updown_enabled: bool
     updown_embed_url: str
     streamwish_enabled: bool
     streamwish_embed_url: str
+    streamwish_library_sync_enabled: bool
+    streamwish_api_key: str
+    mixdrop_enabled: bool
+    mixdrop_embed_url: str
+    mixdrop_library_sync_enabled: bool
+    mixdrop_api_email: str
+    mixdrop_api_key: str
     doodstream_enabled: bool
     doodstream_embed_url: str
+    doodstream_library_sync_enabled: bool
+    doodstream_api_key: str
     filelions_enabled: bool
     filelions_embed_url: str
+    filelions_library_sync_enabled: bool
+    filelions_api_key: str
     ok_enabled: bool
     ok_embed_url: str
     streamtape_enabled: bool
     streamtape_embed_url: str
+    streamtape_library_sync_enabled: bool
+    streamtape_api_login: str
+    streamtape_api_key: str
     lulustream_enabled: bool
     lulustream_embed_url: str
+    lulustream_library_sync_enabled: bool
+    lulustream_api_key: str
+    uqload_enabled: bool
+    uqload_embed_url: str
     tmdb_api_key: str
     tmdb_read_access_token: str
     jackett_url: str
@@ -115,6 +136,9 @@ class Settings:
     subdl_api_key: str
     subtitle_languages: str
     external_sync_enabled: bool
+    tv_epg_enabled: bool
+    tv_epg_refresh_minutes: int
+    tv_epg_urls: str
     notion_sync_enabled: bool
     notion_writeback_enabled: bool
     notion_token: str
@@ -225,16 +249,66 @@ class Settings:
         videotube_embed_url = optional_indexed_embed_url("videotube")
         updown_embed_url = optional_indexed_embed_url("updown")
         streamwish_embed_url = optional_indexed_embed_url("streamwish")
+        mixdrop_embed_url = optional_indexed_embed_url("mixdrop")
         doodstream_embed_url = optional_indexed_embed_url("doodstream")
         filelions_embed_url = optional_indexed_embed_url("filelions")
         ok_embed_url = optional_indexed_embed_url("ok")
         streamtape_embed_url = optional_indexed_embed_url("streamtape")
         lulustream_embed_url = optional_indexed_embed_url("lulustream")
+        uqload_embed_url = optional_indexed_embed_url("uqload")
         tmdb_api_key = str(
             override_map.get("TMDB_API_KEY")
             or override_map.get("DRAGON_TMDB_API_KEY")
             or os.getenv("DRAGON_TMDB_API_KEY", "")
             or os.getenv("TMDB_API_KEY", "")
+        ).strip()
+        streamwish_api_key = str(
+            override_map.get("STREAMWISH_API_KEY")
+            or override_map.get("DRAGON_STREAMWISH_API_KEY")
+            or os.getenv("DRAGON_STREAMWISH_API_KEY", "")
+            or _private_setting(instance_root, "streamwish_api_key")
+        ).strip()
+        streamtape_api_login = str(
+            override_map.get("STREAMTAPE_API_LOGIN")
+            or override_map.get("DRAGON_STREAMTAPE_API_LOGIN")
+            or os.getenv("DRAGON_STREAMTAPE_API_LOGIN", "")
+            or _private_setting(instance_root, "streamtape_api_login")
+        ).strip()
+        streamtape_api_key = str(
+            override_map.get("STREAMTAPE_API_KEY")
+            or override_map.get("DRAGON_STREAMTAPE_API_KEY")
+            or os.getenv("DRAGON_STREAMTAPE_API_KEY", "")
+            or _private_setting(instance_root, "streamtape_api_key")
+        ).strip()
+        filelions_api_key = str(
+            override_map.get("FILELIONS_API_KEY")
+            or override_map.get("DRAGON_FILELIONS_API_KEY")
+            or os.getenv("DRAGON_FILELIONS_API_KEY", "")
+            or _private_setting(instance_root, "filelions_api_key")
+        ).strip()
+        doodstream_api_key = str(
+            override_map.get("DOODSTREAM_API_KEY")
+            or override_map.get("DRAGON_DOODSTREAM_API_KEY")
+            or os.getenv("DRAGON_DOODSTREAM_API_KEY", "")
+            or _private_setting(instance_root, "doodstream_api_key")
+        ).strip()
+        lulustream_api_key = str(
+            override_map.get("LULUSTREAM_API_KEY")
+            or override_map.get("DRAGON_LULUSTREAM_API_KEY")
+            or os.getenv("DRAGON_LULUSTREAM_API_KEY", "")
+            or _private_setting(instance_root, "lulustream_api_key")
+        ).strip()
+        mixdrop_api_email = str(
+            override_map.get("MIXDROP_API_EMAIL")
+            or override_map.get("DRAGON_MIXDROP_API_EMAIL")
+            or os.getenv("DRAGON_MIXDROP_API_EMAIL", "")
+            or _private_setting(instance_root, "mixdrop_api_email")
+        ).strip()
+        mixdrop_api_key = str(
+            override_map.get("MIXDROP_API_KEY")
+            or override_map.get("DRAGON_MIXDROP_API_KEY")
+            or os.getenv("DRAGON_MIXDROP_API_KEY", "")
+            or _private_setting(instance_root, "mixdrop_api_key")
         ).strip()
         tmdb_read_access_token = str(
             override_map.get("TMDB_READ_ACCESS_TOKEN")
@@ -367,6 +441,11 @@ class Settings:
             or os.getenv("DRAGON_SUBTITLE_LANGUAGES", "")
             or "ar,en"
         ).strip()
+        tv_epg_urls = str(
+            override_map.get("TV_EPG_URLS")
+            or override_map.get("DRAGON_TV_EPG_URLS")
+            or os.getenv("DRAGON_TV_EPG_URLS", "")
+        ).strip()
 
         return cls(
             environment=environment,
@@ -377,22 +456,43 @@ class Settings:
             playback_enabled=feature("PLAYBACK_ENABLED", False),
             vidsrc_enabled=feature("VIDSRC_ENABLED", False),
             vidsrc_embed_url=vidsrc_embed_url,
+            cinesrc_enabled=feature("CINESRC_ENABLED", False),
+            vidcore_enabled=feature("VIDCORE_ENABLED", False),
+            vidzee_enabled=feature("VIDZEE_ENABLED", False),
             videotube_enabled=feature("VIDEOTUBE_ENABLED", False),
             videotube_embed_url=videotube_embed_url,
             updown_enabled=feature("UPDOWN_ENABLED", False),
             updown_embed_url=updown_embed_url,
             streamwish_enabled=feature("STREAMWISH_ENABLED", False),
             streamwish_embed_url=streamwish_embed_url,
+            streamwish_library_sync_enabled=feature("STREAMWISH_LIBRARY_SYNC_ENABLED", False),
+            streamwish_api_key=streamwish_api_key,
+            mixdrop_enabled=feature("MIXDROP_ENABLED", False),
+            mixdrop_embed_url=mixdrop_embed_url,
+            mixdrop_library_sync_enabled=feature("MIXDROP_LIBRARY_SYNC_ENABLED", False),
+            mixdrop_api_email=mixdrop_api_email,
+            mixdrop_api_key=mixdrop_api_key,
             doodstream_enabled=feature("DOODSTREAM_ENABLED", False),
             doodstream_embed_url=doodstream_embed_url,
+            doodstream_library_sync_enabled=feature("DOODSTREAM_LIBRARY_SYNC_ENABLED", False),
+            doodstream_api_key=doodstream_api_key,
             filelions_enabled=feature("FILELIONS_ENABLED", False),
             filelions_embed_url=filelions_embed_url,
+            filelions_library_sync_enabled=feature("FILELIONS_LIBRARY_SYNC_ENABLED", False),
+            filelions_api_key=filelions_api_key,
             ok_enabled=feature("OK_ENABLED", False),
             ok_embed_url=ok_embed_url,
             streamtape_enabled=feature("STREAMTAPE_ENABLED", False),
             streamtape_embed_url=streamtape_embed_url,
+            streamtape_library_sync_enabled=feature("STREAMTAPE_LIBRARY_SYNC_ENABLED", False),
+            streamtape_api_login=streamtape_api_login,
+            streamtape_api_key=streamtape_api_key,
             lulustream_enabled=feature("LULUSTREAM_ENABLED", False),
             lulustream_embed_url=lulustream_embed_url,
+            lulustream_library_sync_enabled=feature("LULUSTREAM_LIBRARY_SYNC_ENABLED", False),
+            lulustream_api_key=lulustream_api_key,
+            uqload_enabled=feature("UQLOAD_ENABLED", False),
+            uqload_embed_url=uqload_embed_url,
             tmdb_api_key=tmdb_api_key,
             tmdb_read_access_token=tmdb_read_access_token,
             jackett_url=jackett_url,
@@ -410,6 +510,11 @@ class Settings:
             subdl_api_key=subdl_api_key,
             subtitle_languages=subtitle_languages,
             external_sync_enabled=feature("EXTERNAL_SYNC_ENABLED", False),
+            tv_epg_enabled=feature("TV_EPG_ENABLED", True),
+            tv_epg_refresh_minutes=positive_integer(
+                "TV_EPG_REFRESH_MINUTES", 360, maximum=1440
+            ),
+            tv_epg_urls=tv_epg_urls,
             notion_sync_enabled=feature(
                 "NOTION_SYNC_ENABLED",
                 bool(
@@ -471,22 +576,43 @@ class Settings:
             "DRAGON_PLAYBACK_ENABLED": self.playback_enabled,
             "DRAGON_VIDSRC_ENABLED": self.vidsrc_enabled,
             "DRAGON_VIDSRC_EMBED_URL": self.vidsrc_embed_url,
+            "DRAGON_CINESRC_ENABLED": self.cinesrc_enabled,
+            "DRAGON_VIDCORE_ENABLED": self.vidcore_enabled,
+            "DRAGON_VIDZEE_ENABLED": self.vidzee_enabled,
             "DRAGON_VIDEOTUBE_ENABLED": self.videotube_enabled,
             "DRAGON_VIDEOTUBE_EMBED_URL": self.videotube_embed_url,
             "DRAGON_UPDOWN_ENABLED": self.updown_enabled,
             "DRAGON_UPDOWN_EMBED_URL": self.updown_embed_url,
             "DRAGON_STREAMWISH_ENABLED": self.streamwish_enabled,
             "DRAGON_STREAMWISH_EMBED_URL": self.streamwish_embed_url,
+            "DRAGON_STREAMWISH_LIBRARY_SYNC_ENABLED": self.streamwish_library_sync_enabled,
+            "DRAGON_STREAMWISH_API_KEY": self.streamwish_api_key,
+            "DRAGON_MIXDROP_ENABLED": self.mixdrop_enabled,
+            "DRAGON_MIXDROP_EMBED_URL": self.mixdrop_embed_url,
+            "DRAGON_MIXDROP_LIBRARY_SYNC_ENABLED": self.mixdrop_library_sync_enabled,
+            "DRAGON_MIXDROP_API_EMAIL": self.mixdrop_api_email,
+            "DRAGON_MIXDROP_API_KEY": self.mixdrop_api_key,
             "DRAGON_DOODSTREAM_ENABLED": self.doodstream_enabled,
             "DRAGON_DOODSTREAM_EMBED_URL": self.doodstream_embed_url,
+            "DRAGON_DOODSTREAM_LIBRARY_SYNC_ENABLED": self.doodstream_library_sync_enabled,
+            "DRAGON_DOODSTREAM_API_KEY": self.doodstream_api_key,
             "DRAGON_FILELIONS_ENABLED": self.filelions_enabled,
             "DRAGON_FILELIONS_EMBED_URL": self.filelions_embed_url,
+            "DRAGON_FILELIONS_LIBRARY_SYNC_ENABLED": self.filelions_library_sync_enabled,
+            "DRAGON_FILELIONS_API_KEY": self.filelions_api_key,
             "DRAGON_OK_ENABLED": self.ok_enabled,
             "DRAGON_OK_EMBED_URL": self.ok_embed_url,
             "DRAGON_STREAMTAPE_ENABLED": self.streamtape_enabled,
             "DRAGON_STREAMTAPE_EMBED_URL": self.streamtape_embed_url,
+            "DRAGON_STREAMTAPE_LIBRARY_SYNC_ENABLED": self.streamtape_library_sync_enabled,
+            "DRAGON_STREAMTAPE_API_LOGIN": self.streamtape_api_login,
+            "DRAGON_STREAMTAPE_API_KEY": self.streamtape_api_key,
             "DRAGON_LULUSTREAM_ENABLED": self.lulustream_enabled,
             "DRAGON_LULUSTREAM_EMBED_URL": self.lulustream_embed_url,
+            "DRAGON_LULUSTREAM_LIBRARY_SYNC_ENABLED": self.lulustream_library_sync_enabled,
+            "DRAGON_LULUSTREAM_API_KEY": self.lulustream_api_key,
+            "DRAGON_UQLOAD_ENABLED": self.uqload_enabled,
+            "DRAGON_UQLOAD_EMBED_URL": self.uqload_embed_url,
             "DRAGON_TMDB_API_KEY": self.tmdb_api_key,
             "DRAGON_TMDB_READ_ACCESS_TOKEN": self.tmdb_read_access_token,
             "DRAGON_JACKETT_URL": self.jackett_url,
@@ -502,6 +628,9 @@ class Settings:
             "DRAGON_SUBDL_API_KEY": self.subdl_api_key,
             "DRAGON_SUBTITLE_LANGUAGES": self.subtitle_languages,
             "DRAGON_EXTERNAL_SYNC_ENABLED": self.external_sync_enabled,
+            "DRAGON_TV_EPG_ENABLED": self.tv_epg_enabled,
+            "DRAGON_TV_EPG_REFRESH_MINUTES": self.tv_epg_refresh_minutes,
+            "DRAGON_TV_EPG_URLS": self.tv_epg_urls,
             "DRAGON_NOTION_SYNC_ENABLED": self.notion_sync_enabled,
             "DRAGON_NOTION_WRITEBACK_ENABLED": self.notion_writeback_enabled,
             "DRAGON_NOTION_TOKEN": self.notion_token,
@@ -535,11 +664,21 @@ class Settings:
             "videotube_embed_url",
             "updown_embed_url",
             "streamwish_embed_url",
+            "streamwish_api_key",
+            "mixdrop_embed_url",
+            "mixdrop_api_email",
+            "mixdrop_api_key",
             "doodstream_embed_url",
+            "doodstream_api_key",
             "filelions_embed_url",
+            "filelions_api_key",
             "ok_embed_url",
             "streamtape_embed_url",
+            "streamtape_api_login",
+            "streamtape_api_key",
             "lulustream_embed_url",
+            "lulustream_api_key",
+            "uqload_embed_url",
             "tmdb_api_key",
             "tmdb_read_access_token",
             "jackett_url",

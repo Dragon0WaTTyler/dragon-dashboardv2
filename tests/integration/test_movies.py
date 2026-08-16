@@ -421,7 +421,7 @@ def test_resolve_tv_episode_source_updates_episode_page_with_fallback(
     assert "data-player-pack-browser" in next_html
 
 
-def test_direct_embed_blocks_tv_jackett_fallback(authenticated_client, app, monkeypatch):
+def test_direct_embed_keeps_manual_jackett_search_available(authenticated_client, app, monkeypatch):
     with app.app_context():
         movie = Movie(
             title="The Sopranos",
@@ -466,6 +466,8 @@ def test_direct_embed_blocks_tv_jackett_fallback(authenticated_client, app, monk
     assert response.status_code == 200
     assert "direct playback source is already available" in html
     assert "Find Best Source" not in html
+    assert "data-inline-release-browser" in html
+    assert "Search Jackett for Season 1" in html
 
 
 def test_tv_season_exposes_jackett_season_pack_chooser(authenticated_client, app):

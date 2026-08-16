@@ -27,8 +27,8 @@
       <div class="movie-now__body">
         <span class="eyebrow">{{ movie.media_type|title }}{% if movie.progress.season %} · S{{ '%02d'|format(movie.progress.season) }}E{{ '%02d'|format(movie.progress.episode) }}{% endif %}</span>
         <h3><a href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">{{ movie.title }}</a></h3>
-        <p>{% if movie.progress.remaining_seconds %}{{ (movie.progress.remaining_seconds / 60)|round|int }} min left{% else %}{{ movie.progress.percent }}% watched{% endif %}</p>
-        <progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>
+        {% if dragon_feature('movies', 'progress') %}<p>{% if movie.progress.remaining_seconds %}{{ (movie.progress.remaining_seconds / 60)|round|int }} min left{% else %}{{ movie.progress.percent }}% watched{% endif %}</p>
+        <progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>{% endif %}
         <a class="button button--primary" href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">Resume</a>
       </div>
     </article>
@@ -91,7 +91,7 @@
 
 {% if library_sync_error %}<div class="notice notice--error" role="status">Notion could not refresh. Showing the last locally synced Notion items. {{ library_sync_error }}</div>{% endif %}
 
-{% if recommendation %}
+{% if recommendation and dragon_feature('movies', 'recommendation') %}
 <section id="movie-recommendation" class="movie-recommendation" data-recommendation-card aria-labelledby="movie-recommendation-title">
   <article class="movie-recommendation__card">
     <a class="movie-recommendation__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=recommendation.id) }}">
@@ -148,9 +148,9 @@
     </a>
     <div class="movie-tile__body">
       <h2><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h2>
-      <p>{{ movie.year or 'Year unknown' }}{% if movie.personal_score is not none %} · {{ '%.1f'|format(movie.personal_score) }}/5{% endif %}</p>
+      <p>{{ movie.year or 'Year unknown' }}{% if dragon_feature('movies', 'personal_score') and movie.personal_score is not none %} · {{ '%.1f'|format(movie.personal_score) }}/5{% endif %}</p>
       <div>{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}</div>
-      {% if movie.progress %}<progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>{% endif %}
+      {% if dragon_feature('movies', 'progress') and movie.progress %}<progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>{% endif %}
     </div>
   </article>
   {% endfor %}

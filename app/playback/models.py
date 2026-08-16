@@ -137,6 +137,38 @@ class ImportRow(db.Model):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
+class ProviderAccountAsset(db.Model):
+    """A non-secret mirror of a file exposed by one configured provider account.
+
+    This is deliberately not another playback/source index.  It preserves the
+    provider's file inventory between manual sync runs, while ``PlaybackSource``
+    remains the only content-to-playback mapping consumed by the player.
+    """
+
+    __tablename__ = "playback_provider_account_assets"
+    __table_args__ = (
+        UniqueConstraint(
+            "provider",
+            "account_key",
+            "provider_asset_id",
+            name="uq_playback_provider_account_asset",
+        ),
+        Index("ix_playback_provider_account_asset_seen", "provider", "last_seen_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("pasa"))
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    account_key: Mapped[str] = mapped_column(String(80), default="default", nullable=False)
+    provider_asset_id: Mapped[str] = mapped_column(String(300), nullable=False)
+    title: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    folder_id: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    playable: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    provider_status: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    metadata_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
 class MagnetCandidate(db.Model):
     __tablename__ = "magnet_candidates"
 
