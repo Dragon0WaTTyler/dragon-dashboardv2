@@ -180,6 +180,50 @@ def discover_item(media_type: str, tmdb_id: int) -> dict[str, Any]:
     }
 
 
+def resolve_missing_tmdb_identity(movie: Movie) -> Movie:
+    """Attach a safe local TMDb identity to legacy Notion rows when possible.
+
+    Older Notion entries predate the ``TMDB ID`` property.  Without it, both
+    the Jackett release browser and ID-based embed providers have nothing to
+    resolve against.  We keep this local-only and only accept an exact title
+    and media-type match (with the same year whenever the Notion row has one).
+    """
+    external_ids = dict(movie.external_ids or {})
+    if external_ids.get("tmdb_id") or not movie.title.strip():
+        return movie
+
+    provider = tmdb_catalog_provider()
+    if not getattr(provider, "configured", True):
+        return movie
+    try:
+        candidates = provider.search(movie.title, movie.media_type)
+    except MediaIntegrationError:
+        return movie
+
+    normalized_title = _normalized(movie.title)
+    for candidate in candidates:
+        if str(candidate.get("media_type") or "") != movie.media_type:
+            continue
+        candidate_title = _normalized(candidate.get("title"))
+        candidate_original_title = _normalized(candidate.get("original_title"))
+        if normalized_title not in {candidate_title, candidate_original_title}:
+            continue
+        candidate_year = _optional_int(candidate.get("year"))
+        if movie.year is not None and candidate_year != movie.year:
+            continue
+        tmdb_id = _optional_int(candidate.get("tmdb_id"))
+        if not tmdb_id:
+            continue
+        movie.external_ids = {
+            **external_ids,
+            "tmdb_id": str(tmdb_id),
+            "tmdb_type": movie.media_type,
+        }
+        db.session.commit()
+        break
+    return movie
+
+
 def add_to_library(
     *,
     media_type: str,

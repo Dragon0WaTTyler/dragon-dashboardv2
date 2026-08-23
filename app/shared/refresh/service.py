@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from flask import current_app
 
 from app.reading.services import ReadingService
@@ -43,7 +45,12 @@ class OperationCoordinator:
             try:
                 client = current_app.extensions.get("dragon_youtube_playlist_client")
                 if client is None:
-                    client = YouTubePlaylistClient(current_app.config["DRAGON_YOUTUBE_API_KEY"])
+                    client = YouTubePlaylistClient(
+                        current_app.config["DRAGON_YOUTUBE_API_KEY"],
+                        oauth_token_path=(
+                            Path(current_app.instance_path) / "secrets" / "youtube_token.json"
+                        ),
+                    )
                 counts = YouTubeService.sync_watch_later(
                     client,
                     current_app.config["DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID"],
@@ -70,7 +77,12 @@ class OperationCoordinator:
             try:
                 client = current_app.extensions.get("dragon_youtube_playlist_client")
                 if client is None:
-                    client = YouTubePlaylistClient(current_app.config["DRAGON_YOUTUBE_API_KEY"])
+                    client = YouTubePlaylistClient(
+                        current_app.config["DRAGON_YOUTUBE_API_KEY"],
+                        oauth_token_path=(
+                            Path(current_app.instance_path) / "secrets" / "youtube_token.json"
+                        ),
+                    )
                 counts = YouTubeService.sync_pockettube(client, export_path)
             except YouTubeProviderError as exc:
                 return OperationService.fail(operation, exc)

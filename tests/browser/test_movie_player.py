@@ -164,6 +164,17 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     assert page.locator("[data-player-dragon-controls]").count() == 1
     assert page.locator("[data-player-caption-toggle]").count() == 1
     assert page.locator("[data-player-timeline]").count() == 1
+    page.locator("[data-player-shell]").evaluate(
+        "node => node.dispatchEvent(new WheelEvent('wheel', "
+        "{ bubbles: true, cancelable: true, deltaY: 100 }))"
+    )
+    assert page.locator("[data-player-video]").evaluate("video => video.volume") == pytest.approx(
+        0.95
+    )
+    assert "is-visible" in (
+        page.locator("[data-player-volume-feedback]").get_attribute("class") or ""
+    )
+    assert page.locator("[data-player-volume-value]").inner_text() == "95%"
     assert (
         page.locator("[data-player-dragon-controls]").evaluate(
             "node => getComputedStyle(node).opacity"

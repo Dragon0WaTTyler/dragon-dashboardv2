@@ -192,6 +192,7 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
     assert page.locator(".article-card h2").evaluate(
         "element => getComputedStyle(element).direction"
     ) == "rtl"
+    page.locator(".news-filters summary").click()
     page.get_by_label("View").select_option("list")
     page.get_by_role("button", name="Apply").click()
     assert page.locator(".article-list--grid").count() == 0
@@ -340,6 +341,48 @@ def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app)
     recommendation.wait_for(state="visible")
     first_title = recommendation.locator("h2").inner_text()
     page.get_by_role("button", name="Try another").click()
+    assert recommendation.locator("h2").inner_text() != first_title
+
+
+def test_movie_recommendation_try_another_switches_the_pick(page, live_app, app):
+    with app.app_context():
+        db.session.add_all(
+            [
+                Movie(
+                    title="First pick",
+                    normalized_title="first pick",
+                    year=1994,
+                    status="want_to_watch",
+                    category="movie",
+                    source="My library",
+                    overview="A complete recommendation candidate.",
+                    poster_url="https://example.test/first.jpg",
+                    directors=[{"name": "A director"}],
+                    genres=[{"name": "Drama"}],
+                ),
+                Movie(
+                    title="Second pick",
+                    normalized_title="second pick",
+                    year=1997,
+                    status="want_to_watch",
+                    category="movie",
+                    source="My library",
+                    overview="Another complete recommendation candidate.",
+                    poster_url="https://example.test/second.jpg",
+                    directors=[{"name": "A director"}],
+                    genres=[{"name": "Drama"}],
+                ),
+            ]
+        )
+        db.session.commit()
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies")
+    recommendation = page.locator("[data-recommendation-card]")
+    first_title = recommendation.locator("h2").inner_text()
+
+    page.get_by_role("button", name="Try another").click()
+
     assert recommendation.locator("h2").inner_text() != first_title
 
 
@@ -495,7 +538,7 @@ def test_vidsrc_player_loads_only_after_explicit_click(page, live_app, app):
         ("/", "Today"),
         ("/movies", "Movies"),
         ("/youtube", "YouTube"),
-        ("/reading", "Reading"),
+        ("/reading", "News"),
         ("/books", "Books"),
         ("/books/reading", "Reading"),
         ("/books/finished", "Finished"),

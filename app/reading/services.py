@@ -17,9 +17,9 @@ from app.shared.operations.service import safe_error_text
 from app.shared.text import text_direction
 from app.shared.time import utc_iso, utc_now
 
-ARTICLE_STATUSES = {"unread", "reading", "finished", "saved"}
+ARTICLE_STATUSES = {"unread", "reading", "finished"}
 READING_CACHE_LIMIT = 200
-PROTECTED_READING_STATUSES = {"reading", "saved"}
+PROTECTED_READING_STATUSES = {"reading"}
 
 
 def article_item(article: Article) -> dict:
@@ -35,6 +35,7 @@ def article_item(article: Article) -> dict:
         "excerpt": normalize_article_text(article.excerpt),
         "image_url": article.image_url,
         "status": article.status,
+        "is_saved": article.is_saved,
         "published_at": article.published_at.isoformat() if article.published_at else None,
         "fulltext_state": article.fulltext_state,
     }
@@ -135,6 +136,22 @@ class ReadingService:
             entity_id=article.id,
             event_type="status",
             label=f"{article.title}: {status}",
+        )
+        db.session.commit()
+
+    @staticmethod
+    def set_saved(article: Article, saved: bool) -> None:
+        article.is_saved = saved
+        article.history = [
+            *article.history,
+            {"event": "saved" if saved else "unsaved", "at": utc_iso()},
+        ]
+        HistoryService.record(
+            domain="reading",
+            entity_type="article",
+            entity_id=article.id,
+            event_type="saved" if saved else "unsaved",
+            label=f"{article.title}: {'saved' if saved else 'removed from saved'}",
         )
         db.session.commit()
 
@@ -262,7 +279,9 @@ class ReadingService:
         if len(articles) <= maximum:
             return 0
         protected = {
-            article.id for article in articles if article.status in PROTECTED_READING_STATUSES
+            article.id
+            for article in articles
+            if article.status in PROTECTED_READING_STATUSES or article.is_saved
         }
         remaining_slots = max(0, maximum - len(protected))
         kept_ids = set(protected)
@@ -285,7 +304,9 @@ class ReadingService:
         cutoff = utc_now() - timedelta(days=days)
         query = db.select(Article).where(Article.created_at < cutoff)
         if protect_saved:
-            query = query.where(Article.status.not_in(PROTECTED_READING_STATUSES))
+            query = query.where(
+                Article.status.not_in(PROTECTED_READING_STATUSES), Article.is_saved.is_(False)
+            )
         articles = list(db.session.scalars(query))
         for article in articles:
             db.session.delete(article)
@@ -302,7 +323,9 @@ class ReadingService:
             return 0
 
         protected = [
-            article for article in articles if article.status in PROTECTED_READING_STATUSES
+            article
+            for article in articles
+            if article.status in PROTECTED_READING_STATUSES or article.is_saved
         ]
         remaining_slots = max(0, maximum - len(protected))
         kept_ids = {article.id for article in protected}

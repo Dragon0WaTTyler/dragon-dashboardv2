@@ -30,16 +30,12 @@ from app.mytv.models import (
     TVChannelRepresentative,
     TVGroup,
     TVPlaylist,
+    TVSource,
     TVTheme,
 )
-from app.mytv.services import (
-    SOURCE_OWNER,
-    SOURCE_REPOSITORY,
-    GithubTVSync,
-    persist_theme_preference,
-    sync_coordinator,
-)
+from app.mytv.services import GithubTVSync, persist_theme_preference, sync_coordinator
 from app.mytv.streaming import (
+    STREAM_START_TIMEOUT_SECONDS,
     StreamUnavailable,
     mark_stream_failure,
     mark_stream_success,
@@ -138,10 +134,13 @@ def index():
     from app.admin.control_center import preference_store
 
     preferences = preference_store().read()["sections"]["mytv"]
+    source_repo = db.session.scalar(
+        select(TVSource.locator).where(TVSource.protected.is_(True))
+    ) or "Dragon0WaTTyler/Dragon-IPTV-Clean"
     return render_template(
         "mytv/index.html",
         active_module="mytv",
-        source_repo=f"{SOURCE_OWNER}/{SOURCE_REPOSITORY}",
+        source_repo=source_repo,
         favorites_first=preferences["favorites_first"],
         default_view=preferences["default_view"],
         default_sort=preferences["default_sort"],
@@ -846,6 +845,9 @@ def start_epg_refresh():
 def playback_info(channel_id: int):
     channel = _playable_channel(channel_id)
     source_count = len(_playback_candidates(channel))
+    startup_timeout_seconds = min(
+        60, max(20, source_count * STREAM_START_TIMEOUT_SECONDS + 4)
+    )
     return jsonify(
         {
             "id": channel.id,
@@ -854,6 +856,14 @@ def playback_info(channel_id: int):
             "mode": "native" if channel.stream_kind == "file" else "transcode",
             "url": f"/my-tv/play/{channel.id}",
             "source_count": source_count,
+            "startup_timeout_seconds": startup_timeout_seconds,
+            "capabilities": {
+                "live": True,
+                "seek": False,
+                "quality_selection": False,
+                "audio_track_selection": False,
+                "subtitle_selection": False,
+            },
         }
     )
 
@@ -908,6 +918,7 @@ def play(channel_id: int):
 
 
 @bp.get("/resource/<token>")
+@login_required
 def hls_resource(token: str):
     try:
         return proxy_stream(read_resource_token(token))
@@ -916,10 +927,11 @@ def hls_resource(token: str):
 
 
 def _playback_candidates(channel: TVChannel) -> list[TVChannel]:
-    rows = list(
-        db.session.scalars(
-            select(TVChannel)
+    candidate_rows = list(
+        db.session.execute(
+            select(TVChannel, TVSource.protected)
             .join(TVPlaylist, TVPlaylist.id == TVChannel.playlist_id)
+            .outerjoin(TVSource, TVSource.id == TVPlaylist.source_id)
             .where(
                 TVChannel.preference_key == channel.preference_key,
                 TVPlaylist.imported.is_(True),
@@ -929,6 +941,15 @@ def _playback_candidates(channel: TVChannel) -> list[TVChannel]:
             .limit(50)
         )
     )
+    # A user-managed source is an explicit replacement.  Keep catalogue entries
+    # as fallbacks only when no such replacement exists for the logical channel.
+    rows = [
+        item
+        for item, protected in candidate_rows
+        if protected is False
+    ]
+    if not rows:
+        rows = [item for item, _protected in candidate_rows]
     unique: dict[str, TVChannel] = {}
     for item in rows:
         unique.setdefault(item.stream_url, item)

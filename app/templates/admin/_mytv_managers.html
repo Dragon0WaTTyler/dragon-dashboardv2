@@ -41,7 +41,21 @@
           <div class="source-editor__actions"><button class="button button--secondary" name="submit_action" value="save" type="submit">Save changes</button><button class="button button--primary" name="submit_action" value="import" type="submit">Save &amp; import</button></div>
         </form>
         <form class="source-delete" method="post" action="{{ url_for('admin.delete_tv_source', source_id=source.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div><strong>Remove source</strong><p>Choose exactly what happens to channels imported by this source.</p></div><label class="field"><span>Imported channels</span><select name="data_action"><option value="keep">Keep imported channels</option><option value="delete">Delete imported channels</option></select></label><label class="check-field"><input type="checkbox" name="confirmed" value="yes" required> I understand this source will be removed</label><button class="button button--quiet" type="submit">Remove source</button></form>
-      </details>{% else %}<p class="source-card__protected">Built-in source · Enabled allows Dragon to use it. Automatic refresh checks the catalogue and updates only packages backing your favorites or ON/OFF choices; it does not import every package.</p>{% endif %}
+      </details>{% else %}
+      <details class="source-card__details">
+        <summary>Repository settings</summary>
+        <form class="source-editor" method="post" action="{{ url_for('admin.update_builtin_tv_source') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="source_id" value="{{ source.id }}">
+          <label class="field source-editor__wide"><span>GitHub repository</span><input name="locator" value="{{ source.locator }}" maxlength="2000" placeholder="owner/repository" required></label>
+          <label class="field"><span>Branch</span><input name="branch" value="{{ source.branch }}" maxlength="160" required></label>
+          <label class="field"><span>Refresh interval</span><select name="refresh_interval_minutes">{% for minutes in tv_refresh_intervals %}<option value="{{ minutes }}"{% if source.refresh_interval_minutes == minutes %} selected{% endif %}>{{ minutes }} minutes</option>{% endfor %}</select></label>
+          <div class="source-editor__checks"><label class="check-field"><input type="checkbox" name="enabled"{% if source.enabled %} checked{% endif %}> Enabled</label><label class="check-field"><input type="checkbox" name="auto_refresh"{% if source.auto_refresh %} checked{% endif %}> Automatic refresh</label></div>
+          <p class="source-editor__wide control-note">Use a public GitHub repository containing M3U files. Dragon checks folders recursively, including <code>dist/</code>. Your channel choices stay intact when the catalogue is changed.</p>
+          <div class="source-editor__actions"><button class="button button--secondary" name="submit_action" value="save" type="submit">Save repository</button><button class="button button--primary" name="submit_action" value="import" type="submit">Save &amp; update</button></div>
+        </form>
+      </details>
+      <p class="source-card__protected">Primary catalogue · The first refresh imports all available playlists. Later automatic refreshes update only packages backing your favorites or ON/OFF choices.</p>{% endif %}
     </article>
     {% endfor %}
   </div>{% else %}<p class="control-note">No TV sources are connected.</p>{% endif %}

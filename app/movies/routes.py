@@ -19,6 +19,7 @@ from app.movies.external_library import (
     import_release,
     notion_movie_provider,
     release_lookup,
+    resolve_missing_tmdb_identity,
     search_catalog,
     sync_notion_library,
     tmdb_catalog_provider,
@@ -204,14 +205,10 @@ def index():
         offset=offset,
         library_ids=library_sync.library_ids,
     )
-    recommendation = next(
-        iter(
-            MovieService.recommendation_pool(
-                category=filters["category"], source=filters["source"]
-            )["items"]
-        ),
-        None,
-    )
+    recommendations = MovieService.recommendation_pool(
+        category=filters["category"], source=filters["source"]
+    )["items"]
+    recommendation = recommendations[0] if recommendations else None
     return render_template(
         "movies/index.html",
         active_module="movies",
@@ -230,6 +227,7 @@ def index():
             for movie in MovieRepository.continue_watching(library_ids=library_sync.library_ids)
         ],
         recommendation=recommendation,
+        recommendations=recommendations,
     )
 
 
@@ -403,6 +401,7 @@ def detail(movie_id: str):
     movie = MovieRepository.get(movie_id)
     if movie is None:
         abort(404)
+    movie = resolve_missing_tmdb_identity(movie)
     if movie.media_type == "tv":
         return render_template(
             "movies/tv_show.html",
@@ -458,6 +457,7 @@ def tv_season(movie_id: str, season_number: int):
     movie = MovieRepository.get(movie_id)
     if movie is None or movie.media_type != "tv":
         abort(404)
+    movie = resolve_missing_tmdb_identity(movie)
     if season_number < 1:
         abort(404)
     workspace = tv_season_workspace(movie, season_number=season_number)
@@ -507,6 +507,7 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
     movie = MovieRepository.get(movie_id)
     if movie is None or movie.media_type != "tv":
         abort(404)
+    movie = resolve_missing_tmdb_identity(movie)
     if season_number < 1 or episode_number < 1:
         abort(404)
     workspace = tv_season_workspace(

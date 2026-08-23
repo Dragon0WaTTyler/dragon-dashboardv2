@@ -265,6 +265,29 @@ def update_tv_source(source_id: int):
     return redirect(url_for("admin.section_detail", section_key="mytv") + "#source-manager")
 
 
+@bp.post("/sections/mytv/builtin-source")
+@login_required
+def update_builtin_tv_source():
+    from app.mytv.source_manager import TVSourceManager, TVSourceValidationError
+
+    manager = TVSourceManager()
+    try:
+        source_id = request.form.get("source_id", type=int)
+        source = manager.update_builtin(_tv_source(source_id), request.form)
+        if request.form.get("submit_action") == "import":
+            result = manager.sync(source)
+            flash(
+                f"Primary TV catalogue saved and updated: {result['channels']:,} channels "
+                f"from {result['files']} file(s).",
+                "success",
+            )
+        else:
+            flash("Primary TV catalogue settings saved.", "success")
+    except TVSourceValidationError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("admin.section_detail", section_key="mytv") + "#source-manager")
+
+
 @bp.post("/sections/mytv/sources/<int:source_id>/<action>")
 @login_required
 def run_tv_source_action(source_id: int, action: str):

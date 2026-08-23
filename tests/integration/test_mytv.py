@@ -125,6 +125,34 @@ def test_mytv_renders_inside_dragon_and_lists_enabled_channels(
     assert [item["name"] for item in channels["channels"]] == ["News One"]
 
 
+def test_primary_tv_catalogue_can_be_reconfigured_from_settings(authenticated_client, app):
+    response = authenticated_client.post(
+        "/admin/sections/mytv/builtin-source",
+        data={
+            "csrf_token": csrf_header(authenticated_client)["X-CSRFToken"],
+            "source_id": 1,
+            "locator": "example-owner/example-tv",
+            "branch": "playlists",
+            "refresh_interval_minutes": "60",
+            "enabled": "on",
+            "auto_refresh": "on",
+            "submit_action": "save",
+        },
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Primary TV catalogue settings saved." in response.get_data(as_text=True)
+    with app.app_context():
+        source = db.session.get(TVSource, 1)
+        assert source is not None
+        assert source.locator == "example-owner/example-tv"
+        assert source.branch == "playlists"
+        assert source.refresh_interval_minutes == 60
+    lineup = authenticated_client.get("/my-tv").get_data(as_text=True)
+    assert "https://github.com/example-owner/example-tv" in lineup
+
+
 def test_mytv_group_and_channel_overrides(authenticated_client, app):
     with app.app_context():
         _, group_id, channel_id = seed_tv()
@@ -376,6 +404,22 @@ class FakePlaylistSession:
         return FakePlaylistResponse()
 
 
+class MappedPlaylistResponse(FakePlaylistResponse):
+    def iter_lines(self, decode_unicode=True):
+        assert decode_unicode is True
+        return iter(
+            [
+                '#EXTINF:-1 tvg-name="AR: AL JAZEERA" group-title="News",AR: AL JAZEERA',
+                "https://replacement.example/al-jazeera.ts",
+            ]
+        )
+
+
+class MappedPlaylistSession(FakePlaylistSession):
+    def get(self, *_args, **_kwargs):
+        return MappedPlaylistResponse()
+
+
 def test_mytv_favorite_and_override_follow_replacement_file(authenticated_client, app):
     with app.app_context():
         _, _, channel_id = seed_tv()
@@ -415,6 +459,33 @@ def test_mytv_favorite_and_override_follow_replacement_file(authenticated_client
     assert favorites["channels"][0]["favorite"] is True
 
 
+def test_mytv_import_repairs_epg_metadata_and_preserves_existing_favorite(app):
+    with app.app_context():
+        old_preference = TVChannelPreference(
+            preference_key=ChannelEntry("AR: AL JAZEERA", "news", "").preference_key("news"),
+            theme_key="news",
+            name="AR: AL JAZEERA",
+            tvg_id="",
+            favorite=True,
+        )
+        playlist = TVPlaylist(
+            name="Mapped package",
+            github_path="mapped.m3u",
+            source_url="https://example.test/mapped.m3u",
+            source_sha="mapped-sha",
+        )
+        db.session.add_all([old_preference, playlist])
+        db.session.commit()
+
+        GithubTVSync(session=MappedPlaylistSession()).import_playlist(playlist.id)
+
+        imported = db.session.scalar(select(TVChannel).where(TVChannel.playlist_id == playlist.id))
+        preference = db.session.get(TVChannelPreference, imported.preference_key)
+        assert imported.tvg_id == "Al.Jazeera.HD.ae"
+        assert preference.favorite is True
+        assert preference.tvg_id == "Al.Jazeera.HD.ae"
+
+
 class FakeCatalogResponse:
     status_code = 200
 
@@ -447,6 +518,31 @@ class FakeCatalogSession:
         return FakeCatalogResponse()
 
 
+class FakeNestedCatalogResponse:
+    status_code = 200
+
+    def json(self):
+        return {
+            "tree": [
+                {
+                    "type": "blob",
+                    "path": "dist/cleaned-playlist.m3u",
+                    "sha": "dist-sha",
+                    "size": 480,
+                },
+                {"type": "blob", "path": "README.md", "sha": "readme", "size": 12},
+            ]
+        }
+
+
+class FakeNestedCatalogSession:
+    def __init__(self):
+        self.headers = {}
+
+    def get(self, *_args, **_kwargs):
+        return FakeNestedCatalogResponse()
+
+
 class FakeIncrementalSession:
     def __init__(self):
         self.headers = {}
@@ -469,6 +565,17 @@ def test_mytv_fetch_detects_changed_import_without_erasing_choices(app):
         assert db.session.get(TVTheme, theme_id).enabled is True
 
 
+def test_mytv_discovers_playlists_inside_repository_folders(app):
+    with app.app_context():
+        sync = GithubTVSync(session=FakeNestedCatalogSession())
+        ids = sync.discover()
+
+        assert len(ids) == 1
+        playlist = db.session.get(TVPlaylist, ids[0])
+        assert playlist.github_path == "dist/cleaned-playlist.m3u"
+        assert playlist.source_url.endswith("/dist/cleaned-playlist.m3u")
+
+
 def test_builtin_source_refresh_does_not_import_every_catalogue_package(app):
     with app.app_context():
         playlist_id, _, _ = seed_tv()
@@ -489,6 +596,24 @@ def test_builtin_source_refresh_does_not_import_every_catalogue_package(app):
         assert result["files"] == 1
         assert db.session.query(TVPlaylist).count() == 2
         assert db.session.query(TVPlaylist).filter_by(imported=True).count() == 1
+
+
+def test_initial_builtin_source_refresh_imports_every_discovered_playlist(app):
+    with app.app_context():
+        source = TVSource(
+            name="Dragon IPTV catalogue",
+            source_type="github_repository",
+            locator="dragon/tv",
+            protected=True,
+        )
+        db.session.add(source)
+        db.session.commit()
+
+        result = TVSourceManager(session=FakeIncrementalSession()).sync(source)
+
+        assert result["catalog_files"] == 2
+        assert result["files"] == 2
+        assert db.session.query(TVPlaylist).filter_by(imported=True).count() == 2
 
 
 def test_mytv_incremental_refresh_selects_only_packages_backing_choices(app):
@@ -579,7 +704,16 @@ def test_mytv_playback_url_privacy(authenticated_client, app):
     )
     playback = authenticated_client.get(f"/my-tv/api/channels/{channel_id}/playback")
     assert playback.status_code == 200
-    assert playback.get_json()["url"] == f"/my-tv/play/{channel_id}"
+    payload = playback.get_json()
+    assert payload["url"] == f"/my-tv/play/{channel_id}"
+    assert payload["startup_timeout_seconds"] >= 20
+    assert payload["capabilities"] == {
+        "live": True,
+        "seek": False,
+        "quality_selection": False,
+        "audio_track_selection": False,
+        "subtitle_selection": False,
+    }
     assert "stream.example" not in playback.get_data(as_text=True)
 
 
@@ -658,6 +792,68 @@ def test_mytv_playback_uses_an_alternate_source_and_quarantines_failure(
     with app.app_context():
         preference = db.session.get(TVChannelPreference, preference_key)
         assert preference.watch_count == 2
+
+
+def test_mytv_playback_does_not_fall_back_from_a_custom_source(
+    authenticated_client, app, monkeypatch
+):
+    with app.app_context():
+        _, theme_id, _ = seed_tv()
+        theme = db.session.get(TVTheme, theme_id)
+        working = db.session.scalar(
+            select(TVChannel).where(TVChannel.name == "News One")
+        )
+        source = TVSource(
+            name="Official replacement",
+            source_type="local_file",
+            local_path="C:/custom/official.m3u",
+            auto_refresh=False,
+        )
+        playlist = TVPlaylist(
+            source=source,
+            name="Official replacement package",
+            github_path="custom/official.m3u",
+            source_url="file:///custom/official.m3u",
+            source_sha="custom",
+            imported_sha="custom",
+            imported=True,
+            sync_status="ready",
+        )
+        group = TVGroup(name="Official News", theme=theme, channel_count=1)
+        playlist.groups.append(group)
+        official = TVChannel(
+            playlist=playlist,
+            group=group,
+            external_key="official-news-one",
+            preference_key=working.preference_key,
+            name=working.name,
+            stream_url="https://official.example/live.m3u8",
+            stream_kind="hls",
+            position=1,
+            last_seen_sync="custom",
+        )
+        db.session.add_all([source, playlist, official])
+        db.session.commit()
+        GithubTVSync.refresh_representatives()
+        official_id = official.id
+
+    calls: list[str] = []
+
+    def failed_transcode(url: str):
+        calls.append(url)
+        return Response("upstream unavailable", status=503, content_type="text/plain")
+
+    def unexpected_fallback(url: str):
+        calls.append(url)
+        return Response(b"unexpected fallback", content_type="video/mp4")
+
+    monkeypatch.setattr("app.mytv.routes.transcode_stream", failed_transcode)
+    monkeypatch.setattr("app.mytv.routes.proxy_file", unexpected_fallback)
+
+    response = authenticated_client.get(f"/my-tv/play/{official_id}")
+
+    assert response.status_code == 502
+    assert calls == ["https://official.example/live.m3u8"]
 
 
 def test_mytv_writes_require_csrf(authenticated_client, app):

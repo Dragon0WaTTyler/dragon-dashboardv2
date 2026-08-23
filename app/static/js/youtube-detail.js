@@ -55,18 +55,38 @@
   function loadApi() {
     if (window.YT?.Player) return Promise.resolve(window.YT);
     if (window.dragonYouTubeApiPromise) return window.dragonYouTubeApiPromise;
-    window.dragonYouTubeApiPromise = new Promise((resolve) => {
+    window.dragonYouTubeApiPromise = new Promise((resolve, reject) => {
       const previous = window.onYouTubeIframeAPIReady;
+      const timeout = window.setTimeout(() => {
+        reject(new Error("YouTube player timed out."));
+      }, 15000);
       window.onYouTubeIframeAPIReady = () => {
         if (typeof previous === "function") previous();
+        window.clearTimeout(timeout);
         resolve(window.YT);
       };
       const script = document.createElement("script");
       script.src = "https://www.youtube.com/iframe_api";
       script.async = true;
+      script.onerror = () => {
+        window.clearTimeout(timeout);
+        reject(new Error("YouTube player script could not be loaded."));
+      };
       document.head.appendChild(script);
     });
     return window.dragonYouTubeApiPromise;
+  }
+
+  function showPlayerError() {
+    delete window.dragonYouTubeApiPromise;
+    window.clearInterval(progressTimer);
+    progressTimer = null;
+    player = null;
+    frame.src = "about:blank";
+    frame.hidden = true;
+    launch.hidden = false;
+    playerShell.classList.remove("is-loaded");
+    if (status) status.textContent = "YouTube could not load. Try again or open the video on YouTube.";
   }
 
   function attachPlayer() {
@@ -88,9 +108,10 @@
               saveProgress();
             }
           },
+          onError: showPlayerError,
         },
       });
-    });
+    }).catch(showPlayerError);
   }
 
   function loadPlayer(startAt) {
@@ -177,6 +198,19 @@
       description.classList.toggle("is-collapsed", expanded);
     });
   }
+
+  detail.querySelectorAll("[data-youtube-delete]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      const approved = window.confirm(
+        "Remove this video from your real YouTube Watch Later playlist? This cannot be undone here.",
+      );
+      if (!approved) {
+        event.preventDefault();
+        return;
+      }
+      form.querySelector('[name="confirmed"]').value = "yes";
+    });
+  });
 
   window.addEventListener("beforeunload", saveProgress);
   document.addEventListener("visibilitychange", () => {

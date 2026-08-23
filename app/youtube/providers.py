@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import json
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -12,6 +14,7 @@ from urllib.request import Request, urlopen
 PLAYLIST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{10,100}$")
 CHANNEL_ID_PATTERN = re.compile(r"^UC[A-Za-z0-9_-]{10,100}$")
 VIDEO_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+PLAYLIST_ITEM_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
 DURATION_PATTERN = re.compile(
     r"^P(?:(?P<days>\d+)D)?T(?:(?P<hours>\d+)H)?"
     r"(?:(?P<minutes>\d+)M)?(?:(?P<seconds>\d+)S)?$"
@@ -39,19 +42,216 @@ class YouTubeProviderError(ValueError):
 class YouTubePlaylistClient:
     endpoint = "https://www.googleapis.com/youtube/v3/playlistItems"
     videos_endpoint = "https://www.googleapis.com/youtube/v3/videos"
+    authorization_endpoint = "https://accounts.google.com/o/oauth2/v2/auth"
 
     def __init__(
         self,
-        api_key: str,
+        api_key: str = "",
         *,
+        oauth_token_path: str | Path | None = None,
         opener: Callable[..., Any] = urlopen,
         timeout: int = 20,
     ) -> None:
-        if not api_key.strip():
-            raise YouTubeProviderError("YouTube API key is not configured.")
         self._api_key = api_key.strip()
+        self._oauth_token_path = Path(oauth_token_path) if oauth_token_path else None
+        if not self._api_key and self._oauth_token_path is None:
+            raise YouTubeProviderError("YouTube API credentials are not configured.")
         self._opener = opener
         self._timeout = timeout
+
+    def _oauth_payload(self, *, refresh_if_expired: bool = True) -> dict[str, Any] | None:
+        if self._oauth_token_path is None or not self._oauth_token_path.is_file():
+            return None
+        try:
+            payload = json.loads(self._oauth_token_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise YouTubeProviderError("YouTube OAuth credentials could not be read.") from exc
+        if not isinstance(payload, dict) or not str(payload.get("token") or "").strip():
+            raise YouTubeProviderError("YouTube OAuth credentials are incomplete.")
+        if refresh_if_expired and self._oauth_expired(payload):
+            return self._refresh_oauth_token(payload)
+        return payload
+
+    @staticmethod
+    def _oauth_expired(payload: dict[str, Any]) -> bool:
+        raw_expiry = str(payload.get("expiry") or "").strip()
+        if not raw_expiry:
+            return False
+        parsed: datetime | None = None
+        try:
+            parsed = datetime.fromisoformat(raw_expiry.replace("Z", "+00:00"))
+        except ValueError:
+            try:
+                parsed = datetime.strptime(raw_expiry, "%m/%d/%Y %H:%M:%S")
+            except ValueError:
+                return False
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed <= datetime.now(UTC) + timedelta(seconds=30)
+
+    def _refresh_oauth_token(self, payload: dict[str, Any]) -> dict[str, Any]:
+        token_uri = str(payload.get("token_uri") or "").strip()
+        refresh_token = str(payload.get("refresh_token") or "").strip()
+        client_id = str(payload.get("client_id") or "").strip()
+        client_secret = str(payload.get("client_secret") or "").strip()
+        if not token_uri.startswith("https://") or not refresh_token or not client_id:
+            raise YouTubeProviderError("YouTube OAuth credentials cannot be refreshed.")
+        form = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "refresh_token": refresh_token,
+            "grant_type": "refresh_token",
+        }
+        request = Request(  # noqa: S310 - token URI is stored in the private OAuth credential.
+            token_uri,
+            data=urlencode(form).encode(),
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+        try:
+            with self._opener(request, timeout=self._timeout) as response:
+                refreshed = json.load(response)
+        except HTTPError as exc:
+            if exc.code == 400:
+                raise YouTubeProviderError(
+                    "YouTube authorization has expired or been revoked. "
+                    "Reconnect YouTube, then try again."
+                ) from None
+            raise YouTubeProviderError(
+                f"YouTube OAuth refresh failed with HTTP {exc.code}."
+            ) from None
+        except (URLError, TimeoutError, json.JSONDecodeError, UnicodeError):
+            raise YouTubeProviderError("YouTube OAuth refresh could not be completed.") from None
+        access_token = str(refreshed.get("access_token") or "").strip()
+        if not access_token:
+            raise YouTubeProviderError("YouTube OAuth refresh returned no access token.")
+        payload["token"] = access_token
+        payload["expiry"] = (
+            datetime.now(UTC) + timedelta(seconds=max(1, int(refreshed.get("expires_in") or 3600)))
+        ).isoformat()
+        self._write_oauth_payload(payload)
+        return payload
+
+    def _write_oauth_payload(self, payload: dict[str, Any]) -> None:
+        if self._oauth_token_path is None:
+            raise YouTubeProviderError("YouTube OAuth credentials are not configured.")
+        try:
+            self._oauth_token_path.write_text(
+                json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
+        except OSError as exc:
+            raise YouTubeProviderError(
+                "YouTube OAuth credentials could not be updated."
+            ) from exc
+
+    def authorization_url(self, redirect_uri: str, state: str) -> str:
+        payload = self._oauth_payload(refresh_if_expired=False)
+        if payload is None:
+            raise YouTubeProviderError("YouTube OAuth credentials are not configured.")
+        client_id = str(payload.get("client_id") or "").strip()
+        if not client_id or not redirect_uri.startswith(("http://", "https://")) or not state:
+            raise YouTubeProviderError("YouTube OAuth connection could not be started.")
+        scopes = payload.get("scopes")
+        scope = " ".join(str(item).strip() for item in scopes) if isinstance(scopes, list) else ""
+        parameters = {
+            "client_id": client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": scope or "https://www.googleapis.com/auth/youtube.force-ssl",
+            "access_type": "offline",
+            "prompt": "consent",
+            "state": state,
+        }
+        return f"{self.authorization_endpoint}?{urlencode(parameters)}"
+
+    def exchange_authorization_code(self, code: str, redirect_uri: str) -> None:
+        payload = self._oauth_payload(refresh_if_expired=False)
+        if payload is None:
+            raise YouTubeProviderError("YouTube OAuth credentials are not configured.")
+        code = code.strip()
+        token_uri = str(payload.get("token_uri") or "").strip()
+        client_id = str(payload.get("client_id") or "").strip()
+        client_secret = str(payload.get("client_secret") or "").strip()
+        if not code or not token_uri.startswith("https://") or not client_id:
+            raise YouTubeProviderError("YouTube authorization response is invalid.")
+        request = Request(  # noqa: S310 - token URI is stored in the private OAuth credential.
+            token_uri,
+            data=urlencode(
+                {
+                    "code": code,
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code",
+                }
+            ).encode(),
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+        try:
+            with self._opener(request, timeout=self._timeout) as response:
+                exchanged = json.load(response)
+        except HTTPError as exc:
+            raise YouTubeProviderError(
+                f"YouTube authorization exchange failed with HTTP {exc.code}."
+            ) from None
+        except (URLError, TimeoutError, json.JSONDecodeError, UnicodeError):
+            raise YouTubeProviderError(
+                "YouTube authorization exchange could not be completed."
+            ) from None
+        access_token = str(exchanged.get("access_token") or "").strip()
+        if not access_token:
+            raise YouTubeProviderError("YouTube authorization exchange returned no access token.")
+        payload["token"] = access_token
+        if str(exchanged.get("refresh_token") or "").strip():
+            payload["refresh_token"] = str(exchanged["refresh_token"]).strip()
+        payload["expiry"] = (
+            datetime.now(UTC) + timedelta(seconds=max(1, int(exchanged.get("expires_in") or 3600)))
+        ).isoformat()
+        self._write_oauth_payload(payload)
+
+    def _request(
+        self,
+        endpoint: str,
+        parameters: dict[str, Any],
+        *,
+        method: str = "GET",
+        json_response: bool = True,
+    ) -> dict[str, Any] | None:
+        oauth = self._oauth_payload()
+        if oauth is None and not self._api_key:
+            raise YouTubeProviderError("YouTube API credentials are not configured.")
+        for attempt in range(2):
+            query = dict(parameters)
+            headers = {"Accept": "application/json", "User-Agent": "DragonV2/1.0"}
+            if oauth is not None:
+                headers["Authorization"] = f"Bearer {oauth['token']}"
+            else:
+                query["key"] = self._api_key
+            request = Request(  # noqa: S310 - endpoint is a fixed YouTube HTTPS API URL.
+                f"{endpoint}?{urlencode(query)}", headers=headers, method=method
+            )
+            try:
+                with self._opener(request, timeout=self._timeout) as response:
+                    return json.load(response) if json_response else None
+            except HTTPError as exc:
+                if exc.code == 401 and oauth is not None and attempt == 0:
+                    oauth = self._refresh_oauth_token(oauth)
+                    continue
+                raise YouTubeProviderError(
+                    f"YouTube playlist request failed with HTTP {exc.code}."
+                ) from None
+            except (URLError, TimeoutError, json.JSONDecodeError, UnicodeError):
+                raise YouTubeProviderError(
+                    "YouTube playlist request could not be completed."
+                ) from None
+        raise YouTubeProviderError("YouTube playlist request could not be completed.")
 
     def fetch_playlist(self, playlist_id: str, *, maximum: int = 5000) -> list[dict[str, Any]]:
         playlist_id = playlist_id.strip()
@@ -66,25 +266,10 @@ class YouTubePlaylistClient:
                 "part": "snippet",
                 "playlistId": playlist_id,
                 "maxResults": min(50, maximum - len(items)),
-                "key": self._api_key,
             }
             if page_token:
                 parameters["pageToken"] = page_token
-            request = Request(  # noqa: S310 - the endpoint is a fixed HTTPS URL.
-                f"{self.endpoint}?{urlencode(parameters)}",
-                headers={"Accept": "application/json", "User-Agent": "DragonV2/1.0"},
-            )
-            try:
-                with self._opener(request, timeout=self._timeout) as response:
-                    payload = json.load(response)
-            except HTTPError as exc:
-                raise YouTubeProviderError(
-                    f"YouTube playlist request failed with HTTP {exc.code}."
-                ) from None
-            except (URLError, TimeoutError, json.JSONDecodeError, UnicodeError):
-                raise YouTubeProviderError(
-                    "YouTube playlist request could not be completed."
-                ) from None
+            payload = self._request(self.endpoint, parameters) or {}
 
             page_items = payload.get("items", [])
             if not isinstance(page_items, list):
@@ -115,23 +300,8 @@ class YouTubePlaylistClient:
                 "part": "contentDetails",
                 "id": ",".join(batch),
                 "maxResults": len(batch),
-                "key": self._api_key,
             }
-            request = Request(  # noqa: S310 - the endpoint is a fixed HTTPS URL.
-                f"{self.videos_endpoint}?{urlencode(parameters)}",
-                headers={"Accept": "application/json", "User-Agent": "DragonV2/1.0"},
-            )
-            try:
-                with self._opener(request, timeout=self._timeout) as response:
-                    payload = json.load(response)
-            except HTTPError as exc:
-                raise YouTubeProviderError(
-                    f"YouTube duration request failed with HTTP {exc.code}."
-                ) from None
-            except (URLError, TimeoutError, json.JSONDecodeError, UnicodeError):
-                raise YouTubeProviderError(
-                    "YouTube duration request could not be completed."
-                ) from None
+            payload = self._request(self.videos_endpoint, parameters) or {}
 
             page_items = payload.get("items", [])
             if not isinstance(page_items, list):
@@ -214,3 +384,18 @@ class YouTubePlaylistClient:
                 if items:
                     uploads[channel_id] = items
         return uploads
+
+    def delete_playlist_item(self, playlist_item_id: str) -> None:
+        playlist_item_id = playlist_item_id.strip()
+        if not PLAYLIST_ITEM_ID_PATTERN.fullmatch(playlist_item_id):
+            raise YouTubeProviderError("The YouTube playlist item ID is invalid.")
+        if self._oauth_payload() is None:
+            raise YouTubeProviderError(
+                "Removing a video from YouTube requires a connected OAuth account."
+            )
+        self._request(
+            self.endpoint,
+            {"id": playlist_item_id},
+            method="DELETE",
+            json_response=False,
+        )

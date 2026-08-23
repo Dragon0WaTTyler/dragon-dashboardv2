@@ -126,7 +126,7 @@ SECTIONS: tuple[SectionDefinition, ...] = (
         True,
         (
             FeatureDefinition(
-                "source_health", "Source health strip", "Show feed health above the article list."
+                "source_health", "Source health view", "Show feed health in the dedicated Sources view."
             ),
             FeatureDefinition(
                 "reader_mode", "Reader mode by default", "Open stories inside Dragon first."

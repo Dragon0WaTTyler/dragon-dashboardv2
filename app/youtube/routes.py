@@ -1,8 +1,23 @@
 from __future__ import annotations
 
-from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+import secrets
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from flask import (
+    Blueprint,
+    abort,
+    current_app,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 from flask_login import login_required
 
+from app.youtube.providers import YouTubePlaylistClient
 from app.youtube.repositories import YouTubeRepository
 from app.youtube.services import ORDERS, SOURCES, YouTubeService
 
@@ -14,6 +29,30 @@ def _positive_int(value: str | None, default: int, maximum: int) -> int:
         return max(1, min(int(value or default), maximum))
     except (TypeError, ValueError):
         return default
+
+
+def _safe_return_to(value: str | None, *, fallback: str) -> str:
+    candidate = str(value or "").strip()
+    if not candidate:
+        return fallback
+    parsed = urlsplit(candidate)
+    if parsed.scheme or parsed.netloc or parsed.path != url_for("youtube.index"):
+        return fallback
+    return candidate
+
+
+def _playlist_client() -> YouTubePlaylistClient:
+    injected = current_app.extensions.get("dragon_youtube_playlist_client")
+    if injected is not None:
+        return injected
+    return YouTubePlaylistClient(
+        current_app.config["DRAGON_YOUTUBE_API_KEY"],
+        oauth_token_path=Path(current_app.instance_path) / "secrets" / "youtube_token.json",
+    )
+
+
+def _oauth_redirect_uri() -> str:
+    return url_for("youtube.oauth_callback", _external=True)
 
 
 @bp.get("")
@@ -47,6 +86,17 @@ def index():
         offset=offset,
         seed=str(request.args.get("seed") or ""),
     )
+    return_to = url_for(
+        "youtube.index",
+        source=source,
+        group=group or None,
+        q=q or None,
+        order=order if order != "normal" else None,
+        view=view if view != "grid" else None,
+        page=page if page > 1 else None,
+        per_page=per_page if per_page != 50 else None,
+        seed=feed["seed"] if order in {"shuffle", "shuffle_video"} else None,
+    )
     return render_template(
         "youtube/index.html",
         active_module="youtube",
@@ -62,6 +112,9 @@ def index():
         per_page=per_page,
         has_previous=page > 1,
         has_next=offset + len(feed["items"]) < feed["total"],
+        return_to=return_to,
+        sync_status=YouTubeService.sync_status(source),
+        sync_available=bool(current_app.config["DRAGON_YOUTUBE_SYNC_ENABLED"]),
     )
 
 
@@ -73,7 +126,10 @@ def sync_watch_later():
     operation = OperationCoordinator.run(kind="sync", domain="youtube_watch_later")
     counts = dict(operation.counts or {})
     if operation.status == "failed":
-        flash("YouTube playlist sync failed. Your cached videos are unchanged.", "error")
+        flash(
+            f"YouTube sync failed: {operation.safe_error or 'your cached videos are unchanged.'}",
+            "error",
+        )
     elif operation.warnings:
         flash("YouTube playlist sync is not configured yet.", "warning")
     else:
@@ -83,7 +139,12 @@ def sync_watch_later():
             f'{counts.get("removed", 0)} removed.',
             "success",
         )
-    return redirect(url_for("youtube.index", source="watch_later"))
+    return redirect(
+        _safe_return_to(
+            request.form.get("return_to"),
+            fallback=url_for("youtube.index", source="watch_later"),
+        )
+    )
 
 
 @bp.post("/sync-pockettube")
@@ -105,7 +166,48 @@ def sync_pockettube():
             f'{counts.get("shorts_skipped", 0)} shorts skipped.',
             "success",
         )
-    return redirect(url_for("youtube.index", source="pockettube"))
+    return redirect(
+        _safe_return_to(
+            request.form.get("return_to"),
+            fallback=url_for("youtube.index", source="pockettube"),
+        )
+    )
+
+
+@bp.get("/connect")
+@login_required
+def oauth_connect():
+    redirect_uri = _oauth_redirect_uri()
+    state = secrets.token_urlsafe(32)
+    session["youtube_oauth_state"] = state
+    try:
+        return redirect(_playlist_client().authorization_url(redirect_uri, state))
+    except ValueError as exc:
+        flash(str(exc), "error")
+    return redirect(url_for("youtube.index", source="watch_later"))
+
+
+@bp.get("/oauth/callback")
+@login_required
+def oauth_callback():
+    expected_state = str(session.pop("youtube_oauth_state", ""))
+    received_state = str(request.args.get("state") or "")
+    if not expected_state or not secrets.compare_digest(expected_state, received_state):
+        flash("YouTube connection could not be verified. Start the connection again.", "error")
+        return redirect(url_for("youtube.index", source="watch_later"))
+    provider_error = str(request.args.get("error") or "").strip()
+    if provider_error:
+        flash("YouTube connection was cancelled or denied.", "warning")
+        return redirect(url_for("youtube.index", source="watch_later"))
+    try:
+        _playlist_client().exchange_authorization_code(
+            str(request.args.get("code") or ""), _oauth_redirect_uri()
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("youtube.index", source="watch_later"))
+    flash("YouTube is connected. You can refresh your local snapshot now.", "success")
+    return redirect(url_for("youtube.index", source="watch_later"))
 
 
 @bp.get("/<video_id>")
@@ -115,9 +217,12 @@ def detail(video_id: str):
     if video is None:
         abort(404)
     context = YouTubeService.detail_page(video)
+    fallback = url_for("youtube.index", source=video.source, group=video.group_name or None)
+    return_to = _safe_return_to(request.args.get("return_to"), fallback=fallback)
     return render_template(
         "youtube/detail.html",
         active_module="youtube",
+        return_to=return_to,
         **context,
     )
 
@@ -130,7 +235,9 @@ def watched(video_id: str):
         abort(404)
     YouTubeService.set_watched(video, request.form.get("watched") == "true")
     flash("Video history updated.", "success")
-    return redirect(url_for("youtube.detail", video_id=video.id))
+    fallback = url_for("youtube.index", source=video.source, group=video.group_name or None)
+    return_to = _safe_return_to(request.form.get("return_to"), fallback=fallback)
+    return redirect(url_for("youtube.detail", video_id=video.id, return_to=return_to))
 
 
 @bp.post("/<video_id>/remove")
@@ -139,10 +246,21 @@ def remove(video_id: str):
     video = YouTubeRepository.get(video_id)
     if video is None:
         abort(404)
+    fallback = url_for("youtube.index", source="watch_later")
+    return_to = _safe_return_to(request.form.get("return_to"), fallback=fallback)
+    if request.form.get("confirmed") != "yes":
+        flash("Confirm removal to delete this video from the real YouTube playlist.", "warning")
+        return redirect(url_for("youtube.detail", video_id=video.id, return_to=return_to))
+    if not current_app.config["DRAGON_YOUTUBE_DELETE_ENABLED"]:
+        flash(
+            "YouTube deletion is disabled. The video remains both locally and on YouTube.",
+            "warning",
+        )
+        return redirect(url_for("youtube.detail", video_id=video.id, return_to=return_to))
     try:
-        YouTubeService.remove_from_watch_later(video)
+        YouTubeService.remove_from_watch_later(video, _playlist_client())
     except ValueError as exc:
         flash(str(exc), "error")
-        return redirect(url_for("youtube.detail", video_id=video.id))
-    flash("Removed from Watch Later. Local history was preserved.", "success")
-    return redirect(url_for("youtube.index", source="watch_later"))
+        return redirect(url_for("youtube.detail", video_id=video.id, return_to=return_to))
+    flash("Removed from your YouTube Watch Later playlist. Local history was preserved.", "success")
+    return redirect(return_to)

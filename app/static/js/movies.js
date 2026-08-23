@@ -1,7 +1,63 @@
 (() => {
   const section = document.querySelector("[data-recommendation-card]");
+  const open = document.querySelector("[data-recommendation-open]");
+  const next = document.querySelector("[data-recommendation-next]");
   const dismiss = document.querySelector("[data-recommendation-dismiss]");
   if (!section || !dismiss) return;
+
+  let recommendations = [];
+  try {
+    recommendations = JSON.parse(section.dataset.recommendationItems || "[]");
+  } catch {
+    return;
+  }
+  if (!recommendations.length) return;
+
+  const storageKey = "dragon:movie-recommendation-index";
+  const savedIndex = Number.parseInt(sessionStorage.getItem(storageKey) || "0", 10);
+  let currentIndex = Number.isInteger(savedIndex) && savedIndex >= 0
+    ? savedIndex % recommendations.length
+    : 0;
+  const poster = section.querySelector("[data-recommendation-poster]");
+  const fallback = section.querySelector("[data-recommendation-fallback]");
+  const title = section.querySelector("[data-recommendation-title]");
+  const meta = section.querySelector("[data-recommendation-meta]");
+  const reason = section.querySelector("[data-recommendation-reason]");
+  const confidence = section.querySelector("[data-recommendation-confidence]");
+  const details = section.querySelector("[data-recommendation-details]");
+  const detailUrl = (movie) => (section.dataset.recommendationDetailTemplate || "")
+    .replace("999999999", encodeURIComponent(movie.id));
+  const render = (movie) => {
+    const url = detailUrl(movie);
+    const labels = [movie.year, movie.category, ...(movie.genres || []).slice(0, 2)].filter(Boolean);
+    title.textContent = movie.title;
+    title.href = url;
+    meta.textContent = labels.join(" · ");
+    reason.textContent = movie.recommendation_reason || "A strong fit for your queue.";
+    confidence.textContent = `A quiet pick for tonight · ${movie.recommendation_explanation?.confidence || "medium"} confidence`;
+    details.href = url;
+    poster.parentElement.href = url;
+    poster.alt = `Poster for ${movie.title}`;
+    poster.hidden = !movie.poster_url;
+    if (movie.poster_url) poster.src = movie.poster_url;
+    fallback.hidden = Boolean(movie.poster_url);
+    fallback.textContent = (movie.title || "?").slice(0, 1).toUpperCase();
+  };
+
+  render(recommendations[currentIndex]);
+
+  open?.addEventListener("click", () => {
+    section.hidden = false;
+    sessionStorage.removeItem("dragon:recommendation-dismissed");
+    section.scrollIntoView({ behavior: "smooth", block: "center" });
+  });
+
+  next?.addEventListener("click", () => {
+    currentIndex = (currentIndex + 1) % recommendations.length;
+    sessionStorage.setItem(storageKey, String(currentIndex));
+    render(recommendations[currentIndex]);
+  });
+
   dismiss.addEventListener("click", () => {
     section.hidden = true;
     sessionStorage.setItem("dragon:recommendation-dismissed", "1");

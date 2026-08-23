@@ -1,6 +1,8 @@
 from io import BytesIO
 from urllib.parse import urlsplit
 
+import pytest
+
 from app.extensions import db
 from app.movies.models import Movie
 from app.playback.models import PlaybackSource, ProviderAvailability
@@ -1255,6 +1257,112 @@ def test_cinesrc_uses_exact_tv_episode_scope(authenticated_client, app):
         )
         assert source is not None
         assert source.scope_key == "s02e05"
+
+
+def test_videm_direct_tmdb_provider_resolves_movie_and_exact_tv_episode(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="VIDEM test title",
+            normalized_title="videm test title",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_episodes": {
+                    "2": [{"season_number": 2, "episode_number": 5, "name": "Episode 5"}]
+                }
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDEM_ENABLED=True)
+    detail = authenticated_client.get(f"/movies/{movie_id}/seasons/2/episodes/5")
+    resolved = authenticated_client.get(
+        f"/playback/movie/{movie_id}/providers/videm?season=2&episode=5"
+    )
+
+    assert detail.status_code == 200
+    assert "VIDEM" in detail.get_data(as_text=True)
+    assert "frame-src 'self' https://videm.xyz" in detail.headers["Content-Security-Policy"]
+    assert resolved.status_code == 200
+    assert resolved.get_json()["source"]["url"] == "https://videm.xyz/embed/tv/1399/2/5"
+
+
+@pytest.mark.parametrize(
+    ("provider_key", "config_key", "label", "expected_url"),
+    (
+        (
+            "multiembed",
+            "DRAGON_MULTIEMBED_ENABLED",
+            "MultiEmbed",
+            "https://multiembed.mov/?video_id=550&tmdb=1",
+        ),
+        (
+            "multiembed_vip",
+            "DRAGON_MULTIEMBED_VIP_ENABLED",
+            "MultiEmbed VIP",
+            "https://multiembed.mov/directstream.php?video_id=550&tmdb=1",
+        ),
+    ),
+)
+def test_multiembed_direct_movie_providers_are_deferred_until_watch(
+    authenticated_client, app, provider_key, config_key, label, expected_url
+):
+    with app.app_context():
+        movie = Movie(
+            title="Fight Club", normalized_title="fight club", external_ids={"tmdb_id": "550"}
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, **{config_key: True})
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+
+    assert detail.status_code == 200
+    assert label in detail.get_data(as_text=True)
+    assert "multiembed.mov/?video_id=550&tmdb=1" not in detail.get_data(as_text=True)
+    assert "directstream.php?video_id=550&tmdb=1" not in detail.get_data(as_text=True)
+    assert "frame-src 'self' https://multiembed.mov" in detail.headers["Content-Security-Policy"]
+
+    resolved = authenticated_client.get(f"/playback/movie/{movie_id}/providers/{provider_key}")
+    assert resolved.status_code == 200
+    assert resolved.get_json()["source"]["url"] == expected_url
+
+
+def test_multiembed_direct_tv_provider_uses_exact_episode_scope(authenticated_client, app):
+    with app.app_context():
+        movie = Movie(
+            title="The Sopranos",
+            normalized_title="the sopranos",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_episodes": {
+                    "2": [{"season_number": 2, "episode_number": 5, "name": "Big Girls"}]
+                }
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_MULTIEMBED_ENABLED=True)
+    episode_page = authenticated_client.get(f"/movies/{movie_id}/seasons/2/episodes/5")
+    resolved = authenticated_client.get(
+        f"/playback/movie/{movie_id}/providers/multiembed?season=2&episode=5"
+    )
+
+    assert episode_page.status_code == 200
+    assert "MultiEmbed" in episode_page.get_data(as_text=True)
+    assert resolved.status_code == 200
+    assert (
+        resolved.get_json()["source"]["url"]
+        == "https://multiembed.mov/?video_id=1399&tmdb=1&s=2&e=5"
+    )
 
 
 def test_provider_priority_orders_the_generic_embed_selector(authenticated_client, app):

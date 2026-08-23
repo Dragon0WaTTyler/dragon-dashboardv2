@@ -125,6 +125,51 @@ def test_movie_pages_are_protected_and_render_local_data(authenticated_client, a
     assert "Science Fiction" in detail.get_data(as_text=True)
 
 
+def test_legacy_notion_movie_gets_tmdb_identity_for_jackett_and_embed_sources(
+    authenticated_client, app
+):
+    movie_id = add_movie(
+        app,
+        title="Yes Man",
+        normalized_title="yes man",
+        year=2008,
+        external_ids={"notion_page_id": "legacy-notion-page"},
+    )
+
+    class LegacyTmdbProvider:
+        configured = True
+
+        def search(self, query, media_type):
+            assert (query, media_type) == ("Yes Man", "movie")
+            return [
+                {
+                    "tmdb_id": 1262,
+                    "media_type": "movie",
+                    "title": "Yes Man",
+                    "original_title": "Yes Man",
+                    "year": 2008,
+                }
+            ]
+
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = LegacyTmdbProvider()
+        app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDSRC_ENABLED=True)
+
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+
+    assert detail.status_code == 200
+    html = detail.get_data(as_text=True)
+    assert "Player 1 · VidSrc" in html
+    assert "Search Jackett releases" in html
+    with app.app_context():
+        movie = db.session.get(Movie, movie_id)
+        assert movie.external_ids == {
+            "notion_page_id": "legacy-notion-page",
+            "tmdb_id": "1262",
+            "tmdb_type": "movie",
+        }
+
+
 def test_movies_prioritizes_continue_watching_and_exposes_watch_next(authenticated_client, app):
     paused_id = add_movie(
         app,
@@ -140,14 +185,29 @@ def test_movies_prioritizes_continue_watching_and_exposes_watch_next(authenticat
         personal_score=5,
         runtime_minutes=90,
     )
+    finished_id = add_movie(
+        app,
+        title="Finished film",
+        normalized_title="finished film",
+        status="finished",
+        runtime_minutes=100,
+    )
     with app.app_context():
-        db.session.add(
-            MovieProgress(
-                movie_id=paused_id,
-                current_seconds=3_000,
-                duration_seconds=6_000,
-                completed=False,
-            )
+        db.session.add_all(
+            [
+                MovieProgress(
+                    movie_id=paused_id,
+                    current_seconds=3_000,
+                    duration_seconds=6_000,
+                    completed=False,
+                ),
+                MovieProgress(
+                    movie_id=finished_id,
+                    current_seconds=3_000,
+                    duration_seconds=6_000,
+                    completed=False,
+                ),
+            ]
         )
         db.session.commit()
 
@@ -157,10 +217,37 @@ def test_movies_prioritizes_continue_watching_and_exposes_watch_next(authenticat
     assert listing.status_code == 200
     assert "Continue watching" in listing.get_data(as_text=True)
     assert "Paused film" in listing.get_data(as_text=True)
+    assert "Finished film" not in listing.get_data(as_text=True)
     assert "Resume" in listing.get_data(as_text=True)
     assert watch_next.status_code == 200
     assert "Watch next" in watch_next.get_data(as_text=True)
     assert "Chosen next" in watch_next.get_data(as_text=True)
+
+
+def test_movies_exposes_multiple_recommendations_for_try_another(authenticated_client, app):
+    for title, year in (("First pick", 1994), ("Second pick", 1997)):
+        add_movie(
+            app,
+            title=title,
+            normalized_title=title.casefold(),
+            year=year,
+            status="want_to_watch",
+            category="movie",
+            source="My library",
+            overview=f"Overview for {title}.",
+            directors=[{"name": "A director"}],
+            genres=[{"name": "Drama"}],
+        )
+
+    page = authenticated_client.get("/movies")
+    html = page.get_data(as_text=True)
+
+    assert page.status_code == 200
+    assert "What should I watch?" in html
+    assert "Try another" in html
+    assert 'data-recommendation-items="' in html
+    assert "First pick" in html
+    assert "Second pick" in html
 
 
 def test_movie_status_mutation_requires_csrf(authenticated_client, app):

@@ -12,9 +12,9 @@
 {% endblock %}
 
 {% block content %}
-<article class="youtube-detail" data-youtube-detail data-video-id="{{ video.external_id }}">
+<article class="youtube-detail{% if video.direction == 'rtl' %} youtube-detail--rtl{% endif %}" data-youtube-detail data-video-id="{{ video.external_id }}">
   <div class="youtube-player__topline">
-    <a class="back-link" href="{{ url_for('youtube.index', source=video.source, group=video.group_name) }}">← Back to YouTube</a>
+    <a class="back-link" href="{{ return_to }}">← Back to results</a>
     <button class="button button--secondary" type="button" data-player-focus>Enter focus mode</button>
   </div>
 
@@ -81,12 +81,12 @@
             <h2 id="related-title">Continue watching</h2>
           </div>
           {% if shuffle_video %}
-          <a class="button button--secondary" href="{{ url_for('youtube.detail', video_id=shuffle_video.id) }}">Shuffle video</a>
+          <a class="button button--secondary" href="{{ url_for('youtube.detail', video_id=shuffle_video.id, return_to=return_to) }}">Shuffle video</a>
           {% endif %}
         </div>
         <div class="youtube-related__grid">
           {% for item in related %}
-          <a class="youtube-related__card" href="{{ url_for('youtube.detail', video_id=item.id) }}">
+          <a class="youtube-related__card" href="{{ url_for('youtube.detail', video_id=item.id, return_to=return_to) }}">
             <span class="youtube-related__image">
               {% if item.thumbnail_url %}<img src="{{ item.thumbnail_url }}" alt="" loading="lazy">{% endif %}
               {% if item.duration_label %}<span class="media-duration" aria-label="Duration {{ item.duration_label }}">{{ item.duration_label }}</span>{% endif %}
@@ -107,14 +107,17 @@
         <form method="post" action="{{ url_for('youtube.watched', video_id=video.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="watched" value="{{ 'false' if video.watched else 'true' }}">
+          <input type="hidden" name="return_to" value="{{ return_to }}">
           <button class="button button--primary button--full" type="submit">Mark {{ 'unwatched' if video.watched else 'watched' }}</button>
         </form>
         <a class="button button--secondary button--full" href="https://www.youtube.com/watch?v={{ video.external_id }}" rel="noopener noreferrer" target="_blank">Open on YouTube ↗</a>
         <a class="button button--secondary button--full" href="{{ url_for('ai.workspace', mode='youtube_study', context_type='youtube', context_id=video.id) }}">Study with AI</a>
         {% if video.source == 'watch_later' %}
-        <form method="post" action="{{ url_for('youtube.remove', video_id=video.id) }}">
+        <form method="post" action="{{ url_for('youtube.remove', video_id=video.id) }}" data-youtube-delete>
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <button class="button button--quiet button--full" type="submit">Remove from Watch Later</button>
+          <input type="hidden" name="return_to" value="{{ return_to }}">
+          <input type="hidden" name="confirmed" value="">
+          <button class="button button--quiet button--full" type="submit">Remove from YouTube Watch Later</button>
         </form>
         {% endif %}
       </section>
@@ -122,8 +125,8 @@
       {% if previous or next_video %}
       <nav class="youtube-sequence" aria-label="Videos in {{ source_label }}">
         <span class="eyebrow">In this queue</span>
-        {% if previous %}<a href="{{ url_for('youtube.detail', video_id=previous.id) }}"><span>Previous</span><strong dir="auto">{{ previous.title }}</strong></a>{% endif %}
-        {% if next_video %}<a href="{{ url_for('youtube.detail', video_id=next_video.id) }}"><span>Next</span><strong dir="auto">{{ next_video.title }}</strong></a>{% endif %}
+        {% if previous %}<a href="{{ url_for('youtube.detail', video_id=previous.id, return_to=return_to) }}"><span>Previous</span><strong dir="auto">{{ previous.title }}</strong></a>{% endif %}
+        {% if next_video %}<a href="{{ url_for('youtube.detail', video_id=next_video.id, return_to=return_to) }}"><span>Next</span><strong dir="auto">{{ next_video.title }}</strong></a>{% endif %}
       </nav>
       {% endif %}
 

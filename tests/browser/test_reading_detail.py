@@ -87,7 +87,7 @@ def test_article_click_loads_a_responsive_rtl_reader(page, live_app, app):
     page.goto(f"{live_app}/reading?view=list")
     assert page.get_by_role("button", name="Sync articles").is_visible()
     page.get_by_role("link", name=title, exact=True).click()
-    page.wait_for_url(f"{live_app}/reading/{article_id}")
+    assert page.url.startswith(f"{live_app}/reading/{article_id}")
 
     assert page.get_by_text("هذا نص المقال الكامل").is_visible()
     assert page.locator(".article-media--image img").is_visible()

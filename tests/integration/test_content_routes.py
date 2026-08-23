@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 from app.books.models import Book, Quote
 from app.extensions import db
 from app.movies.models import Movie, MovieProgress
@@ -184,7 +186,7 @@ def test_library_viewers_and_thumbnails_render(authenticated_client, app):
     assert "1:08:32" in today_html
     assert 'src="https://images.example.test/article.jpg"' in today_html
     assert 'src="https://images.example.test/book.jpg"' in today_html
-    assert f'data-article-open="/reading/{ids["article"]}/open"' in today_html
+    assert f'data-article-open="/reading/{ids["article"]}/open?return_to=' in today_html
 
 
 def test_watch_later_paginates_large_playlists(authenticated_client, app):
@@ -215,6 +217,87 @@ def test_watch_later_paginates_large_playlists(authenticated_client, app):
     assert "Watch video 50" in second.get_data(as_text=True)
     assert ">Previous</a>" in second.get_data(as_text=True)
     assert "seed=stable-seed" in shuffled.get_data(as_text=True)
+
+
+def test_youtube_detail_preserves_the_collection_return_context(authenticated_client, app):
+    ids = seed_content(app)
+    default_index = authenticated_client.get("/youtube?source=watch_later")
+    index = authenticated_client.get(
+        "/youtube?source=pockettube&group=Learning&q=focused&order=shuffle&seed=stable"
+    )
+    html = index.get_data(as_text=True)
+
+    default_html = default_index.get_data(as_text=True)
+    assert "Shuffle order" in default_html
+    assert "Compact list" in default_html
+    assert "youtube-filter-details" not in default_html
+    assert f"/youtube/{ids['video']}?return_to=" in html
+    assert "group%3DLearning" in html
+    assert "seed%3Dstable" in html
+
+
+def test_youtube_connect_uses_the_running_app_callback(
+    authenticated_client, app
+):
+    class Client:
+        @staticmethod
+        def authorization_url(redirect_uri, state):
+            assert redirect_uri == "http://localhost/youtube/oauth/callback"
+            assert state
+            return "https://accounts.google.com/o/oauth2/v2/auth?state=test"
+
+    with app.app_context():
+        app.extensions["dragon_youtube_playlist_client"] = Client()
+
+    response = authenticated_client.get("/youtube/connect", follow_redirects=False)
+
+    assert response.status_code == 302
+    assert response.headers["Location"].startswith("https://accounts.google.com/")
+
+
+def test_youtube_delete_requires_confirmation_and_then_removes_from_youtube(
+    authenticated_client, app
+):
+    class Client:
+        deleted_playlist_item_id = ""
+
+        def delete_playlist_item(self, playlist_item_id):
+            self.deleted_playlist_item_id = playlist_item_id
+
+    with app.app_context():
+        video = YouTubeVideo(
+            external_id="delete-video",
+            playlist_item_id="playlist-item-delete",
+            source="watch_later",
+            title="Delete me",
+        )
+        db.session.add(video)
+        db.session.commit()
+        video_id = video.id
+        app.extensions["dragon_youtube_playlist_client"] = Client()
+        app.config["DRAGON_YOUTUBE_DELETE_ENABLED"] = True
+
+    page = authenticated_client.get(f"/youtube/{video_id}")
+    no_confirmation = authenticated_client.post(
+        f"/youtube/{video_id}/remove",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=False,
+    )
+    assert no_confirmation.status_code == 302
+    with app.app_context():
+        assert db.session.get(YouTubeVideo, video_id).removed_from_source is False
+
+    confirmed = authenticated_client.post(
+        f"/youtube/{video_id}/remove",
+        data={"csrf_token": csrf_from(page), "confirmed": "yes", "return_to": "/youtube"},
+        follow_redirects=False,
+    )
+    assert confirmed.headers["Location"].endswith("/youtube")
+    with app.app_context():
+        assert app.extensions["dragon_youtube_playlist_client"].deleted_playlist_item_id == (
+            "playlist-item-delete"
+        )
+        assert db.session.get(YouTubeVideo, video_id).removed_from_source is True
 
 
 def test_fulltext_status_get_is_read_only(authenticated_client, app):
@@ -261,7 +344,7 @@ def test_article_click_loads_and_caches_full_text(authenticated_client, app):
     app.extensions["dragon_article_extractor"] = Extractor()
     page = authenticated_client.get("/reading?view=list")
     html = page.get_data(as_text=True)
-    assert f'data-article-open="/reading/{article_id}/open"' in html
+    assert f'data-article-open="/reading/{article_id}/open?return_to=' in html
 
     response = authenticated_client.post(
         f"/reading/{article_id}/open",
@@ -323,6 +406,99 @@ def test_article_detail_get_never_calls_extractor(authenticated_client, app):
     response = authenticated_client.get(f"/reading/{article_id}")
     assert response.status_code == 200
     assert "Stored locally." in response.get_data(as_text=True)
+
+
+def test_news_feeds_saved_state_pagination_and_return_context(authenticated_client, app):
+    now = datetime.now().astimezone()
+    with app.app_context():
+        source = ReadingSource(name="News feed", feed_url="https://example.test/news")
+        today = Article(
+            source=source,
+            title="Today article",
+            url="https://example.test/today",
+            published_at=now,
+        )
+        older = Article(
+            source=source,
+            title="Older article",
+            url="https://example.test/older",
+            published_at=now - timedelta(days=2),
+        )
+        saved = Article(
+            source=source,
+            title="Saved while reading",
+            url="https://example.test/saved",
+            status="reading",
+            is_saved=True,
+            published_at=now - timedelta(days=1),
+        )
+        page_two = [
+            Article(
+                source=source,
+                title=f"Paged article {index}",
+                url=f"https://example.test/paged-{index}",
+                published_at=now - timedelta(minutes=index),
+            )
+            for index in range(21)
+        ]
+        db.session.add_all([source, today, older, saved, *page_two])
+        db.session.commit()
+        saved_id = saved.id
+
+    today_page = authenticated_client.get("/reading?feed=today")
+    today_html = today_page.get_data(as_text=True)
+    assert "Today article" in today_html
+    assert "Older article" not in today_html
+    assert 'aria-current="page">Today</a>' in today_html
+
+    recent_html = authenticated_client.get("/reading?feed=recent").get_data(as_text=True)
+    assert "Today article" in recent_html
+
+    saved_html = authenticated_client.get("/reading?feed=saved&status=reading").get_data(
+        as_text=True
+    )
+    assert "Saved while reading" in saved_html
+    assert "Older article" not in saved_html
+    assert "Save for later" not in saved_html
+
+    first_page = authenticated_client.get("/reading?feed=recent").get_data(as_text=True)
+    assert "Showing 1–20 of 24" in first_page
+    assert ">Next</a>" in first_page
+    second_page = authenticated_client.get("/reading?feed=recent&page=2").get_data(as_text=True)
+    assert "Paged article 20" in second_page
+    assert "Older article" in second_page
+    assert ">Previous</a>" in second_page
+
+    detail = authenticated_client.get(
+        f"/reading/{saved_id}?return_to=/reading?feed=recent&view=list"
+    )
+    toggled = authenticated_client.post(
+        f"/reading/{saved_id}/saved",
+        data={
+            "csrf_token": csrf_from(detail),
+            "saved": "false",
+            "return_to": "/reading?feed=recent&view=list",
+        },
+        follow_redirects=False,
+    )
+    assert "return_to=/reading?feed%3Drecent%26view%3Dlist" in toggled.headers["Location"]
+    with app.app_context():
+        article = db.session.get(Article, saved_id)
+        assert article.is_saved is False
+        assert article.status == "reading"
+
+
+def test_news_empty_states_distinguish_filters_from_first_setup(authenticated_client, app):
+    filtered = authenticated_client.get("/reading?feed=recent&q=no-match")
+    filtered_html = filtered.get_data(as_text=True)
+    assert "No articles match these filters" in filtered_html
+    assert "Clear filters" in filtered_html
+    assert "Manage sources" not in filtered_html
+
+    empty = authenticated_client.get("/reading?feed=recent")
+    empty_html = empty.get_data(as_text=True)
+    assert "No cached articles yet" in empty_html
+    assert "Manage sources" in empty_html
 
 
 def test_reading_sync_button_fetches_current_feed_entries(authenticated_client, app):

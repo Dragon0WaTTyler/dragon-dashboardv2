@@ -1,65 +1,78 @@
 {% extends "layouts/app.html" %}
-{% from "components/ui.html" import badge, empty_state %}
+{% from "components/ui.html" import badge %}
 {% block title %}News · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/reading.js') }}" defer></script>{% endblock %}
 {% block content %}
-<header class="page-header">
-  <div><span class="eyebrow">Editorial inbox</span><h1>News</h1><p>Cached articles, deliberate full-text loading, and visible source health.</p></div>
+<header class="page-header news-header">
+  <div><span class="eyebrow">Editorial inbox</span><h1>News</h1><p>Choose a story, keep your place, and return when you are ready.</p></div>
   <div class="reading-header-actions">
-    {{ badge(articles|length ~ ' articles', 'accent') }}
+    {% if feed != 'sources' %}{{ badge(total ~ ' article' ~ ('' if total == 1 else 's'), 'accent') }}{% endif %}
     <form method="post" action="{{ url_for('reading.sync_articles') }}" data-reading-sync>
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="button button--primary" type="submit">
-        <span class="spinner" data-sync-spinner aria-hidden="true" hidden></span>
-        <span data-sync-label>Sync articles</span>
-      </button>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ return_url }}">
+      <button class="button button--primary" type="submit"><span class="spinner" data-sync-spinner aria-hidden="true" hidden></span><span data-sync-label>Sync articles</span></button>
     </form>
   </div>
 </header>
-<nav class="quick-links" aria-label="News views">
-  <a href="{{ url_for('reading.index', feed='today') }}"{% if feed == 'today' %} aria-current="page"{% endif %}>Today</a>
-  <a href="{{ url_for('reading.index', feed='recent') }}"{% if feed == 'recent' %} aria-current="page"{% endif %}>Recent</a>
-  <a href="{{ url_for('reading.index', feed='saved') }}"{% if feed == 'saved' %} aria-current="page"{% endif %}>Saved</a>
-  <a href="{{ url_for('reading.index', feed='sources') }}"{% if feed == 'sources' %} aria-current="page"{% endif %}>Sources</a>
+
+<nav class="news-views" aria-label="News feeds">
+  {% for item in feed_links %}<a href="{{ item.url }}"{% if feed == item.key %} aria-current="page"{% endif %}>{{ item.label }}</a>{% endfor %}
 </nav>
+
 {% if feed != 'sources' %}
-<form class="compact-filters compact-filters--wide" method="get">
-  <input type="hidden" name="feed" value="{{ feed }}">
-  <label class="field"><span>Search</span><input type="search" name="q" value="{{ q }}"></label>
-  <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for source in sources %}<option value="{{ source.id }}"{% if source_id == source.id %} selected{% endif %}>{{ source.name }}</option>{% endfor %}</select></label>
-  <label class="field"><span>Status</span><select name="status"><option value="">All</option>{% for value in ['unread','reading','saved','finished'] %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
-  <label class="field"><span>View</span><select name="view"><option value="grid"{% if view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if view == 'list' %} selected{% endif %}>Compact list</option></select></label>
-  <label class="field"><span>Sort</span><select name="sort"><option value="recent"{% if sort == 'recent' %} selected{% endif %}>Most recent</option><option value="title"{% if sort == 'title' %} selected{% endif %}>Title A–Z</option></select></label>
-  <button class="button button--primary" type="submit">Apply</button>
-</form>
-{% if dragon_feature('reading', 'source_health') and sources %}<div class="source-health" aria-label="Source health">{% for source in sources %}<span dir="auto">{{ source.name }} <small>{{ source.health_state }}</small></span>{% endfor %}</div>{% endif %}
+<details class="news-filters"{% if filters_active %} open{% endif %}>
+  <summary><span>Search and filter</span><small>{% if filters_active %}Filters active{% else %}Optional{% endif %}</small></summary>
+  <form class="compact-filters compact-filters--wide" method="get">
+    <input type="hidden" name="feed" value="{{ feed }}">
+    <label class="field"><span>Search</span><input type="search" name="q" value="{{ q }}"></label>
+    <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for source in sources %}<option value="{{ source.id }}"{% if source_id == source.id %} selected{% endif %}>{{ source.name }}</option>{% endfor %}</select></label>
+    <label class="field"><span>Reading status</span><select name="status"><option value="">Any</option>{% for value in ['unread','reading','finished'] %}<option value="{{ value }}"{% if status == value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
+    <label class="field"><span>View</span><select name="view"><option value="grid"{% if view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if view == 'list' %} selected{% endif %}>Compact list</option></select></label>
+    <label class="field"><span>Sort</span><select name="sort"><option value="recent"{% if sort == 'recent' %} selected{% endif %}>Most recent</option><option value="title"{% if sort == 'title' %} selected{% endif %}>Title A–Z</option></select></label>
+    <div class="filter-actions"><button class="button button--primary" type="submit">Apply</button>{% if filters_active %}<a class="button button--quiet" href="{{ clear_url }}">Clear</a>{% endif %}</div>
+  </form>
+</details>
+
+{% if continue_reading %}
+<section class="news-resume" aria-labelledby="news-resume-title">
+  <div><span class="eyebrow">Continue</span><h2 id="news-resume-title">Pick up where you left off</h2></div>
+  <div class="news-resume__list">
+    {% for article in continue_reading %}
+    <a class="news-resume__item"{% if dragon_feature('reading', 'reader_mode') %} data-article-open="{{ url_for('reading.open_article', article_id=article.id, return_to=return_url) }}" href="{{ url_for('reading.detail', article_id=article.id, return_to=return_url) }}"{% else %} href="{{ article.url }}" target="_blank" rel="noreferrer"{% endif %}>
+      <span class="eyebrow" dir="auto">{{ article.source }}</span><strong dir="auto">{{ article.title }}</strong><small>{% if article.is_saved %}Saved · {% endif %}Reading</small>
+    </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<p class="news-result-summary" role="status">{% if total %}Showing {{ (page - 1) * page_size + 1 }}–{{ [page * page_size, total]|min }} of {{ total }}{% elif filters_active %}No matches{% else %}No articles yet{% endif %}</p>
+
 {% if articles %}
-<div class="article-list{% if view == 'grid' %} article-list--grid{% endif %}" aria-label="Reading results">
+<div class="article-list{% if view == 'grid' %} article-list--grid{% endif %}" aria-label="News results">
   {% for article in articles %}
   <article class="article-card{% if view == 'list' and article.direction == 'rtl' %} article-card--rtl{% endif %}">
-    {% if dragon_feature('reading', 'images') %}<a class="article-card__image" data-media-frame{% if dragon_feature('reading', 'reader_mode') %} data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}"{% else %} href="{{ article.url }}" target="_blank" rel="noreferrer"{% endif %}>
-      {% if article.image_url %}<img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="320" height="180"><span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% endif %}
+    {% if dragon_feature('reading', 'images') %}<a class="article-card__image" data-media-frame{% if dragon_feature('reading', 'reader_mode') %} data-article-open="{{ url_for('reading.open_article', article_id=article.id, return_to=return_url) }}" href="{{ url_for('reading.detail', article_id=article.id, return_to=return_url) }}"{% else %} href="{{ article.url }}" target="_blank" rel="noreferrer"{% endif %}>
+      {% if article.image_url %}<img data-media-image src="{{ article.image_url }}" alt="" loading="lazy" width="320" height="180"><span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>{% endif %}
     </a>{% endif %}
     <div class="article-card__body">
       {% if dragon_feature('reading', 'source') or dragon_feature('reading', 'publication_date') %}<span class="eyebrow" dir="auto">{% if dragon_feature('reading', 'source') %}{{ article.source }}{% endif %}{% if dragon_feature('reading', 'source') and dragon_feature('reading', 'publication_date') and article.published_at %} · {% endif %}{% if dragon_feature('reading', 'publication_date') and article.published_at %}{{ article.published_at[:10] }}{% endif %}</span>{% endif %}
-      <h2 dir="auto"><a{% if dragon_feature('reading', 'reader_mode') %} data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}"{% else %} href="{{ article.url }}" target="_blank" rel="noreferrer"{% endif %}>{{ article.title }}</a></h2>
+      <h2 dir="auto"><a{% if dragon_feature('reading', 'reader_mode') %} data-article-open="{{ url_for('reading.open_article', article_id=article.id, return_to=return_url) }}" href="{{ url_for('reading.detail', article_id=article.id, return_to=return_url) }}"{% else %} href="{{ article.url }}" target="_blank" rel="noreferrer"{% endif %}>{{ article.title }}</a></h2>
       {% if article.excerpt %}<p dir="auto">{{ article.excerpt }}</p>{% endif %}
-      {{ badge(article.status|title, 'accent' if article.status == 'reading' else '') }}
+      <div class="article-card__states">{% if article.is_saved %}{{ badge('Saved', 'accent') }}{% endif %}{% if article.status == 'reading' %}{{ badge('Reading', 'accent') }}{% elif article.status == 'finished' %}{{ badge('Finished') }}{% endif %}</div>
     </div>
   </article>
   {% endfor %}
 </div>
+{% if previous_url or next_url %}<nav class="pagination" aria-label="News pages">{% if previous_url %}<a class="button button--secondary" href="{{ previous_url }}">Previous</a>{% endif %}<span>Page {{ page }}</span>{% if next_url %}<a class="button button--secondary" href="{{ next_url }}">Next</a>{% endif %}</nav>{% endif %}
 {% else %}
-{{ empty_state('No cached articles', 'Configure sources and run an explicit refresh from Admin later.') }}
+<section class="empty-state" aria-labelledby="empty-state-title"><div class="empty-state__mark" aria-hidden="true"></div><div><h2 id="empty-state-title">{% if filters_active %}No articles match these filters{% else %}No cached articles yet{% endif %}</h2><p>{% if filters_active %}Clear or adjust your filters to widen the list.{% else %}Add a source, then sync when you are ready to build your inbox.{% endif %}</p></div>{% if filters_active %}<a class="button button--secondary" href="{{ clear_url }}">Clear filters</a>{% else %}<a class="button button--secondary" href="{{ url_for('admin.section_detail', section_key='reading') }}#source-manager">Manage sources</a>{% endif %}</section>
 {% endif %}
-<form data-article-open-form method="post" action="{{ url_for('reading.index') }}" hidden>
-  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-</form>
+<form data-article-open-form method="post" action="{{ url_for('reading.index') }}" hidden><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 {% else %}
 <section class="reading-source-directory" aria-labelledby="news-source-title">
-  <div><span class="eyebrow">News sources</span><h2 id="news-source-title">Connected feeds</h2><p>Source health stays separate from your reading preferences.</p></div>
-  {% if sources %}<div class="source-health" aria-label="Connected News sources">{% for source in sources %}<span dir="auto"><strong>{{ source.name }}</strong> <small>{{ source.health_state|title }}</small></span>{% endfor %}</div>{% else %}{{ empty_state('No News sources', 'Add an RSS source before synchronizing News.') }}{% endif %}
+  <div class="reading-source-directory__header"><div><span class="eyebrow">News sources</span><h2 id="news-source-title">Source health</h2><p>Reading stays focused here; diagnose, refresh, and edit sources in one place.</p></div><a class="button button--secondary" href="{{ url_for('admin.section_detail', section_key='reading') }}#source-manager">Manage sources</a></div>
+  {% if sources %}<div class="news-source-list">{% for source in sources %}<article class="news-source-card"><div><span class="eyebrow">{{ 'Enabled' if source.active else 'Paused' }}{% if source.category %} · {{ source.category }}{% endif %}</span><h3 dir="auto">{{ source.name }}</h3><p>{% if source.last_success_at %}Last synced {{ source.last_success_at.strftime('%Y-%m-%d %H:%M') }}{% else %}Not synced yet{% endif %}</p>{% if source.health_message %}<p class="news-source-card__message">{{ source.health_message }}</p>{% endif %}</div>{{ badge(source.health_state|title, 'success' if source.health_state == 'healthy' else 'error' if source.health_state == 'error' else 'warning') }}</article>{% endfor %}</div>{% else %}<section class="empty-state" aria-labelledby="empty-state-title"><div class="empty-state__mark" aria-hidden="true"></div><div><h3 id="empty-state-title">No News sources</h3><p>Add an RSS or Atom source before syncing News.</p></div><a class="button button--secondary" href="{{ url_for('admin.section_detail', section_key='reading') }}#source-manager">Manage sources</a></section>{% endif %}
 </section>
 {% endif %}
 {% endblock %}

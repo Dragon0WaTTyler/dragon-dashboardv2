@@ -464,8 +464,8 @@ p {
 }
 
 .source-health small {
-  color: #7f7774;
-  font-size: 0.62rem;
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
   text-transform: uppercase;
 }
 

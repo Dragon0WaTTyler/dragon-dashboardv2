@@ -1,4 +1,11 @@
-from app.mytv.services import ChannelEntry, classify_stream, parse_m3u, smart_theme
+from app.mytv.services import (
+    ChannelEntry,
+    classify_stream,
+    parse_m3u,
+    resolved_epg_id,
+    smart_theme,
+    with_resolved_epg_id,
+)
 
 
 def test_mytv_parser_reads_metadata_and_stream_type():
@@ -46,3 +53,29 @@ def test_mytv_channel_preference_key_survives_file_and_name_changes():
         "News HD New", "ARAB | MOROCCO", "https://two.example/live", tvg_id="ma.news"
     )
     assert first.preference_key("morocco") == replacement.preference_key("morocco")
+
+
+def test_mytv_repairs_verified_epg_ids_without_overriding_unrelated_channels():
+    assert resolved_epg_id("AR: AL JAZEERA") == "Al.Jazeera.HD.ae"
+    assert resolved_epg_id("AR: AL JAZEERA MUBASHER | FREE IPTV WORLD") == (
+        "Al.Jazeera.Mobasher.HD.ae"
+    )
+    assert (
+        resolved_epg_id(
+            "Al Jazeera Documentary (1080p) [Geo-blocked]", "AlJazeeraDocumentary.qa@SD"
+        )
+        == "Al.Jazeera.Documentary.HD.ae"
+    )
+    assert (
+        resolved_epg_id("FBI Files", "FBIFiles.us@UK")
+        == "6a1610bebdf296985fd95603-6582a024a90606db3c841b1b@plex.us"
+    )
+    assert (
+        resolved_epg_id("Al Arabiya Programs", "AlArabiyaPrograms.ae@SD")
+        == "AlArabiyaPrograms.ae@SD"
+    )
+
+    entry = with_resolved_epg_id(
+        ChannelEntry("AR: NATIONAL GEOGRAPHIC HD", "documentary", "https://stream.example/live")
+    )
+    assert entry.tvg_id == "Nat.Geo.Abu.Dhabi.HD.ae"

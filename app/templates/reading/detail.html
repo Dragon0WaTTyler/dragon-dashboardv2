@@ -3,77 +3,20 @@
 {% block title %}{{ article.title }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/library.css') }}">{% endblock %}
 {% block content %}
-<a class="back-link" href="{{ url_for('reading.index') }}">← Back to News</a>
+<a class="back-link" href="{{ return_url }}">← Back to News</a>
 <article class="reading-detail reading-detail--{{ article.direction }}">
-  {% if dragon_feature('reading', 'images') and article.image_url %}
-  <figure class="reading-detail__hero" data-media-frame>
-    <img data-media-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" width="1200" height="675">
-    <span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span>
-  </figure>
-  {% endif %}
-
-  <header class="reading-detail__header">
-    <h1 dir="auto" lang="{{ article.language }}">{{ article.title }}</h1>
-    <div class="reading-detail__meta">
-      {% if dragon_feature('reading', 'source') or dragon_feature('reading', 'publication_date') %}<span class="eyebrow" dir="auto" lang="{{ article.language }}">{% if dragon_feature('reading', 'source') %}{{ article.source }}{% if article.author %} · {{ article.author }}{% endif %}{% endif %}{% if dragon_feature('reading', 'source') and dragon_feature('reading', 'publication_date') and article.published_at %} · {% endif %}{% if dragon_feature('reading', 'publication_date') and article.published_at %}{{ article.published_at[:10] }}{% endif %}</span>{% endif %}
-      {{ badge(article.status|title, 'accent' if article.status == 'reading' else '') }}
-    </div>
-  </header>
-
+  {% if dragon_feature('reading', 'images') and article.image_url %}<figure class="reading-detail__hero" data-media-frame><img data-media-image src="{{ article.image_url }}" alt="" width="1200" height="675"><span class="media-fallback" aria-hidden="true">{{ article.title[:1] }}</span></figure>{% endif %}
+  <header class="reading-detail__header"><h1 dir="auto" lang="{{ article.language }}">{{ article.title }}</h1><div class="reading-detail__meta">{% if dragon_feature('reading', 'source') or dragon_feature('reading', 'publication_date') %}<span class="eyebrow" dir="auto" lang="{{ article.language }}">{% if dragon_feature('reading', 'source') %}{{ article.source }}{% if article.author %} · {{ article.author }}{% endif %}{% endif %}{% if dragon_feature('reading', 'source') and dragon_feature('reading', 'publication_date') and article.published_at %} · {% endif %}{% if dragon_feature('reading', 'publication_date') and article.published_at %}{{ article.published_at[:10] }}{% endif %}</span>{% endif %}<div class="detail-badges">{% if article.is_saved %}{{ badge('Saved', 'accent') }}{% endif %}{{ badge(article.status|title, 'accent' if article.status == 'reading' else '') }}</div></div></header>
   <div class="reading-detail__layout">
     <section class="reading-detail__content" aria-label="Article text" lang="{{ article.language }}">
-      {% if article.content_blocks %}
-      <span class="eyebrow reading-detail__content-label">{{ article.content_label }}</span>
-      <div class="article-body article-body--blocks">
-        {% for block in article.content_blocks %}
-        {% if block.kind == 'text' %}
-        <p dir="auto">{{ block.text }}</p>
-        {% elif block.kind == 'image' %}
-        <figure class="article-media article-media--image">
-          <img src="{{ block.src }}" alt="{{ block.alt or article.title }}" loading="lazy">
-          {% if block.alt %}<figcaption dir="auto">{{ block.alt }}</figcaption>{% endif %}
-        </figure>
-        {% elif block.kind == 'youtube' %}
-        <figure class="article-media article-media--video">
-          <iframe
-            src="{{ block.src }}"
-            title="{{ block.title or article.title }}"
-            loading="lazy"
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowfullscreen
-            referrerpolicy="strict-origin-when-cross-origin"
-          ></iframe>
-          {% if block.title %}<figcaption dir="auto">{{ block.title }}</figcaption>{% endif %}
-        </figure>
-        {% endif %}
-        {% endfor %}
-      </div>
-      {% elif article.content_text %}
-      <span class="eyebrow reading-detail__content-label">{{ article.content_label }}</span>
-      <div class="article-body">
-        {% for paragraph in article.content_paragraphs %}<p dir="auto">{{ paragraph }}</p>{% endfor %}
-      </div>
-      {% elif article.excerpt %}
-      <p class="lead-copy" dir="auto">{{ article.excerpt }}</p>
-      {% else %}
-      <p class="reading-detail__empty">The complete text could not be cached. The original source is still available.</p>
-      {% endif %}
+      {% if article.content_blocks %}<span class="eyebrow reading-detail__content-label">{{ article.content_label }}</span><div class="article-body article-body--blocks">{% for block in article.content_blocks %}{% if block.kind == 'text' %}<p dir="auto">{{ block.text }}</p>{% elif block.kind == 'image' %}<figure class="article-media article-media--image"><img src="{{ block.src }}" alt="{{ block.alt or '' }}">{% if block.alt %}<figcaption dir="auto">{{ block.alt }}</figcaption>{% endif %}</figure>{% elif block.kind == 'youtube' %}<figure class="article-media article-media--video"><iframe src="{{ block.src }}" title="{{ block.title or article.title }}" loading="lazy" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe>{% if block.title %}<figcaption dir="auto">{{ block.title }}</figcaption>{% endif %}</figure>{% endif %}{% endfor %}</div>{% elif article.content_text %}<span class="eyebrow reading-detail__content-label">{{ article.content_label }}</span><div class="article-body">{% for paragraph in article.content_paragraphs %}<p dir="auto">{{ paragraph }}</p>{% endfor %}</div>{% elif article.excerpt %}<p class="lead-copy" dir="auto">{{ article.excerpt }}</p>{% else %}<p class="reading-detail__empty">The complete text could not be cached. The original source is still available.</p>{% endif %}
     </section>
-
     <aside class="reading-detail__rail" aria-label="Article actions" lang="en" dir="ltr">
-      <span class="eyebrow">News</span>
-      <h2>Keep your place</h2>
-      <form class="reading-detail__status" method="post" action="{{ url_for('reading.update_status', article_id=article.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label class="field"><span>Status</span><select name="status">{% for value in ['unread','reading','saved','finished'] %}<option value="{{ value }}"{% if article.status == value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label>
-        <button class="button button--primary" type="submit">Save status</button>
-      </form>
-      <form method="post" action="{{ url_for('reading.refresh_article', article_id=article.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="button button--secondary button--full" type="submit">Refresh text</button>
-      </form>
-      <a class="button button--secondary reading-detail__original" href="{{ article.url }}" target="_blank" rel="noreferrer">Open original ↗</a>
-      {% if article.fulltext_state == 'failed' %}<p class="reading-detail__note">Dragon could not cache the complete text from this source.</p>{% endif %}
+      <span class="eyebrow">News</span><h2>Keep your place</h2>
+      <form method="post" action="{{ url_for('reading.update_saved', article_id=article.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ return_url }}"><input type="hidden" name="saved" value="{{ 'false' if article.is_saved else 'true' }}"><button class="button {% if article.is_saved %}button--secondary{% else %}button--primary{% endif %} button--full" type="submit">{{ 'Remove from saved' if article.is_saved else 'Save for later' }}</button></form>
+      <form class="reading-detail__status" method="post" action="{{ url_for('reading.update_status', article_id=article.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ return_url }}"><label class="field"><span>Reading status</span><select name="status">{% for value in ['unread','reading','finished'] %}<option value="{{ value }}"{% if article.status == value %} selected{% endif %}>{{ value|title }}</option>{% endfor %}</select></label><button class="button button--secondary button--full" type="submit">Save status</button></form>
+      <form method="post" action="{{ url_for('reading.refresh_article', article_id=article.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="return_to" value="{{ return_url }}"><button class="button button--secondary button--full" type="submit">Refresh text</button></form>
+      <a class="button button--secondary reading-detail__original" href="{{ article.url }}" target="_blank" rel="noreferrer">Open original ↗</a>{% if article.fulltext_state == 'failed' %}<p class="reading-detail__note">Dragon could not cache the complete text from this source.</p>{% endif %}
     </aside>
   </div>
 </article>

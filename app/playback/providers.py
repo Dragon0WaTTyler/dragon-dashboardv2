@@ -178,6 +178,30 @@ ID_CATALOG_EMBED_PROVIDER_SPECS = (
         tv_url_template="https://player.vidzee.wtf/embed/tv/{tmdb_id}/{season}/{episode}",
         default_priority=17,
     ),
+    IdCatalogEmbedProviderSpec(
+        key="videm",
+        display_name="VIDEM",
+        allowed_domains=frozenset({"videm.xyz"}),
+        movie_url_template="https://videm.xyz/embed/movie/{tmdb_id}",
+        tv_url_template="https://videm.xyz/embed/tv/{tmdb_id}/{season}/{episode}",
+        default_priority=18,
+    ),
+    IdCatalogEmbedProviderSpec(
+        key="multiembed",
+        display_name="MultiEmbed",
+        allowed_domains=frozenset({"multiembed.mov"}),
+        movie_url_template="https://multiembed.mov/?video_id={tmdb_id}&tmdb=1",
+        tv_url_template="https://multiembed.mov/?video_id={tmdb_id}&tmdb=1&s={season}&e={episode}",
+        default_priority=19,
+    ),
+    IdCatalogEmbedProviderSpec(
+        key="multiembed_vip",
+        display_name="MultiEmbed VIP",
+        allowed_domains=frozenset({"multiembed.mov"}),
+        movie_url_template="https://multiembed.mov/directstream.php?video_id={tmdb_id}&tmdb=1",
+        tv_url_template="https://multiembed.mov/directstream.php?video_id={tmdb_id}&tmdb=1&s={season}&e={episode}",
+        default_priority=20,
+    ),
 )
 ID_CATALOG_EMBED_PROVIDER_BY_KEY = {spec.key: spec for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
 INDEXED_EMBED_PROVIDER_BY_KEY = {spec.key: spec for spec in INDEXED_EMBED_PROVIDER_SPECS}
@@ -417,6 +441,7 @@ class IndexedEmbedProvider:
         self.key = spec.key
         self.config = config
         self.display_name = spec.display_name
+        self.sandbox = config.sandbox
         self.embed_url_template = validate_indexed_embed_url_template(
             spec.key, config.embed_url_template
         )
@@ -436,7 +461,7 @@ class IndexedEmbedProvider:
             source_type="known_embed",
             playback_mode="embed",
             match="indexed",
-            sandbox=self.config.sandbox,
+            sandbox=self.sandbox,
         )
 
     def probe(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult:
@@ -509,6 +534,9 @@ def build_provider_registry(
     cinesrc_enabled: bool = False,
     vidcore_enabled: bool = False,
     vidzee_enabled: bool = False,
+    videm_enabled: bool = False,
+    multiembed_enabled: bool = False,
+    multiembed_vip_enabled: bool = False,
 ) -> ProviderRegistry:
     providers: list[PlaybackProvider] = [VidSrcProvider(base_url=vidsrc_embed_url)]
     provider_options = {
@@ -544,6 +572,9 @@ def build_provider_registry(
         "cinesrc": cinesrc_enabled,
         "vidcore": vidcore_enabled,
         "vidzee": vidzee_enabled,
+        "videm": videm_enabled,
+        "multiembed": multiembed_enabled,
+        "multiembed_vip": multiembed_vip_enabled,
     }
     providers.extend(
         IdCatalogEmbedProvider(spec.key)

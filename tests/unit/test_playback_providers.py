@@ -74,6 +74,9 @@ def test_vidsrc_provider_rejects_unscoped_tv_identity():
         ("cinesrc", "https://cinesrc.st/embed/movie/550", "https://cinesrc.st/embed/tv/1399?s=1&e=5"),
         ("vidcore", "https://vidcore.org/embed/movie/550", "https://vidcore.org/embed/tv/1399/1/5"),
         ("vidzee", "https://player.vidzee.wtf/embed/movie/550", "https://player.vidzee.wtf/embed/tv/1399/1/5"),
+        ("videm", "https://videm.xyz/embed/movie/550", "https://videm.xyz/embed/tv/1399/1/5"),
+        ("multiembed", "https://multiembed.mov/?video_id=550&tmdb=1", "https://multiembed.mov/?video_id=1399&tmdb=1&s=1&e=5"),
+        ("multiembed_vip", "https://multiembed.mov/directstream.php?video_id=550&tmdb=1", "https://multiembed.mov/directstream.php?video_id=1399&tmdb=1&s=1&e=5"),
     ),
 )
 def test_direct_id_catalog_provider_resolves_tmdb_movie_and_exact_tv_episode(
@@ -106,9 +109,19 @@ def test_provider_registry_enables_cinesrc_as_a_direct_identity_provider():
         cinesrc_enabled=True,
         vidcore_enabled=True,
         vidzee_enabled=True,
+        videm_enabled=True,
+        multiembed_enabled=True,
+        multiembed_vip_enabled=True,
     )
 
-    assert registry.keys() >= {"cinesrc", "vidcore", "vidzee"}
+    assert registry.keys() >= {
+        "cinesrc",
+        "vidcore",
+        "vidzee",
+        "videm",
+        "multiembed",
+        "multiembed_vip",
+    }
 
 
 def test_provider_registry_enables_videotube_only_with_an_authorized_endpoint():
@@ -190,7 +203,7 @@ def test_indexed_embed_provider_uses_only_valid_native_asset_ids():
         )
 
 
-def test_provider_metadata_renders_videotube_updown_and_ok_templates_exactly():
+def test_provider_metadata_renders_indexed_templates_exactly():
     registry = build_provider_registry(
         vidsrc_embed_url="https://vidsrc-embed.ru/embed",
         videotube_enabled=True,
@@ -216,6 +229,9 @@ def test_provider_metadata_renders_videotube_updown_and_ok_templates_exactly():
         "cinesrc": 15,
         "vidcore": 16,
         "vidzee": 17,
+        "videm": 18,
+        "multiembed": 19,
+        "multiembed_vip": 20,
         "updown": 20,
         "streamwish": 30,
         "mixdrop": 35,

@@ -3,6 +3,7 @@
   const elements = Object.fromEntries(
     [...document.querySelectorAll("[id]")].map((element) => [element.id, element])
   );
+  const watchPanel = document.getElementById("tv-panel-watch");
   const state = {
     bootstrap: null,
     manageGroups: [],
@@ -26,6 +27,12 @@
     healthTimer: null,
     epgTimer: null,
     playbackTimer: null,
+    playbackSession: 0,
+    playbackController: null,
+    playbackCapabilities: null,
+    pausedForNavigation: false,
+    playerControlsTimer: null,
+    volumeFeedbackTimer: null,
     requestTokens: {
       bootstrap: 0,
       manageGroups: 0,
@@ -94,6 +101,7 @@
   function setNowPlaying(channel, message, { live = false } = {}) {
     if (channel) {
       elements.nowPlayingTitle.textContent = channel.name;
+      elements.playerOverlayTitle.dataset.channelName = channel.name;
       elements.nowPlayingMeta.textContent = message;
       setNowLogo(channel.name, channel.logo_url || "");
       const current = channel.epg?.now;
@@ -105,6 +113,7 @@
     }
     else {
       elements.nowPlayingTitle.textContent = "Nothing selected";
+      elements.playerOverlayTitle.dataset.channelName = "Nothing selected";
       elements.nowPlayingMeta.textContent = message;
       setNowLogo();
       elements.nowPlayingGuide.hidden = true;
@@ -447,17 +456,144 @@
     state.epgTimer = window.setTimeout(poll, 1000);
   }
 
-  function stopPlayback() {
+  function isCurrentPlayback(session) {
+    return state.playbackSession === session;
+  }
+
+  function clearPlaybackTimer() {
     window.clearTimeout(state.playbackTimer);
     state.playbackTimer = null;
+  }
+
+  function clearVideoSource() {
     elements.videoPlayer.onloadeddata = null;
     elements.videoPlayer.oncanplay = null;
     elements.videoPlayer.onplaying = null;
+    elements.videoPlayer.onwaiting = null;
+    elements.videoPlayer.onstalled = null;
+    elements.videoPlayer.onpause = null;
+    elements.videoPlayer.onvolumechange = null;
     elements.videoPlayer.onerror = null;
     elements.videoPlayer.pause();
     elements.videoPlayer.removeAttribute("src");
     elements.videoPlayer.load();
     elements.videoPlayer.hidden = true;
+  }
+
+  function beginPlaybackSession() {
+    state.playbackSession += 1;
+    state.playbackController?.abort();
+    state.playbackController = new AbortController();
+    clearPlaybackTimer();
+    return state.playbackSession;
+  }
+
+  function stopPlayback({ invalidate = true } = {}) {
+    if (invalidate) {
+      state.playbackSession += 1;
+      state.playbackController?.abort();
+      state.playbackController = null;
+    }
+    clearPlaybackTimer();
+    hidePlayerControls();
+    clearVideoSource();
+    elements.playerControls.hidden = true;
+    state.playbackCapabilities = null;
+  }
+
+  function setPlayerState(name, message) {
+    elements.playerShell.dataset.playerState = name;
+    elements.playerConnectionState.textContent = message;
+  }
+
+  function playableChannels() {
+    return state.channels.filter((channel) => channel.enabled);
+  }
+
+  function navigationChannel() {
+    return state.activeChannel || state.requestedChannel || state.retryChannel;
+  }
+
+  function adjacentChannel(direction) {
+    const channels = playableChannels();
+    const currentId = navigationChannel()?.id;
+    const index = channels.findIndex((channel) => channel.id === currentId);
+    if (index < 0 || channels.length < 2) return null;
+    return channels[(index + direction + channels.length) % channels.length];
+  }
+
+  function syncPlayerControls() {
+    const hasPlayback = Boolean(state.activeChannel) && !elements.videoPlayer.hidden;
+    const paused = elements.videoPlayer.paused;
+    elements.togglePlayback.disabled = !hasPlayback;
+    elements.togglePlayback.textContent = paused ? "Play" : "Pause";
+    elements.togglePlayback.setAttribute("aria-label", paused ? "Play live channel" : "Pause live channel");
+    elements.togglePlayback.setAttribute("aria-pressed", String(!paused));
+    elements.toggleMute.disabled = !hasPlayback;
+    elements.toggleMute.textContent = elements.videoPlayer.muted || elements.videoPlayer.volume === 0 ? "Unmute" : "Mute";
+    elements.toggleMute.setAttribute("aria-label", elements.toggleMute.textContent);
+    elements.playerVolume.disabled = !hasPlayback;
+    elements.playerVolume.value = String(elements.videoPlayer.muted ? 0 : elements.videoPlayer.volume);
+    elements.previousChannel.disabled = !adjacentChannel(-1);
+    elements.nextChannel.disabled = !adjacentChannel(1);
+    const hasNavigation = Boolean(navigationChannel());
+    elements.previousChannel.hidden = !hasNavigation;
+    elements.nextChannel.hidden = !hasNavigation;
+    elements.theaterMode.setAttribute("aria-pressed", String(watchPanel.classList.contains("is-theater")));
+    elements.theaterMode.textContent = watchPanel.classList.contains("is-theater") ? "Exit theater" : "Theater";
+    elements.theaterMode.setAttribute("aria-label", watchPanel.classList.contains("is-theater") ? "Exit theater mode" : "Enter theater mode");
+    const inFullscreen = document.fullscreenElement === elements.playerFrame;
+    elements.fullscreenPlayer.setAttribute("aria-pressed", String(inFullscreen));
+    elements.fullscreenPlayer.textContent = inFullscreen ? "Exit full screen" : "Full screen";
+    elements.fullscreenPlayer.setAttribute("aria-label", inFullscreen ? "Exit full screen" : "Enter full screen");
+    elements.pictureInPicture.setAttribute("aria-pressed", String(document.pictureInPictureElement === elements.videoPlayer));
+  }
+
+  function togglePlayback() {
+    if (!state.activeChannel || elements.videoPlayer.hidden) return;
+    if (elements.videoPlayer.paused) {
+      elements.videoPlayer.play().catch(() => toast("Your browser blocked playback. Use Space to continue.", true));
+    } else {
+      elements.videoPlayer.pause();
+    }
+    syncPlayerControls();
+  }
+
+  function showVolumeFeedback() {
+    const volumePercent = Math.round(elements.videoPlayer.volume * 100);
+    window.clearTimeout(state.volumeFeedbackTimer);
+    elements.playerVolumeValue.textContent = `${volumePercent}%`;
+    elements.playerVolumeFeedback.classList.remove("is-visible");
+    void elements.playerVolumeFeedback.offsetWidth;
+    elements.playerVolumeFeedback.classList.add("is-visible");
+    state.volumeFeedbackTimer = window.setTimeout(() => {
+      elements.playerVolumeFeedback.classList.remove("is-visible");
+    }, 850);
+  }
+
+  function clearPlayerControlsTimer() {
+    window.clearTimeout(state.playerControlsTimer);
+    state.playerControlsTimer = null;
+  }
+
+  function hidePlayerControls() {
+    clearPlayerControlsTimer();
+    elements.playerFrame.classList.remove("is-player-controls-visible");
+  }
+
+  function revealPlayerControls() {
+    const hasPlayback = Boolean(state.activeChannel) && !elements.videoPlayer.hidden;
+    if (!hasPlayback) return;
+    clearPlayerControlsTimer();
+    elements.playerFrame.classList.add("is-player-controls-visible");
+    state.playerControlsTimer = window.setTimeout(() => {
+      elements.playerFrame.classList.remove("is-player-controls-visible");
+    }, 2400);
+  }
+
+  function syncFullscreenControls() {
+    hidePlayerControls();
+    syncPlayerControls();
   }
 
   function showPlaybackStatus(message, error = false) {
@@ -467,11 +603,12 @@
     elements.retryPlayback.hidden = !error;
     elements.playerLoading.classList.toggle("is-error", error);
     elements.playerLoading.hidden = false;
+    setPlayerState(error ? "error" : "connecting", message);
   }
 
-  function playbackReady() {
-    window.clearTimeout(state.playbackTimer);
-    state.playbackTimer = null;
+  function playbackReady(session) {
+    if (!isCurrentPlayback(session)) return;
+    clearPlaybackTimer();
     state.activeChannel = state.requestedChannel || state.activeChannel;
     state.retryChannel = state.activeChannel || state.retryChannel;
     state.requestedChannel = null;
@@ -480,7 +617,9 @@
     elements.retryPlayback.hidden = true;
     elements.playerEmpty.hidden = true;
     elements.videoPlayer.hidden = false;
+    elements.playerControls.hidden = false;
     elements.playerShell.classList.add("has-playback");
+    state.pausedForNavigation = false;
     if (state.activeChannel) {
       state.activeChannel.last_watched_at = new Date().toISOString();
       setNowPlaying(state.activeChannel, state.activeChannel.group_name, { live: true });
@@ -488,27 +627,25 @@
       elements.resumeLastChannel.dataset.channelId = state.activeChannel.id;
       elements.resumeLastChannel.textContent = `Resume ${state.activeChannel.name}`;
     }
+    setPlayerState(elements.videoPlayer.paused ? "paused" : "playing", elements.videoPlayer.paused ? "Live channel paused" : "Live now");
+    syncPlayerControls();
+    revealPlayerControls();
     renderChannels();
     elements.videoPlayer.play().catch(() => {});
   }
 
-  function playbackFailed(message) {
-    window.clearTimeout(state.playbackTimer);
-    state.playbackTimer = null;
+  function playbackFailed(message, session = state.playbackSession) {
+    if (!isCurrentPlayback(session)) return;
+    clearPlaybackTimer();
     const retryChannel = state.requestedChannel || state.retryChannel || state.activeChannel;
     state.requestedChannel = null;
     state.activeChannel = null;
     state.retryChannel = retryChannel;
-    elements.videoPlayer.onloadeddata = null;
-    elements.videoPlayer.oncanplay = null;
-    elements.videoPlayer.onplaying = null;
-    elements.videoPlayer.onerror = null;
-    elements.videoPlayer.pause();
-    elements.videoPlayer.removeAttribute("src");
-    elements.videoPlayer.load();
-    elements.videoPlayer.hidden = true;
+    clearVideoSource();
+    elements.playerControls.hidden = true;
     elements.playerShell.classList.remove("has-playback");
     setNowPlaying(retryChannel, message);
+    syncPlayerControls();
     renderChannels();
     showPlaybackStatus(message, true);
   }
@@ -517,7 +654,8 @@
     const item = state.channels.find((channel) => channel.id === id)
       || (state.bootstrap?.last_channel?.id === id ? state.bootstrap.last_channel : null);
     if (!item) return;
-    stopPlayback();
+    const session = beginPlaybackSession();
+    stopPlayback({ invalidate: false });
     state.requestedChannel = item;
     state.activeChannel = null;
     state.retryChannel = item;
@@ -525,23 +663,44 @@
     renderChannels();
     showPlaybackStatus("Opening live stream…");
     try {
-      const playback = await api(`/my-tv/api/channels/${id}/playback`);
+      const playback = await api(`/my-tv/api/channels/${id}/playback`, { signal: state.playbackController.signal });
+      if (!isCurrentPlayback(session)) return;
       elements.playerEmpty.hidden = true;
+      state.playbackCapabilities = playback.capabilities || null;
       const sourceNote = playback.source_count > 1 ? ` · ${playback.source_count} fallback sources` : "";
       setNowPlaying({ ...item, name: playback.name, logo_url: playback.logo_url || item.logo_url }, `${item.group_name} · Opening stream${sourceNote}…`);
-      elements.videoPlayer.onloadeddata = playbackReady;
-      elements.videoPlayer.oncanplay = playbackReady;
-      elements.videoPlayer.onplaying = playbackReady;
-      elements.videoPlayer.onerror = () => playbackFailed("No working source is available for this channel.");
+      elements.videoPlayer.onloadeddata = () => playbackReady(session);
+      elements.videoPlayer.oncanplay = () => playbackReady(session);
+      elements.videoPlayer.onplaying = () => {
+        playbackReady(session);
+        if (isCurrentPlayback(session)) setPlayerState("playing", "Live now");
+        syncPlayerControls();
+      };
+      elements.videoPlayer.onwaiting = () => {
+        if (isCurrentPlayback(session)) setPlayerState("buffering", "Buffering live channel…");
+      };
+      elements.videoPlayer.onstalled = () => {
+        if (isCurrentPlayback(session)) setPlayerState("reconnecting", "Reconnecting to live channel…");
+      };
+      elements.videoPlayer.onpause = () => {
+        if (isCurrentPlayback(session) && state.activeChannel) setPlayerState("paused", "Live channel paused");
+        syncPlayerControls();
+      };
+      elements.videoPlayer.onvolumechange = syncPlayerControls;
+      elements.videoPlayer.onerror = () => playbackFailed("No working source is available for this channel.", session);
+      const timeoutSeconds = Number(playback.startup_timeout_seconds) || 20;
       state.playbackTimer = window.setTimeout(() => {
-        if (elements.videoPlayer.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) playbackReady();
-        else playbackFailed("This channel did not respond within 15 seconds.");
-      }, 15000);
+        if (!isCurrentPlayback(session)) return;
+        if (elements.videoPlayer.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) playbackReady(session);
+        else playbackFailed(`This channel did not respond within ${timeoutSeconds} seconds.`, session);
+      }, timeoutSeconds * 1000);
       elements.videoPlayer.src = playback.url;
       elements.videoPlayer.load();
       elements.videoPlayer.play().catch(() => {});
       renderChannels();
-    } catch (error) { playbackFailed(error.message || "This channel could not be opened."); }
+    } catch (error) {
+      if (!isAbortError(error) && isCurrentPlayback(session)) playbackFailed(error.message || "This channel could not be opened.", session);
+    }
   }
 
   function debounce(callback, wait = 300) {
@@ -559,6 +718,11 @@
     });
     if (focus) tab.focus();
     if (tab.dataset.view === "manage") {
+      if (state.activeChannel && !elements.videoPlayer.paused) {
+        state.pausedForNavigation = true;
+        elements.videoPlayer.pause();
+        toast("Live playback paused while you manage your lineup.");
+      }
       Promise.all([loadManageGroups(), loadManageChannels()]).catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
     }
   }
@@ -746,11 +910,70 @@
   elements.refreshCatalog.addEventListener("click", () => startSync("fetch"));
   elements.healthCheck.addEventListener("click", () => startHealthCheck());
   elements.refreshEpg.addEventListener("click", () => startEpgRefresh());
+  elements.togglePlayback.addEventListener("click", togglePlayback);
+  elements.videoPlayer.addEventListener("click", togglePlayback);
+  elements.playerFrame.addEventListener("click", (event) => {
+    if (
+      event.target === elements.videoPlayer ||
+      event.target.closest("button, input, label, #playerControls")
+    ) return;
+    togglePlayback();
+  });
+  elements.playerFrame.addEventListener("pointerenter", revealPlayerControls);
+  elements.playerFrame.addEventListener("pointermove", revealPlayerControls);
+  elements.playerFrame.addEventListener("pointerleave", hidePlayerControls);
+  elements.playerFrame.addEventListener("focusin", revealPlayerControls);
+  elements.playerFrame.addEventListener("focusout", () => {
+    window.setTimeout(() => {
+      if (!elements.playerFrame.contains(document.activeElement)) hidePlayerControls();
+    }, 0);
+  });
+  elements.toggleMute.addEventListener("click", () => {
+    elements.videoPlayer.muted = !elements.videoPlayer.muted;
+    syncPlayerControls();
+  });
+  elements.playerVolume.addEventListener("input", () => {
+    const value = Number(elements.playerVolume.value);
+    elements.videoPlayer.volume = value;
+    elements.videoPlayer.muted = value === 0;
+    syncPlayerControls();
+    showVolumeFeedback();
+  });
+  elements.playerFrame.addEventListener("wheel", (event) => {
+    if (!state.activeChannel || elements.videoPlayer.hidden) return;
+    event.preventDefault();
+    const currentStep = Math.round(elements.videoPlayer.volume * 20);
+    const nextStep = Math.min(20, Math.max(0, currentStep + (event.deltaY < 0 ? 1 : -1)));
+    const nextVolume = nextStep / 20;
+    elements.videoPlayer.volume = nextVolume;
+    elements.videoPlayer.muted = nextVolume === 0;
+    syncPlayerControls();
+    showVolumeFeedback();
+  }, { passive: false });
+  elements.previousChannel.addEventListener("click", () => {
+    const previous = adjacentChannel(-1);
+    if (previous) playChannel(previous.id);
+  });
+  elements.nextChannel.addEventListener("click", () => {
+    const next = adjacentChannel(1);
+    if (next) playChannel(next.id);
+  });
   elements.pictureInPicture.addEventListener("click", async () => {
     try {
       if (document.pictureInPictureElement) await document.exitPictureInPicture();
       else await elements.videoPlayer.requestPictureInPicture();
+      syncPlayerControls();
     } catch (error) { toast(error.message || "Picture in picture is unavailable.", true); }
+  });
+  elements.theaterMode.addEventListener("click", () => {
+    watchPanel.classList.toggle("is-theater");
+    syncPlayerControls();
+  });
+  elements.fullscreenPlayer.addEventListener("click", async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else await elements.playerFrame.requestFullscreen();
+    } catch (error) { toast(error.message || "Full screen is unavailable.", true); }
   });
   elements.retryPlayback.addEventListener("click", () => {
     const retryTarget = state.retryChannel || state.activeChannel;
@@ -798,14 +1021,42 @@
       return;
     }
     if (editable || event.altKey || event.ctrlKey || event.metaKey) return;
-    if (event.key.toLowerCase() === "f" && state.activeChannel) {
+    const key = event.key.toLowerCase();
+    const channelNavigationKey = event.key === "ArrowUp" || event.key === "ArrowDown";
+    if (channelNavigationKey && !event.target.closest("#channelGrid, #playerControls") && navigationChannel()) {
+      event.preventDefault();
+      const channel = adjacentChannel(event.key === "ArrowUp" ? -1 : 1);
+      if (channel) playChannel(channel.id);
+      return;
+    }
+    if ((event.key === " " || key === "k") && state.activeChannel && !event.target.closest("button")) {
+      event.preventDefault();
+      togglePlayback();
+      return;
+    }
+    if (key === "f" && event.shiftKey && state.activeChannel) {
       event.preventDefault();
       toggleFavorite(state.activeChannel).catch((error) => toast(error.message, true));
+      return;
     }
-    if (event.key.toLowerCase() === "m" && !elements.videoPlayer.hidden) {
+    if (key === "f" && state.activeChannel) {
       event.preventDefault();
-      elements.videoPlayer.muted = !elements.videoPlayer.muted;
-      toast(elements.videoPlayer.muted ? "Muted." : "Sound on.");
+      elements.fullscreenPlayer.click();
+      return;
+    }
+    if (key === "p" && state.activeChannel && !elements.pictureInPicture.hidden) {
+      event.preventDefault();
+      elements.pictureInPicture.click();
+      return;
+    }
+    if (key === "t" && state.activeChannel) {
+      event.preventDefault();
+      elements.theaterMode.click();
+      return;
+    }
+    if (key === "m" && !elements.videoPlayer.hidden) {
+      event.preventDefault();
+      elements.toggleMute.click();
     }
   });
   elements.playerEmpty.hidden = false;
@@ -818,14 +1069,24 @@
     const currentIndex = tabs.findIndex((item) => item === event.target);
     if (currentIndex === -1) return;
     let nextIndex = null;
-    if (event.key === "ArrowRight" || event.key === "ArrowDown") nextIndex = (currentIndex + 1) % tabs.length;
-    if (event.key === "ArrowLeft" || event.key === "ArrowUp") nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    const rtl = document.documentElement.dir === "rtl";
+    if (event.key === "ArrowDown" || event.key === (rtl ? "ArrowLeft" : "ArrowRight")) nextIndex = (currentIndex + 1) % tabs.length;
+    if (event.key === "ArrowUp" || event.key === (rtl ? "ArrowRight" : "ArrowLeft")) nextIndex = (currentIndex - 1 + tabs.length) % tabs.length;
     if (event.key === "Home") nextIndex = 0;
     if (event.key === "End") nextIndex = tabs.length - 1;
     if (nextIndex === null) return;
     event.preventDefault();
     activateTab(tabs[nextIndex], { focus: true });
   });
+  document.addEventListener("fullscreenchange", syncFullscreenControls);
+  elements.videoPlayer.addEventListener("enterpictureinpicture", syncPlayerControls);
+  elements.videoPlayer.addEventListener("leavepictureinpicture", syncPlayerControls);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && state.activeChannel && !elements.videoPlayer.paused) {
+      elements.videoPlayer.pause();
+    }
+  });
+  elements.videoPlayer.controls = false;
 
   document.addEventListener("error", (event) => {
     if (event.target instanceof HTMLImageElement && event.target.dataset.tvFallback) {

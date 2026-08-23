@@ -69,3 +69,67 @@ def test_duration_client_batches_fifty_video_ids_per_request():
     assert len(parse_qs(urlsplit(requests[0][0].full_url).query)["id"][0].split(",")) == 50
     assert durations["video-0"] == 65
     assert durations["video-50"] == 65
+
+
+def test_oauth_client_deletes_the_playlist_item_not_the_video(tmp_path):
+    token_path = tmp_path / "youtube_token.json"
+    token_path.write_text(
+        json.dumps(
+            {
+                "token": "access-token",
+                "refresh_token": "refresh-token",
+                "token_uri": "https://oauth.example.test/token",
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+                "expiry": "2999-01-01T00:00:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    requests = []
+
+    def opener(request, *, timeout):
+        requests.append((request, timeout))
+        return io.BytesIO()
+
+    client = YouTubePlaylistClient(oauth_token_path=token_path, opener=opener)
+    client.delete_playlist_item("playlist-item-1")
+
+    request, timeout = requests[0]
+    assert request.get_method() == "DELETE"
+    assert parse_qs(urlsplit(request.full_url).query) == {"id": ["playlist-item-1"]}
+    assert request.headers["Authorization"] == "Bearer access-token"
+    assert timeout == 20
+
+
+def test_oauth_client_refreshes_an_expired_token_before_syncing(tmp_path):
+    token_path = tmp_path / "youtube_token.json"
+    token_path.write_text(
+        json.dumps(
+            {
+                "token": "expired-access-token",
+                "refresh_token": "refresh-token",
+                "token_uri": "https://oauth.example.test/token",
+                "client_id": "client-id",
+                "client_secret": "client-secret",
+                "expiry": "06/13/2026 16:27:45",
+            }
+        ),
+        encoding="utf-8",
+    )
+    requests = []
+
+    def opener(request, *, timeout):
+        requests.append((request, timeout))
+        if request.full_url == "https://oauth.example.test/token":
+            return io.BytesIO(
+                json.dumps({"access_token": "fresh-token", "expires_in": 3600}).encode()
+            )
+        return io.BytesIO(json.dumps({"items": []}).encode())
+
+    client = YouTubePlaylistClient(oauth_token_path=token_path, opener=opener)
+    assert client.fetch_playlist("PL-test-playlist-123") == []
+
+    assert requests[0][0].full_url == "https://oauth.example.test/token"
+    assert requests[1][0].headers["Authorization"] == "Bearer fresh-token"
+    assert json.loads(token_path.read_text(encoding="utf-8"))["token"] == "fresh-token"

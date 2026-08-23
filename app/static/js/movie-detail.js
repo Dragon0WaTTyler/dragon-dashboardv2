@@ -1,4 +1,23 @@
-(() => {
+(async () => {
+  let syncEngine;
+  try {
+    syncEngine = await import("./subtitle-sync.mjs");
+  } catch (error) {
+    console.error("Dragon subtitle sync could not load.", error);
+    return;
+  }
+  const {
+    adjustSubtitleSync,
+    calibrateOnePoint,
+    calibrateTwoPoints,
+    defaultSubtitleSyncProfile,
+    nearestSubtitleCueIndexAt,
+    normalizeSubtitleSyncProfile,
+    resyncSubtitleFromHere,
+    subtitleSyncStorageKey,
+    subtitleSyncSummary,
+    transformSubtitleCue,
+  } = syncEngine;
   const player = document.querySelector("[data-movie-player]");
   if (!player) return;
 
@@ -54,6 +73,8 @@
   const muteIcon = player.querySelector("[data-player-mute-icon]");
   const timeline = player.querySelector("[data-player-timeline]");
   const volume = player.querySelector("[data-player-volume]");
+  const volumeFeedback = player.querySelector("[data-player-volume-feedback]");
+  const volumeFeedbackValue = player.querySelector("[data-player-volume-value]");
   const timeLabel = player.querySelector("[data-player-time]");
   const captionToggle = player.querySelector("[data-player-caption-toggle]");
   const dragonEpisode = player.querySelector("[data-player-dragon-episode]");
@@ -85,6 +106,19 @@
   const subtitleFont = player.querySelector("[data-player-subtitle-font]");
   const subtitleColors = Array.from(player.querySelectorAll("[data-player-subtitle-colors] button"));
   const subtitleReset = player.querySelector("[data-player-subtitle-reset]");
+  const subtitleSync = player.querySelector("[data-player-subtitle-sync]");
+  const subtitleSyncStatus = player.querySelector("[data-player-subtitle-sync-status]");
+  const subtitleSyncReference = player.querySelector("[data-player-subtitle-sync-reference]");
+  const subtitleSyncNow = player.querySelector("[data-player-subtitle-sync-now]");
+  const subtitleSyncAdjustments = Array.from(player.querySelectorAll("[data-player-subtitle-sync-adjust]"));
+  const subtitleSyncSearch = player.querySelector("[data-player-subtitle-sync-search]");
+  const subtitleSyncResults = player.querySelector("[data-player-subtitle-sync-results]");
+  const subtitleSyncSecond = player.querySelector("[data-player-subtitle-sync-second]");
+  const subtitleSyncResync = player.querySelector("[data-player-subtitle-sync-resync]");
+  const subtitleSyncReset = player.querySelector("[data-player-subtitle-sync-reset]");
+  const subtitleSyncControls = Array.from(player.querySelectorAll(
+    "[data-player-subtitle-sync-now], [data-player-subtitle-sync-adjust], [data-player-subtitle-sync-search], [data-player-subtitle-sync-second], [data-player-subtitle-sync-resync], [data-player-subtitle-sync-reset]",
+  ));
   const packBrowser = player.querySelector("[data-player-pack-browser]");
   const packHeading = player.querySelector("[data-player-pack-heading]");
   const packEpisode = player.querySelector("[data-player-pack-episode]");
@@ -104,7 +138,6 @@
       backgroundOpacity: 25,
       blur: 0,
       shadow: 90,
-      offset: 0,
       color: "#ffffff",
       font: "noto-arabic",
     },
@@ -115,7 +148,6 @@
       backgroundOpacity: 60,
       blur: 0,
       shadow: 65,
-      offset: 0,
       color: "#ffffff",
       font: "noto-arabic",
     },
@@ -126,7 +158,6 @@
       backgroundOpacity: 18,
       blur: 0,
       shadow: 100,
-      offset: 0,
       color: "#ffffff",
       font: "cairo",
     },
@@ -137,7 +168,6 @@
       backgroundOpacity: 82,
       blur: 0,
       shadow: 100,
-      offset: 0,
       color: "#ffffff",
       font: "cairo",
     },
@@ -148,7 +178,6 @@
       backgroundOpacity: 0,
       blur: 0,
       shadow: 55,
-      offset: 0,
       color: "#ffffff",
       font: "tajawal",
     },
@@ -168,11 +197,13 @@
   let packRequestToken = 0;
   let videoPaintCheckTimer = 0;
   let controlsHideTimer = 0;
+  let volumeFeedbackTimer = 0;
   let subtitlePanelOpen = false;
   let selectedSubtitleIndex = -1;
   let subtitleEntries = [];
   let subtitlePreferencesLanguage = "default";
   let subtitlePreferences = null;
+  let subtitleSyncSearchTerm = "";
   let captionFitSize = null;
   let captionFitSignature = "";
   let savedProgress = null;
@@ -434,6 +465,11 @@
     if (subtitlePanelOpen) {
       mediaShell?.setAttribute("data-controls-visible", "true");
       setSubtitleScreen("list");
+      const entry = activeSubtitleEntry();
+      if (entry?.ready) {
+        entry.syncReferencePinned = false;
+        refreshSubtitleSync();
+      }
       window.requestAnimationFrame(() => subtitleClose?.focus());
     } else if (subtitleOpener instanceof HTMLElement) {
       const opener = subtitleOpener;
@@ -544,6 +580,161 @@
       }
     }
     return cues.filter((cue) => cue.endTime > cue.startTime);
+  };
+  const subtitleContentFingerprint = async (text, fallback) => {
+    try {
+      if (!window.crypto?.subtle) throw new Error("Web Crypto is unavailable");
+      const digest = await window.crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(text || "")));
+      return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+    } catch (_error) {
+      // The VTT hash is preferred. This stable signed track URL fallback keeps sync
+      // isolated if an older browser does not expose Web Crypto.
+      return `track-${String(fallback || "unknown").replace(/[^a-z0-9]+/giu, "-").slice(-180)}`;
+    }
+  };
+  const activeSubtitleEntry = () => subtitleEntries[selectedSubtitleIndex] || null;
+  const subtitleSyncKeyFor = (entry) => {
+    const sourceId = selectedSourceMeta()?.sourceId || "";
+    if (!entry?.subtitleId || !sourceId) return "";
+    return subtitleSyncStorageKey({
+      movieId: player.dataset.mediaId || "unknown",
+      sourceId,
+      subtitleId: entry.subtitleId,
+    });
+  };
+  const transformedSubtitleCues = (entry) => {
+    const profile = normalizeSubtitleSyncProfile(entry?.syncProfile);
+    return (entry?.cues || []).map((cue, originalIndex) => {
+      const timing = transformSubtitleCue({ start_ms: Math.round(cue.startTime * 1000), end_ms: Math.round(cue.endTime * 1000) }, profile);
+      return {
+        ...cue,
+        originalIndex,
+        originalStartMs: Math.round(cue.startTime * 1000),
+        originalEndMs: Math.round(cue.endTime * 1000),
+        start_ms: timing.start_ms,
+        end_ms: timing.end_ms,
+        startTime: timing.start_ms / 1000,
+        endTime: timing.end_ms / 1000,
+      };
+    });
+  };
+  const saveSubtitleSync = (entry) => {
+    const key = subtitleSyncKeyFor(entry);
+    if (!key || !entry?.syncProfile) return;
+    try {
+      window.localStorage.setItem(key, JSON.stringify(entry.syncProfile));
+    } catch (_error) {
+      setSubtitleStatus("Subtitle sync changed for this session, but could not be saved.");
+    }
+  };
+  const loadSubtitleSync = (entry) => {
+    const key = subtitleSyncKeyFor(entry);
+    let profile = defaultSubtitleSyncProfile();
+    try {
+      const stored = key ? window.localStorage.getItem(key) : "";
+      profile = stored ? normalizeSubtitleSyncProfile(JSON.parse(stored)) : defaultSubtitleSyncProfile();
+      // Migrate the previous per-language presentation delay once, into this exact
+      // source + subtitle profile. Later resets therefore restore original timing.
+      const legacyOffsetMs = Math.round(Number(subtitlePreferences?.offset || 0) * 1000);
+      if (!stored && legacyOffsetMs) {
+        profile = adjustSubtitleSync(profile, legacyOffsetMs);
+        subtitlePreferences.offset = 0;
+        saveSubtitlePreferences();
+        entry.syncProfile = profile;
+        saveSubtitleSync(entry);
+      }
+    } catch (_error) {
+      profile = defaultSubtitleSyncProfile();
+    }
+    entry.syncProfile = profile;
+    entry.transformedCues = transformedSubtitleCues(entry);
+  };
+  const selectedSyncCue = (entry = activeSubtitleEntry()) => {
+    const index = Number(entry?.syncReferenceIndex);
+    return Number.isInteger(index) && entry?.cues?.[index] ? entry.cues[index] : null;
+  };
+  const chooseSyncCue = (entry, index) => {
+    if (!entry?.cues?.[index]) return;
+    entry.syncReferenceIndex = index;
+    entry.syncReferencePinned = true;
+    refreshSubtitleSync();
+  };
+  const nearestSubtitleCueIndex = (entry) => {
+    if (!entry?.transformedCues?.length) return -1;
+    const currentMs = Math.round(effectiveCurrentTime() * 1000);
+    return nearestSubtitleCueIndexAt(entry.transformedCues, currentMs);
+  };
+  const syncCueForAction = (entry) => {
+    if (!entry) return null;
+    if (!entry.syncReferencePinned) {
+      const nearestIndex = nearestSubtitleCueIndex(entry);
+      if (nearestIndex >= 0) entry.syncReferenceIndex = nearestIndex;
+    }
+    return selectedSyncCue(entry);
+  };
+  const formatSyncTime = (milliseconds) => {
+    const total = Math.max(0, Math.round(Number(milliseconds || 0)));
+    const hours = Math.floor(total / 3_600_000);
+    const minutes = Math.floor((total % 3_600_000) / 60_000);
+    const seconds = ((total % 60_000) / 1000).toFixed(1).padStart(4, "0");
+    return `${hours ? `${hours}:` : ""}${String(minutes).padStart(hours ? 2 : 1, "0")}:${seconds}`;
+  };
+  const refreshSubtitleSync = (notice = "") => {
+    const entry = activeSubtitleEntry();
+    const ready = Boolean(entry?.ready && entry?.syncProfile && entry.cues?.length);
+    subtitleSyncControls.forEach((control) => {
+      control.disabled = !ready;
+      control.setAttribute("aria-disabled", ready ? "false" : "true");
+    });
+    if (!ready) {
+      if (subtitleSyncStatus) subtitleSyncStatus.textContent = "Choose a subtitle track";
+      if (subtitleSyncReference) subtitleSyncReference.textContent = "Choose a subtitle track to unlock the repair controls.";
+      subtitleSyncResults?.replaceChildren();
+      return;
+    }
+    if (!selectedSyncCue(entry) || !entry.syncReferencePinned) entry.syncReferenceIndex = nearestSubtitleCueIndex(entry);
+    const reference = selectedSyncCue(entry);
+    const referenceTiming = entry.transformedCues?.[Number(entry.syncReferenceIndex)] || reference;
+    if (subtitleSyncStatus) subtitleSyncStatus.textContent = notice ? `${notice} · ${subtitleSyncSummary(entry.syncProfile)}` : subtitleSyncSummary(entry.syncProfile);
+    if (subtitleSyncReference) {
+      subtitleSyncReference.textContent = reference
+        ? `Selected · video ${formatSyncTime(referenceTiming.startTime * 1000)} · original ${formatSyncTime(reference.startTime * 1000)} · ${reference.text.replace(/\s+/gu, " ").slice(0, 76)}`
+        : "Find and select the subtitle line that belongs here.";
+    }
+    if (!subtitleSyncResults) return;
+    subtitleSyncResults.replaceChildren();
+    const term = subtitleSyncSearchTerm.trim().toLocaleLowerCase();
+    const referenceIndex = Number(entry.syncReferenceIndex || 0);
+    const candidates = term.length >= 2
+      ? entry.cues.map((cue, index) => ({ cue, index })).filter(({ cue }) => cue.text.toLocaleLowerCase().includes(term)).slice(0, 12)
+      : entry.cues.slice(Math.max(0, referenceIndex - 3), referenceIndex + 4).map((cue, offset) => ({ cue, index: Math.max(0, referenceIndex - 3) + offset }));
+    if (!candidates.length) {
+      subtitleSyncResults.textContent = term ? "No matching subtitle lines." : "Type dialogue to find another subtitle line.";
+      return;
+    }
+    candidates.forEach(({ cue, index }) => {
+      const button = document.createElement("button");
+      const correctedCue = entry.transformedCues?.[index] || cue;
+      button.type = "button";
+      button.className = index === entry.syncReferenceIndex ? "is-active" : "";
+      button.dataset.playerSubtitleSyncCue = String(index);
+      button.textContent = `Video ${formatSyncTime(correctedCue.startTime * 1000)} · original ${formatSyncTime(cue.startTime * 1000)} · ${cue.text.replace(/\s+/gu, " ").slice(0, 92)}`;
+      subtitleSyncResults.append(button);
+    });
+  };
+  const applySubtitleSyncProfile = (entry, profile, message) => {
+    if (!entry) return;
+    try {
+      entry.syncProfile = normalizeSubtitleSyncProfile(profile);
+      entry.transformedCues = transformedSubtitleCues(entry);
+      saveSubtitleSync(entry);
+      resetCaptionFit();
+      renderActiveCaption();
+      refreshSubtitleSync(message);
+      if (message) setSubtitleStatus(`${message} ${subtitleSyncSummary(entry.syncProfile)}.`);
+    } catch (error) {
+      setSubtitleStatus(String(error?.message || "Subtitle sync could not be applied. Playback is unchanged."));
+    }
   };
   const selectedEpisodeRuntimeSeconds = () => {
     const option = packEpisode?.selectedOptions?.[0];
@@ -679,6 +870,15 @@
     }
     if (volume && Number(volume.value) !== video.volume) volume.value = String(video.volume);
     syncTimeline();
+  };
+  const showVolumeFeedback = () => {
+    if (!volumeFeedback || !volumeFeedbackValue) return;
+    window.clearTimeout(volumeFeedbackTimer);
+    volumeFeedbackValue.textContent = `${Math.round(video.volume * 100)}%`;
+    volumeFeedback.classList.remove("is-visible");
+    void volumeFeedback.offsetWidth;
+    volumeFeedback.classList.add("is-visible");
+    volumeFeedbackTimer = window.setTimeout(() => volumeFeedback.classList.remove("is-visible"), 850);
   };
   const syncAudioTracks = () => {
     const tracks = Array.from(video.audioTracks || []);
@@ -1169,8 +1369,8 @@
       resetCaptionDirection();
       return;
     }
-    const moment = effectiveCurrentTime() + Number(subtitlePreferences.offset || 0);
-    const active = entry.cues.filter((cue) => cue.startTime <= moment && cue.endTime >= moment);
+    const moment = effectiveCurrentTime();
+    const active = (entry.transformedCues || []).filter((cue) => cue.startTime <= moment && cue.endTime >= moment);
     if (!active.length) {
       captionLayer.hidden = true;
       captionChip.hidden = true;
@@ -1248,10 +1448,13 @@
         if (!response.ok) throw new Error(body || "Subtitle could not be loaded.");
         entry.cues = parseWebVttCues(body);
         if (!entry.cues.length) throw new Error("Subtitle has no readable cues.");
+        entry.subtitleId = await subtitleContentFingerprint(body, entry.item.track_url);
+        loadSubtitleSync(entry);
         entry.ready = true;
         if (selectedSubtitleIndex === subtitleEntries.indexOf(entry)) {
           renderActiveCaption();
-          setSubtitleStatus(`${entry.label} is selected. Use Sub to change font, color, blur, or timing.`);
+          refreshSubtitleSync();
+          setSubtitleStatus(`${entry.label} is selected. Use Sync to repair timing or Appearance to change its look.`);
         }
       })
       .catch((error) => {
@@ -1288,6 +1491,7 @@
       captionLayer.hidden = true;
       captionChip.hidden = true;
       setSubtitleStatus("Subtitles are off. Open Sub to pick another track or adjust timing.");
+      refreshSubtitleSync();
       return;
     }
     const entry = subtitleEntries[selectedSubtitleIndex];
@@ -1304,7 +1508,8 @@
       return;
     }
     renderActiveCaption();
-    setSubtitleStatus(`${entry.label} is selected. Use Sub to change font, color, blur, or timing.`);
+    refreshSubtitleSync();
+    setSubtitleStatus(`${entry.label} is selected. Use Sync to repair timing or Appearance to change its look.`);
   };
 
   const selectFirstUsableSubtitle = () => {
@@ -1329,6 +1534,7 @@
     subtitleEntries = [];
     selectedSubtitleIndex = -1;
     refreshSubtitleList();
+    refreshSubtitleSync();
     renderActiveCaption();
   };
 
@@ -1985,6 +2191,7 @@
     video.volume = Number(volume.value || 0);
     video.muted = video.volume === 0;
     syncQuickControls();
+    showVolumeFeedback();
     showControlsBriefly();
   });
   timeline?.addEventListener("input", () => {
@@ -2011,6 +2218,92 @@
     if (!button) return;
     const index = Number(button.dataset.playerSubtitleOption);
     setActiveSubtitleIndex(Number.isFinite(index) ? index : -1);
+    showControlsBriefly();
+  });
+  subtitleSyncSearch?.addEventListener("input", () => {
+    subtitleSyncSearchTerm = subtitleSyncSearch.value || "";
+    refreshSubtitleSync();
+  });
+  subtitleSyncResults?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-player-subtitle-sync-cue]");
+    const entry = activeSubtitleEntry();
+    const index = Number(button?.dataset.playerSubtitleSyncCue);
+    if (!entry || !Number.isInteger(index)) return;
+    chooseSyncCue(entry, index);
+    showControlsBriefly();
+  });
+  subtitleSyncNow?.addEventListener("click", () => {
+    const entry = activeSubtitleEntry();
+    const cue = syncCueForAction(entry);
+    if (!entry || !cue) return;
+    try {
+      applySubtitleSyncProfile(
+        entry,
+        calibrateOnePoint(Math.round(cue.startTime * 1000), Math.round(effectiveCurrentTime() * 1000), entry.syncProfile),
+        "Subtitle synchronized.",
+      );
+    } catch (error) {
+      setSubtitleStatus(String(error?.message || "Subtitle sync could not be calculated."));
+    }
+    showControlsBriefly();
+  });
+  subtitleSyncAdjustments.forEach((button) => button.addEventListener("click", () => {
+    const entry = activeSubtitleEntry();
+    if (!entry) return;
+    try {
+      applySubtitleSyncProfile(entry, adjustSubtitleSync(entry.syncProfile, Number(button.dataset.playerSubtitleSyncAdjust)), "Fine tune saved.");
+    } catch (error) {
+      setSubtitleStatus(String(error?.message || "Subtitle timing could not be adjusted."));
+    }
+    showControlsBriefly();
+  }));
+  subtitleSyncSecond?.addEventListener("click", () => {
+    const entry = activeSubtitleEntry();
+    const cue = syncCueForAction(entry);
+    const first = entry?.syncProfile?.anchors?.[0];
+    if (!entry || !cue || !first) {
+      setSubtitleStatus("First synchronize one subtitle line, then add a later second point.");
+      return;
+    }
+    try {
+      applySubtitleSyncProfile(
+        entry,
+        calibrateTwoPoints(first, {
+          subtitle_ms: Math.round(cue.startTime * 1000),
+          video_ms: Math.round(effectiveCurrentTime() * 1000),
+        }, entry.syncProfile),
+        "Drift correction saved.",
+      );
+    } catch (error) {
+      setSubtitleStatus(String(error?.message || "The second sync point is not valid."));
+    }
+    showControlsBriefly();
+  });
+  subtitleSyncResync?.addEventListener("click", () => {
+    const entry = activeSubtitleEntry();
+    const cue = syncCueForAction(entry);
+    if (!entry || !cue) return;
+    try {
+      applySubtitleSyncProfile(
+        entry,
+        resyncSubtitleFromHere(Math.round(cue.startTime * 1000), Math.round(effectiveCurrentTime() * 1000), entry.syncProfile),
+        "Later subtitles resynchronized.",
+      );
+    } catch (error) {
+      setSubtitleStatus(String(error?.message || "Subtitle segment could not be created."));
+    }
+    showControlsBriefly();
+  });
+  subtitleSyncReset?.addEventListener("click", () => {
+    const entry = activeSubtitleEntry();
+    if (!entry) return;
+    const key = subtitleSyncKeyFor(entry);
+    try {
+      if (key) window.localStorage.removeItem(key);
+      applySubtitleSyncProfile(entry, defaultSubtitleSyncProfile(), "Original subtitle timing restored.");
+    } catch (_error) {
+      setSubtitleStatus("Original subtitle timing restored for this session.");
+    }
     showControlsBriefly();
   });
   subtitlePreset?.addEventListener("change", () => {
@@ -2097,6 +2390,17 @@
   mediaShell?.addEventListener("pointermove", showControlsBriefly);
   mediaShell?.addEventListener("touchstart", showControlsBriefly, { passive: true });
   mediaShell?.addEventListener("focusin", showControlsBriefly);
+  mediaShell?.addEventListener("wheel", (event) => {
+    if (mediaShell.hidden || video.hidden) return;
+    event.preventDefault();
+    const currentStep = Math.round(video.volume * 20);
+    const nextStep = Math.min(20, Math.max(0, currentStep + (event.deltaY < 0 ? 1 : -1)));
+    video.volume = nextStep / 20;
+    video.muted = video.volume === 0;
+    syncQuickControls();
+    showVolumeFeedback();
+    showControlsBriefly();
+  }, { passive: false });
   mediaShell?.addEventListener("click", (event) => {
     if (event.target.closest?.("[data-player-subtitle-panel]")) return;
     if (event.target.closest?.("button,input,select,a")) return;

@@ -4,6 +4,7 @@ import re
 from datetime import UTC, datetime
 from typing import Any
 
+from sqlalchemy import not_
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
@@ -882,7 +883,11 @@ class MovieService:
         query = (
             db.select(Movie)
             .join(MovieProgress)
-            .where(MovieProgress.completed.is_(False), MovieProgress.current_seconds > 0)
+            .where(
+                MovieProgress.completed.is_(False),
+                MovieProgress.current_seconds > 0,
+                not_(Movie.status.in_(("finished", "watched"))),
+            )
             .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
             .distinct()
             .order_by(MovieProgress.updated_at.desc())
@@ -895,7 +900,11 @@ class MovieService:
         active_progress = db.session.scalar(
             db.select(Movie)
             .join(MovieProgress)
-            .where(MovieProgress.completed.is_(False), MovieProgress.current_seconds > 0)
+            .where(
+                MovieProgress.completed.is_(False),
+                MovieProgress.current_seconds > 0,
+                not_(Movie.status.in_(("finished", "watched"))),
+            )
             .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
             .order_by(MovieProgress.updated_at.desc())
             .limit(1)

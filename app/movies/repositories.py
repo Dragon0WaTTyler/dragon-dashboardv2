@@ -86,7 +86,11 @@ class MovieRepository:
             db.select(Movie)
             .join(MovieProgress, MovieProgress.movie_id == Movie.id)
             .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
-            .where(MovieProgress.current_seconds > 0, MovieProgress.completed.is_(False))
+            .where(
+                MovieProgress.current_seconds > 0,
+                MovieProgress.completed.is_(False),
+                not_(Movie.status.in_(("finished", "watched"))),
+            )
             .order_by(MovieProgress.updated_at.desc())
             .limit(limit)
         )

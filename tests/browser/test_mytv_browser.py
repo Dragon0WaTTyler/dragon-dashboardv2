@@ -145,11 +145,22 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
           get() { return this.dataset.testSrc || ""; },
           set(value) { this.dataset.testSrc = value; },
         });
+        Object.defineProperty(HTMLMediaElement.prototype, "paused", {
+          configurable: true,
+          get() { return this.dataset.testPaused !== "false"; },
+        });
         HTMLMediaElement.prototype.load = function () {
           this.dispatchEvent(new Event("loadeddata"));
         };
-        HTMLMediaElement.prototype.play = function () { return Promise.resolve(); };
-        HTMLMediaElement.prototype.pause = function () {};
+        HTMLMediaElement.prototype.play = function () {
+          this.dataset.testPaused = "false";
+          this.dispatchEvent(new Event("playing"));
+          return Promise.resolve();
+        };
+        HTMLMediaElement.prototype.pause = function () {
+          this.dataset.testPaused = "true";
+          this.dispatchEvent(new Event("pause"));
+        };
         """
     )
     page.goto(f"{live_app}/my-tv")
@@ -196,6 +207,10 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     expect(page.locator("#playerEmpty")).to_be_hidden()
     expect(page.locator("#nowPlayingTitle")).to_have_text("Channel 001")
     assert len(playback_requests) == 1
+    expect(page.get_by_role("button", name="Previous channel")).to_be_visible()
+    expect(page.get_by_role("button", name="Next channel")).to_be_visible()
+    expect(page.get_by_role("button", name="Previous channel")).to_be_enabled()
+    expect(page.get_by_role("button", name="Next channel")).to_be_enabled()
     page.unroute("**/my-tv/api/channels/*/playback")
     page.evaluate(
         """() => {
@@ -265,6 +280,40 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     page.locator("#playerLoading").wait_for(state="hidden")
     assert page.get_by_text("Live", exact=True).is_visible()
     active_src = page.locator("#videoPlayer").get_attribute("data-test-src")
+    expect(page.get_by_label("Live player controls")).to_be_visible()
+    expect(page.locator("#playerOverlayTitle")).to_have_attribute("data-channel-name", "News One")
+    expect(page.get_by_role("button", name="Previous channel")).to_be_visible()
+    expect(page.get_by_role("button", name="Next channel")).to_be_visible()
+    assert page.locator("#togglePlayback").is_hidden()
+    expect(page.locator("#playerConnectionState")).to_have_text("Live now")
+    page.locator("#videoPlayer").evaluate("element => element.click()")
+    expect(page.locator("#playerConnectionState")).to_have_text("Live channel paused")
+    page.locator("#videoPlayer").evaluate("element => element.click()")
+    expect(page.locator("#playerConnectionState")).to_have_text("Live now")
+    page.locator("#playerFrame").evaluate(
+        "element => element.dispatchEvent(new WheelEvent('wheel', "
+        "{ bubbles: true, cancelable: true, deltaY: 100 }))"
+    )
+    assert page.locator("#videoPlayer").evaluate("element => element.volume") < 1
+    expect(page.locator("#playerVolumeFeedback")).to_have_class(
+        "tv-player-volume-feedback is-visible"
+    )
+    expect(page.locator("#playerVolumeValue")).to_have_text("95%")
+    page.locator("#playerFrame").dispatch_event("pointerleave")
+    expect(page.get_by_label("Live player controls")).to_be_hidden()
+    expect(page.locator("#playerOverlayTitle")).to_be_hidden()
+    page.locator("#playerFrame").dispatch_event("pointermove")
+    expect(page.get_by_label("Live player controls")).to_be_visible()
+    expect(page.locator("#playerOverlayTitle")).to_be_visible()
+    page.locator("#fullscreenPlayer").focus()
+    page.wait_for_timeout(2600)
+    expect(page.get_by_label("Live player controls")).to_be_hidden()
+    expect(page.locator("#playerOverlayTitle")).to_be_hidden()
+    page.locator("#playerFrame").dispatch_event("pointermove")
+    page.get_by_role("button", name="Enter theater mode").click()
+    assert "is-theater" in (page.locator("#tv-panel-watch").get_attribute("class") or "")
+    page.get_by_role("button", name="Exit theater mode").click()
+    assert "is-theater" not in (page.locator("#tv-panel-watch").get_attribute("class") or "")
     page.get_by_role("button", name="Recent", exact=True).click()
     page.get_by_text("Channel 001", exact=True).wait_for()
     assert page.locator("#videoPlayer").is_visible()
@@ -345,3 +394,37 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     availability.select_option("off")
     expect(availability).to_be_focused()
     assert availability.input_value() == "off"
+
+    page.get_by_role("tab", name="Watch", exact=True).click()
+    page.locator("#channelGrid").get_by_text("Channel 001", exact=True).wait_for()
+    first = page.get_by_role("button", name="Play Channel 001")
+    second = page.get_by_role("button", name="Play Channel 002")
+    first_id = first.get_attribute("data-play-channel")
+    second_id = second.get_attribute("data-play-channel")
+    page.evaluate(
+        """firstId => {
+          const nativeFetch = window.fetch.bind(window);
+          window.fetch = (url, options = {}) => {
+            if (!String(url).endsWith(`/channels/${firstId}/playback`)) {
+              return nativeFetch(url, options);
+            }
+            return new Promise((resolve, reject) => {
+              const timer = window.setTimeout(
+                () => nativeFetch(url, options).then(resolve, reject),
+                300,
+              );
+              options.signal?.addEventListener("abort", () => {
+                window.clearTimeout(timer);
+                reject(new DOMException("Playback request replaced", "AbortError"));
+              }, { once: true });
+            });
+          };
+        }""",
+        first_id,
+    )
+    first.click()
+    second.click()
+    expect(page.locator("#nowPlayingTitle")).to_have_text("Channel 002")
+    page.wait_for_timeout(450)
+    expect(page.locator("#nowPlayingTitle")).to_have_text("Channel 002")
+    assert page.locator("#videoPlayer").get_attribute("data-test-src") == f"/my-tv/play/{second_id}"

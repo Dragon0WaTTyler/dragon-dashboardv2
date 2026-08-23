@@ -87,6 +87,9 @@ class Settings:
     cinesrc_enabled: bool
     vidcore_enabled: bool
     vidzee_enabled: bool
+    videm_enabled: bool
+    multiembed_enabled: bool
+    multiembed_vip_enabled: bool
     videotube_enabled: bool
     videotube_embed_url: str
     updown_enabled: bool
@@ -197,6 +200,24 @@ class Settings:
                 value = os.getenv(f"DRAGON_{name}")
             return parse_bool(value, default=default)
 
+        def feature_with_aliases(name: str, default: bool, *aliases: str) -> bool:
+            value = override_map.get(name)
+            if value is None:
+                value = override_map.get(f"DRAGON_{name}")
+            if value is None:
+                value = os.getenv(f"DRAGON_{name}")
+            for alias in aliases:
+                if value is not None:
+                    break
+                value = override_map.get(alias)
+                if value is None:
+                    value = override_map.get(f"DRAGON_{alias}")
+                if value is None:
+                    value = os.getenv(alias)
+                if value is None:
+                    value = os.getenv(f"DRAGON_{alias}")
+            return parse_bool(value, default=default)
+
         def positive_integer(name: str, default: int, *, maximum: int) -> int:
             value = override_map.get(name)
             if value is None:
@@ -226,6 +247,7 @@ class Settings:
             or os.getenv("DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID", "")
             or _private_setting(instance_root, "youtube_watch_later_playlist_id")
         ).strip()
+        youtube_oauth_token_available = (instance_root / "secrets" / "youtube_token.json").is_file()
         vidsrc_embed_url = _https_base_url(
             str(
                 override_map.get("VIDSRC_EMBED_URL")
@@ -459,6 +481,13 @@ class Settings:
             cinesrc_enabled=feature("CINESRC_ENABLED", False),
             vidcore_enabled=feature("VIDCORE_ENABLED", False),
             vidzee_enabled=feature("VIDZEE_ENABLED", False),
+            videm_enabled=feature("VIDEM_ENABLED", False),
+            multiembed_enabled=feature_with_aliases(
+                "MULTIEMBED_ENABLED", True, "PLAYER_SOURCE_MULTIEMBED_ENABLED"
+            ),
+            multiembed_vip_enabled=feature_with_aliases(
+                "MULTIEMBED_VIP_ENABLED", True, "PLAYER_SOURCE_MULTIEMBED_VIP_ENABLED"
+            ),
             videotube_enabled=feature("VIDEOTUBE_ENABLED", False),
             videotube_embed_url=videotube_embed_url,
             updown_enabled=feature("UPDOWN_ENABLED", False),
@@ -548,10 +577,13 @@ class Settings:
             notion_tv_episode_database_id=notion_tv_episode_database_id,
             notion_tv_episode_data_source_id=notion_tv_episode_data_source_id,
             notion_sync_ttl_seconds=positive_integer("NOTION_SYNC_TTL_SECONDS", 120, maximum=86400),
-            youtube_delete_enabled=feature("YOUTUBE_DELETE_ENABLED", False),
+            youtube_delete_enabled=feature("YOUTUBE_DELETE_ENABLED", youtube_oauth_token_available),
             youtube_sync_enabled=feature(
                 "YOUTUBE_SYNC_ENABLED",
-                bool(youtube_api_key and youtube_watch_later_playlist_id),
+                bool(
+                    youtube_watch_later_playlist_id
+                    and (youtube_api_key or youtube_oauth_token_available)
+                ),
             ),
             youtube_api_key=youtube_api_key,
             youtube_watch_later_playlist_id=youtube_watch_later_playlist_id,
@@ -579,6 +611,9 @@ class Settings:
             "DRAGON_CINESRC_ENABLED": self.cinesrc_enabled,
             "DRAGON_VIDCORE_ENABLED": self.vidcore_enabled,
             "DRAGON_VIDZEE_ENABLED": self.vidzee_enabled,
+            "DRAGON_VIDEM_ENABLED": self.videm_enabled,
+            "DRAGON_MULTIEMBED_ENABLED": self.multiembed_enabled,
+            "DRAGON_MULTIEMBED_VIP_ENABLED": self.multiembed_vip_enabled,
             "DRAGON_VIDEOTUBE_ENABLED": self.videotube_enabled,
             "DRAGON_VIDEOTUBE_EMBED_URL": self.videotube_embed_url,
             "DRAGON_UPDOWN_ENABLED": self.updown_enabled,

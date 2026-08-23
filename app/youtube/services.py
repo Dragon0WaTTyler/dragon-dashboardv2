@@ -165,6 +165,31 @@ def video_item(video: YouTubeVideo) -> dict:
     }
 
 
+def _pockettube_group_names() -> dict[str, list[str]]:
+    """Return every active PocketTube category for each original video."""
+    memberships, _ = YouTubeRepository.list(source="pockettube", limit=None)
+    groups_by_video: dict[str, set[str]] = {}
+    for membership in memberships:
+        if membership.group_name:
+            groups_by_video.setdefault(_canonical_external_id(membership.external_id), set()).add(
+                membership.group_name
+            )
+    return {
+        video_id: sorted(groups, key=str.casefold)
+        for video_id, groups in groups_by_video.items()
+    }
+
+
+def _pockettube_feed_items(videos: list[YouTubeVideo]) -> list[dict]:
+    groups_by_video = _pockettube_group_names()
+    items = []
+    for video in videos:
+        item = video_item(video)
+        item["group_names"] = groups_by_video.get(item["external_id"], [])
+        items.append(item)
+    return items
+
+
 def video_detail(video: YouTubeVideo) -> dict:
     return {
         **video_item(video),
@@ -226,7 +251,7 @@ class YouTubeService:
         group: str = "",
         q: str = "",
         order: str = "normal",
-        limit: int = 50,
+        limit: int | None = 50,
         offset: int = 0,
         seed: str = "",
     ) -> dict:
@@ -235,20 +260,45 @@ class YouTubeService:
         if order not in ORDERS:
             raise ValueError("Unknown order.")
         shuffle_seed = ""
-        if order in {"shuffle", "shuffle_video"}:
+        if source == "pockettube":
             videos, total = YouTubeRepository.list(
                 source=source,
                 group=group,
                 q=q,
                 limit=None,
             )
+            if not group:
+                unique_videos: list[YouTubeVideo] = []
+                seen_external_ids: set[str] = set()
+                for video in videos:
+                    external_id = _canonical_external_id(video.external_id)
+                    if external_id not in seen_external_ids:
+                        unique_videos.append(video)
+                        seen_external_ids.add(external_id)
+                videos = unique_videos
+            total = len(videos)
+
+        if order in {"shuffle", "shuffle_video"}:
+            if source != "pockettube":
+                videos, total = YouTubeRepository.list(
+                    source=source,
+                    group=group,
+                    q=q,
+                    limit=None,
+                )
             shuffle_seed = seed.strip()[:128] or secrets.token_hex(16)
             videos.sort(
                 key=lambda video: hashlib.sha256(
                     f"{shuffle_seed}\0{video.id}".encode()
                 ).digest()
             )
-            videos = videos[:1] if order == "shuffle_video" else videos[offset : offset + limit]
+            videos = (
+                videos[:1]
+                if order == "shuffle_video"
+                else videos[offset:] if limit is None else videos[offset : offset + limit]
+            )
+        elif source == "pockettube":
+            videos = videos[offset:] if limit is None else videos[offset : offset + limit]
         else:
             videos, total = YouTubeRepository.list(
                 source=source,
@@ -258,7 +308,11 @@ class YouTubeService:
                 offset=offset,
             )
         return {
-            "items": [video_item(video) for video in videos],
+            "items": (
+                _pockettube_feed_items(videos)
+                if source == "pockettube"
+                else [video_item(video) for video in videos]
+            ),
             "total": total,
             "seed": shuffle_seed,
         }
@@ -267,6 +321,16 @@ class YouTubeService:
     def latest_watch_later(limit: int = 4) -> list[dict]:
         videos, _ = YouTubeRepository.list(source="watch_later", limit=limit)
         return [video_item(video) for video in videos]
+
+    @staticmethod
+    def sync_status(source: str) -> SnapshotRecord | None:
+        domain = {
+            "watch_later": "youtube_watch_later",
+            "pockettube": "youtube_pockettube",
+        }.get(source)
+        if domain is None:
+            return None
+        return db.session.scalar(db.select(SnapshotRecord).where(SnapshotRecord.domain == domain))
 
     @staticmethod
     def sync_watch_later(
@@ -666,16 +730,27 @@ class YouTubeService:
         db.session.commit()
 
     @staticmethod
-    def remove_from_watch_later(video: YouTubeVideo) -> None:
+    def remove_from_watch_later(
+        video: YouTubeVideo, client: YouTubePlaylistClient
+    ) -> None:
         if video.source != "watch_later":
             raise ValueError("Only Watch Later videos can be removed.")
+        if not video.playlist_item_id:
+            raise ValueError(
+                "This local record has no YouTube playlist item ID. "
+                "Refresh the playlist, then try again."
+            )
+        client.delete_playlist_item(video.playlist_item_id)
         video.removed_from_source = True
-        video.local_history = [*video.local_history, {"event": "removed", "at": utc_iso()}]
+        video.local_history = [
+            *video.local_history,
+            {"event": "removed_from_youtube", "at": utc_iso()},
+        ]
         HistoryService.record(
             domain="youtube",
             entity_type="video",
             entity_id=video.id,
-            event_type="removed_from_watch_later",
+            event_type="removed_from_youtube_watch_later",
             label=video.title,
         )
         db.session.commit()

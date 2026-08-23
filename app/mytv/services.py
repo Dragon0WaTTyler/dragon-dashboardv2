@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import requests
 from flask import Flask
@@ -31,8 +31,8 @@ from app.mytv.models import (
 )
 
 GITHUB_API = "https://api.github.com"
-SOURCE_OWNER = "mesbahikarim63-commits"
-SOURCE_REPOSITORY = "hot-dodo"
+SOURCE_OWNER = "Dragon0WaTTyler"
+SOURCE_REPOSITORY = "Dragon-IPTV-Clean"
 SOURCE_BRANCH = "main"
 ATTRIBUTE_RE = re.compile(r'([\w-]+)="([^"]*)"')
 THEME_UMBRELLA_PREFIXES = {"afr", "arab", "asia", "euro", "lame", "name"}
@@ -51,6 +51,41 @@ THEME_PHRASE_ALIASES = {
     "united arab emirates": "uae",
     "united kingdom": "uk",
     "united states": "usa",
+}
+
+# Some public playlists expose only a human-readable `tvg-name`, or carry an
+# ID from a different guide provider.  These mappings use channel IDs verified
+# against the XMLTV feeds configured in ``app.mytv.epg``.  Keeping the repair
+# here makes it apply to every GitHub/M3U import, including regenerated source
+# files, while never replacing an unrelated upstream ID.
+EPG_ID_BY_CHANNEL_NAME = {
+    "al jazeera": "Al.Jazeera.HD.ae",
+    "al jazeera english": "Al.Jazeera.English.HD.ae",
+    "al jazeera mobasher": "Al.Jazeera.Mobasher.HD.ae",
+    "al jazeera mubasher": "Al.Jazeera.Mobasher.HD.ae",
+    "al jazeera documentary": "Al.Jazeera.Documentary.HD.ae",
+    "asharq documentary": "Asharq.Documentary.HD.ae",
+    "national geographic": "Nat.Geo.Abu.Dhabi.HD.ae",
+    "fbi files": "6a1610bebdf296985fd95603-6582a024a90606db3c841b1b@plex.us",
+}
+SUPERSEDED_EPG_IDS = {
+    "aljazeeradocumentary.qa@sd",
+    "asharqdocumentary.sa@sd",
+    "fbifiles.us@uk",
+}
+EPG_NAME_NOISE_TOKENS = {
+    "1080p",
+    "720p",
+    "hd",
+    "fhd",
+    "uhd",
+    "sd",
+    "geo",
+    "blocked",
+    "free",
+    "iptv",
+    "world",
+    "ar",
 }
 
 
@@ -223,6 +258,81 @@ class ChannelEntry:
         return hashlib.sha256(identity.encode("utf-8", "ignore")).hexdigest()
 
 
+def _epg_channel_name_key(value: str) -> str:
+    """Normalize a playlist label without format, provider, or quality noise."""
+
+    normalized = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    normalized = normalized.encode("ascii", "ignore").decode("ascii")
+    tokens = re.findall(r"[a-z0-9]+", normalized)
+    return " ".join(token for token in tokens if token not in EPG_NAME_NOISE_TOKENS)
+
+
+def resolved_epg_id(name: str, current_id: str = "") -> str:
+    """Return a verified XMLTV ID for a known channel when an import needs repair."""
+
+    mapped_id = EPG_ID_BY_CHANNEL_NAME.get(_epg_channel_name_key(name))
+    if mapped_id and (
+        not current_id.strip() or current_id.strip().casefold() in SUPERSEDED_EPG_IDS
+    ):
+        return mapped_id
+    return current_id.strip()
+
+
+def with_resolved_epg_id(entry: ChannelEntry) -> ChannelEntry:
+    resolved_id = resolved_epg_id(entry.tvg_name or entry.name, entry.tvg_id)
+    if resolved_id == entry.tvg_id:
+        return entry
+    return ChannelEntry(
+        name=entry.name,
+        group=entry.group,
+        url=entry.url,
+        tvg_id=resolved_id,
+        tvg_name=entry.tvg_name,
+        logo_url=entry.logo_url,
+        kind=entry.kind,
+    )
+
+
+def migrate_epg_preferences() -> int:
+    """Move existing favorites onto repaired IDs so an import does not lose them."""
+
+    preferences = list(db.session.scalars(select(TVChannelPreference)))
+    by_key = {item.preference_key: item for item in preferences}
+    migrated = 0
+    for preference in preferences:
+        resolved_id = resolved_epg_id(preference.name, preference.tvg_id)
+        if not resolved_id or resolved_id == preference.tvg_id:
+            continue
+        destination_key = ChannelEntry(
+            preference.name, preference.theme_key, "", tvg_id=resolved_id
+        ).preference_key(preference.theme_key)
+        destination = by_key.get(destination_key)
+        if destination is not None and destination is not preference:
+            destination.favorite = destination.favorite or preference.favorite
+            destination.enabled_override = (
+                destination.enabled_override
+                if destination.enabled_override is not None
+                else preference.enabled_override
+            )
+            destination.watch_count += preference.watch_count
+            if (
+                preference.last_watched_at is not None
+                and (
+                    destination.last_watched_at is None
+                    or preference.last_watched_at > destination.last_watched_at
+                )
+            ):
+                destination.last_watched_at = preference.last_watched_at
+            db.session.delete(preference)
+        else:
+            by_key.pop(preference.preference_key, None)
+            preference.preference_key = destination_key
+            preference.tvg_id = resolved_id
+            by_key[destination_key] = preference
+        migrated += 1
+    return migrated
+
+
 @dataclass(frozen=True, slots=True)
 class ThemeIdentity:
     key: str
@@ -320,8 +430,9 @@ class GithubTVSync:
             }
         )
 
-    def discover(self) -> list[int]:
-        source = db.session.scalar(select(TVSource).where(TVSource.protected.is_(True)))
+    def discover(self, source: TVSource | None = None) -> list[int]:
+        if source is None:
+            source = db.session.scalar(select(TVSource).where(TVSource.protected.is_(True)))
         if source is None:
             source = TVSource(
                 name="Dragon IPTV catalogue",
@@ -338,25 +449,50 @@ class GithubTVSync:
             db.session.add(source)
             db.session.flush()
         self.source_id = source.id
+        repository = source.locator.strip()
+        branch = source.branch.strip() or SOURCE_BRANCH
         response = self.session.get(
-            f"{GITHUB_API}/repos/{SOURCE_OWNER}/{SOURCE_REPOSITORY}/contents",
-            params={"ref": SOURCE_BRANCH},
+            f"{GITHUB_API}/repos/{repository}/git/trees/{quote(branch, safe='/')}",
+            params={"recursive": "1"},
             timeout=self.timeout_seconds,
         )
         if response.status_code != 200:
             raise TVSyncError(f"GitHub returned HTTP {response.status_code}.")
         payload = response.json()
-        if not isinstance(payload, list):
-            raise TVSyncError("GitHub returned an invalid catalogue.")
-        files = sorted(
-            (
+        if isinstance(payload, list):
+            # Keep compatibility with GitHub's root-contents response and the
+            # compact test fixture used by earlier Dragon installations.
+            files = [
                 item
                 for item in payload
                 if item.get("type") == "file"
-                and str(item.get("name") or "").lower().endswith(".m3u")
-            ),
-            key=lambda item: str(item.get("name") or ""),
-        )
+                and str(item.get("name") or "").lower().endswith((".m3u", ".m3u8"))
+            ]
+        elif isinstance(payload, dict):
+            tree = payload.get("tree")
+            if not isinstance(tree, list):
+                raise TVSyncError("GitHub returned an invalid catalogue.")
+            files = []
+            for item in tree:
+                path = str(item.get("path") or "")
+                if item.get("type") != "blob" or not path.lower().endswith((".m3u", ".m3u8")):
+                    continue
+                files.append(
+                    {
+                        "type": "file",
+                        "name": Path(path).name,
+                        "path": path,
+                        "download_url": (
+                            "https://raw.githubusercontent.com/"
+                            f"{repository}/{quote(branch, safe='/')}/{quote(path, safe='/')}"
+                        ),
+                        "sha": str(item.get("sha") or ""),
+                        "size": int(item.get("size") or 0),
+                    }
+                )
+        else:
+            raise TVSyncError("GitHub returned an invalid catalogue.")
+        files.sort(key=lambda item: str(item.get("path") or item.get("name") or ""))
 
         db.session.execute(
             update(TVPlaylist).where(TVPlaylist.source_id == source.id).values(available=False)
@@ -431,6 +567,7 @@ class GithubTVSync:
             if durable is not None:
                 theme.enabled = durable.enabled
                 theme.channel_policy = durable.channel_policy
+        migrate_epg_preferences()
         preferences = {
             item.preference_key: item for item in db.session.scalars(select(TVChannelPreference))
         }
@@ -460,7 +597,8 @@ class GithubTVSync:
                         )
                     response.encoding = response.encoding or "utf-8"
                     lines = response.iter_lines(decode_unicode=True)
-                for position, entry in enumerate(parse_m3u(lines), start=1):
+                for position, raw_entry in enumerate(parse_m3u(lines), start=1):
+                    entry = with_resolved_epg_id(raw_entry)
                     identity = smart_theme(entry.group)
                     theme = themes.get(identity.key)
                     if theme is None:

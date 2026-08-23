@@ -17,7 +17,7 @@
     <span class="tv-live-dot" aria-hidden="true"></span>
     <div><h1>My TV</h1><p id="tvTrustSummary">Loading your lineup…</p></div>
   </div>
-  <p class="tv-shortcut-hint"><kbd>/</kbd> Search <span aria-hidden="true">·</span> <kbd>F</kbd> Favorite <span aria-hidden="true">·</span> <kbd>M</kbd> Mute</p>
+  <p class="tv-shortcut-hint"><kbd>/</kbd> Search <span aria-hidden="true">·</span> <kbd>Space</kbd> Play <span aria-hidden="true">·</span> <kbd>F</kbd> Full screen <span aria-hidden="true">·</span> <kbd>M</kbd> Mute</p>
 </header>
 
 <section class="tv-sync" id="syncBanner" hidden aria-live="polite">
@@ -51,7 +51,24 @@
   <div class="tv-watch-layout">
     <section class="tv-player-shell" id="playerShell" aria-labelledby="nowPlayingTitle">
       <div class="tv-player-frame" id="playerFrame">
-        <video id="videoPlayer" controls playsinline preload="metadata" hidden></video>
+        <video id="videoPlayer" controls playsinline preload="metadata" aria-label="Live TV player" aria-describedby="playerConnectionState" hidden></video>
+        <button class="tv-player-channel-nav tv-player-channel-nav--previous" id="previousChannel" type="button" aria-label="Previous channel" disabled hidden><span aria-hidden="true">‹</span></button>
+        <button class="tv-player-channel-nav tv-player-channel-nav--next" id="nextChannel" type="button" aria-label="Next channel" disabled hidden><span aria-hidden="true">›</span></button>
+        <div class="tv-player-overlay-title" id="playerOverlayTitle" aria-hidden="true" data-channel-name="Nothing selected"></div>
+        <div class="tv-player-volume-feedback" id="playerVolumeFeedback" aria-hidden="true"><span class="tv-player-volume-feedback-icon">◖))</span><strong id="playerVolumeValue">100%</strong></div>
+        <div class="tv-player-controls" id="playerControls" aria-label="Live player controls" hidden>
+          <div class="tv-player-control-status"><span class="tv-player-state-dot" aria-hidden="true"></span><span id="playerConnectionState" role="status" aria-live="polite">Ready</span></div>
+          <div class="tv-player-control-bar">
+            <div class="tv-player-control-group tv-player-control-group--utilities">
+              <button class="tv-player-control" id="toggleMute" type="button" aria-label="Mute">Mute</button>
+              <label class="tv-volume-control"><span class="sr-only">Volume</span><input id="playerVolume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume"></label>
+              <button class="tv-player-control" id="pictureInPicture" type="button" aria-label="Picture in picture" aria-pressed="false" hidden>Picture in picture</button>
+              <button class="tv-player-control" id="theaterMode" type="button" aria-label="Enter theater mode" aria-pressed="false">Theater</button>
+              <button class="tv-player-control" id="fullscreenPlayer" type="button" aria-label="Enter full screen" aria-pressed="false">Full screen</button>
+            </div>
+          </div>
+        </div>
+        <button id="togglePlayback" type="button" hidden aria-label="Play or pause live channel"></button>
         <div class="tv-player-empty" id="playerEmpty">
           <span class="tv-signal-mark" aria-hidden="true"><i></i><i></i><i></i></span>
           <strong>Choose a channel to start</strong>
@@ -72,7 +89,7 @@
           <p id="nowPlayingMeta">Choose an enabled channel below.</p>
           <p class="tv-now-next" id="nowPlayingGuide" hidden></p>
         </div>
-        <div class="tv-player-actions"><button class="button button--quiet" id="pictureInPicture" type="button" hidden>Picture in picture</button><span class="badge tv-live-badge" id="liveBadge" hidden>Live</span></div>
+        <div class="tv-player-actions"><span class="badge tv-live-badge" id="liveBadge" hidden>Live</span></div>
       </div>
     </section>
 

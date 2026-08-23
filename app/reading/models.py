@@ -54,6 +54,7 @@ class Article(db.Model):
     content_blocks: Mapped[list[dict]] = mapped_column(JSON, default=list, nullable=False)
     image_url: Mapped[str] = mapped_column(String(1000), default="", nullable=False)
     status: Mapped[str] = mapped_column(String(30), default="unread", nullable=False)
+    is_saved: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     fulltext_state: Mapped[str] = mapped_column(String(30), default="not_requested", nullable=False)
     fulltext_error: Mapped[str] = mapped_column(String(500), default="", nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

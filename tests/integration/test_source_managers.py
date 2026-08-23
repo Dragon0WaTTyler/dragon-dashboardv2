@@ -160,7 +160,7 @@ def test_news_retention_can_protect_or_remove_saved_articles(app):
     with app.app_context():
         unread = Article(title="Old unread", url="https://example.test/unread", created_at=old)
         saved = Article(
-            title="Old saved", url="https://example.test/saved", status="saved", created_at=old
+            title="Old saved", url="https://example.test/saved", is_saved=True, created_at=old
         )
         db.session.add_all([unread, saved])
         db.session.commit()

@@ -177,7 +177,9 @@ class TVSourceManager:
 
     def update(self, source: TVSource, values: MultiDict, upload: FileStorage | None) -> TVSource:
         if source.protected:
-            raise TVSourceValidationError("The built-in catalogue can only be paused or refreshed.")
+            raise TVSourceValidationError(
+                "Use the built-in catalogue settings to change its repository."
+            )
         prepared = self._prepared(values)
         for key, value in prepared.items():
             setattr(source, key, value)
@@ -192,6 +194,34 @@ class TVSourceManager:
         source.status = "untested"
         source.last_error = ""
         db.session.commit()
+        return source
+
+    @staticmethod
+    def update_builtin(source: TVSource, values: MultiDict) -> TVSource:
+        """Update the configurable GitHub location of the primary IPTV catalogue."""
+        if not source.protected:
+            raise TVSourceValidationError("This is not the built-in TV catalogue.")
+
+        locator = _repository_slug(str(values.get("locator") or ""))
+        branch = str(values.get("branch") or "main").strip() or "main"
+        try:
+            interval = int(values.get("refresh_interval_minutes") or 360)
+        except (TypeError, ValueError) as exc:
+            raise TVSourceValidationError("Choose a valid refresh interval.") from exc
+        if interval not in REFRESH_INTERVALS:
+            raise TVSourceValidationError("Choose a supported refresh interval.")
+
+        source.source_type = "github_repository"
+        source.locator = locator
+        source.branch = branch[:160]
+        source.file_pattern = "*.m3u"
+        source.enabled = values.get("enabled") == "on"
+        source.auto_refresh = values.get("auto_refresh") == "on"
+        source.refresh_interval_minutes = interval
+        source.status = "untested"
+        source.last_error = ""
+        db.session.commit()
+        query_cache.invalidate()
         return source
 
     def test(self, source: TVSource) -> dict[str, int]:
@@ -286,17 +316,30 @@ class TVSourceManager:
         """Refresh metadata and only re-import packages backing personal choices."""
         try:
             sync = GithubTVSync(session=self.session, timeout_seconds=self.timeout_seconds)
-            discovered = sync.discover()
+            discovered = sync.discover(source)
             changed = list(dict.fromkeys([*sync.changed_ids, *sync.pending_ids]))
             selected = relevant_playlist_ids(changed)
-            if not selected and not db.session.scalar(select(func.count(TVTheme.id))):
-                selected = changed[-1:]
+            has_imported_catalogue = bool(
+                db.session.scalar(
+                    select(func.count(TVPlaylist.id)).where(
+                        TVPlaylist.source_id == source.id,
+                        TVPlaylist.available.is_(True),
+                        TVPlaylist.imported.is_(True),
+                    )
+                )
+            )
+            initial_import = not has_imported_catalogue
+            if not selected and initial_import:
+                # The first refresh (or a completely replaced repository) needs
+                # a usable catalogue before favorites and ON/OFF choices exist.
+                selected = changed
             channels = 0
             for playlist_id in selected:
                 result = sync.import_playlist(playlist_id, refresh_representatives=False)
                 channels += result["channels"]
             purge_unavailable_playlists(source.id)
-            prune_irrelevant_playlist_cache(source.id)
+            if not initial_import:
+                prune_irrelevant_playlist_cache(source.id)
             sync.refresh_representatives()
             refreshed = db.session.get(TVSource, source.id)
             if refreshed:

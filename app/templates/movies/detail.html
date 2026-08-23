@@ -2,7 +2,7 @@
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=subtitle-panel-2">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=release-labels-1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=subtitle-status-3" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=release-labels-1" defer></script><script type="module" src="{{ url_for('static', filename='js/movie-detail.js') }}?v=subtitle-sync-1"></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
@@ -93,6 +93,7 @@
       </div>
       <div class="movie-player__media-shell" data-player-shell data-paused="true" data-controls-visible="true" hidden>
         <video class="movie-player__video" data-player-video playsinline preload="metadata" hidden></video>
+        <div class="movie-player__volume-feedback" data-player-volume-feedback aria-hidden="true"><span class="movie-player__volume-feedback-icon">◖))</span><strong data-player-volume-value>100%</strong></div>
         <div class="movie-player__dragon-controls" data-player-dragon-controls>
           <div class="movie-player__dragon-top">
             <button class="movie-player__back-button" type="button" data-player-back aria-label="Exit player and show source controls">←</button>
@@ -147,6 +148,26 @@
             <button class="movie-player__subtitle-close" type="button" data-player-subtitle-close aria-label="Close subtitle settings">×</button>
           </div>
           <div class="movie-player__subtitle-screen" data-player-subtitle-screen="list">
+            <section class="movie-player__subtitle-sync" data-player-subtitle-sync aria-labelledby="subtitle-sync-title">
+              <div class="movie-player__subtitle-group-head"><span id="subtitle-sync-title">Sync</span><span data-player-subtitle-sync-status>Original timing</span></div>
+              <p class="movie-player__subtitle-sync-reference" data-player-subtitle-sync-reference>Choose a subtitle track to unlock subtitle sync.</p>
+              <button class="movie-player__subtitle-sync-primary" type="button" data-player-subtitle-sync-now disabled>This line should appear now</button>
+              <div class="movie-player__subtitle-fine-tune" aria-label="Fine tune subtitle timing">
+                <button type="button" data-player-subtitle-sync-adjust="-500" disabled>−0.5s</button>
+                <button type="button" data-player-subtitle-sync-adjust="-100" disabled>−0.1s</button>
+                <button type="button" data-player-subtitle-sync-adjust="100" disabled>+0.1s</button>
+                <button type="button" data-player-subtitle-sync-adjust="500" disabled>+0.5s</button>
+              </div>
+              <details class="movie-player__subtitle-sync-advanced">
+                <summary>Advanced sync</summary>
+                <label class="movie-player__subtitle-sync-search"><span>Find subtitle line</span><input type="search" data-player-subtitle-sync-search placeholder="Type dialogue from the subtitle" disabled></label>
+                <div class="movie-player__subtitle-sync-results" data-player-subtitle-sync-results aria-live="polite"></div>
+                <button type="button" data-player-subtitle-sync-second disabled>Add second sync point</button>
+                <button type="button" data-player-subtitle-sync-resync disabled>Resync from here</button>
+                <button type="button" data-player-subtitle-sync-reset disabled>Reset synchronization</button>
+                <p class="movie-player__subtitle-sync-note">For drift correction, the second point must be at least two minutes after the first.</p>
+              </details>
+            </section>
             <div class="movie-player__subtitle-group">
               <div class="movie-player__subtitle-group-head"><span>Tracks</span><span>Choose one</span></div>
               <div class="movie-player__subtitle-list" data-player-subtitle-list>
@@ -156,7 +177,7 @@
                 </button>
               </div>
             </div>
-            <button class="movie-player__subtitle-link" type="button" data-player-subtitle-open-appearance><span>Appearance</span><small>Font, size, color &amp; timing</small><b aria-hidden="true">→</b></button>
+            <button class="movie-player__subtitle-link" type="button" data-player-subtitle-open-appearance><span>Appearance</span><small>Font, size &amp; color</small><b aria-hidden="true">→</b></button>
           </div>
           <div class="movie-player__subtitle-screen" data-player-subtitle-screen="appearance" hidden>
             <button class="movie-player__subtitle-back" type="button" data-player-subtitle-back>Back to subtitles</button>
@@ -200,10 +221,6 @@
             <label class="movie-player__subtitle-control">
               <span><strong>Text shadow</strong><b data-player-subtitle-shadow-label>80%</b></span>
               <input type="range" min="0" max="100" step="5" value="80" data-player-subtitle-shadow>
-            </label>
-            <label class="movie-player__subtitle-control">
-              <span><strong>Latency</strong><b data-player-subtitle-offset-label>0.0s</b></span>
-              <input type="range" min="-5" max="5" step="0.1" value="0" data-player-subtitle-offset>
             </label>
             <label class="movie-player__subtitle-select">
               <span>Font</span>

@@ -83,16 +83,30 @@ def test_youtube_description_separates_chapters_and_preserves_rtl():
 
 
 def test_watch_later_removal_preserves_local_history(app):
+    class Client:
+        deleted_playlist_item_id = ""
+
+        def delete_playlist_item(self, playlist_item_id):
+            self.deleted_playlist_item_id = playlist_item_id
+
     with app.app_context():
         video = YouTubeVideo(
-            external_id="video-1", source="watch_later", title="Study session"
+            external_id="video-1",
+            playlist_item_id="playlist-item-1",
+            source="watch_later",
+            title="Study session",
         )
         db.session.add(video)
         db.session.commit()
         YouTubeService.set_watched(video, True)
-        YouTubeService.remove_from_watch_later(video)
+        client = Client()
+        YouTubeService.remove_from_watch_later(video, client)
         assert video.removed_from_source is True
-        assert [event["event"] for event in video.local_history] == ["watched", "removed"]
+        assert client.deleted_playlist_item_id == "playlist-item-1"
+        assert [event["event"] for event in video.local_history] == [
+            "watched",
+            "removed_from_youtube",
+        ]
 
 
 def test_shuffle_happens_before_playlist_pagination(app):
@@ -992,11 +1006,14 @@ def test_pockettube_sync_keeps_shared_channels_in_each_group(app, tmp_path):
         counts = YouTubeService.sync_pockettube(Client(), export)
         news = YouTubeService.feed(source="pockettube", group="news", limit=None)
         favorite = YouTubeService.feed(source="pockettube", group="my favoret", limit=None)
+        all_groups = YouTubeService.feed(source="pockettube", limit=None)
 
         assert counts["videos"] == 400
         assert news["total"] == 200
         assert favorite["total"] == 200
         assert news["items"][0]["external_id"].startswith("shared-video-")
+        assert all_groups["total"] == 200
+        assert all_groups["items"][0]["group_names"] == ["my favoret", "news"]
 
 
 def test_pockettube_sync_preserves_cached_group_fill_when_api_underfills(app, tmp_path):

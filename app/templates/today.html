@@ -89,22 +89,22 @@
       <div class="today-media-grid" data-live-reading>
         {% for article in workspace.news_mix %}
         <article class="today-media-card" data-live-reading-card>
-          <a class="today-media-card__image" data-media-frame data-live-reading-link data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">
+          <a class="today-media-card__image" data-media-frame data-live-reading-link data-article-open="{{ url_for('reading.open_article', article_id=article.id, return_to=url_for('core.index')) }}" href="{{ url_for('reading.detail', article_id=article.id, return_to=url_for('core.index')) }}">
             {% if article.image_url %}<img data-media-image data-live-reading-image src="{{ article.image_url }}" alt="Thumbnail for {{ article.title }}" loading="lazy" width="480" height="270"><span class="media-fallback" data-live-reading-fallback aria-hidden="true">R</span>{% else %}<span class="media-fallback" data-live-reading-fallback aria-hidden="true">R</span>{% endif %}
           </a>
           <div class="today-media-card__body">
             <span class="eyebrow" data-live-reading-source dir="auto">{{ article.source }}</span>
-            <h3 dir="auto"><a data-live-reading-link data-live-reading-title data-article-open="{{ url_for('reading.open_article', article_id=article.id) }}" href="{{ url_for('reading.detail', article_id=article.id) }}">{{ article.title }}</a></h3>
+            <h3 dir="auto"><a data-live-reading-link data-live-reading-title data-article-open="{{ url_for('reading.open_article', article_id=article.id, return_to=url_for('core.index')) }}" href="{{ url_for('reading.detail', article_id=article.id, return_to=url_for('core.index')) }}">{{ article.title }}</a></h3>
           </div>
         </article>
         {% endfor %}
       </div>
       {% elif workspace.article_of_day %}
       <article class="today-article-feature">
-        <a class="today-article-feature__image" data-media-frame data-article-open="{{ url_for('reading.open_article', article_id=workspace.article_of_day.id) }}" href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">
+        <a class="today-article-feature__image" data-media-frame data-article-open="{{ url_for('reading.open_article', article_id=workspace.article_of_day.id, return_to=url_for('core.index')) }}" href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id, return_to=url_for('core.index')) }}">
           {% if workspace.article_of_day.image_url %}<img data-media-image src="{{ workspace.article_of_day.image_url }}" alt="Thumbnail for {{ workspace.article_of_day.title }}" loading="lazy" width="640" height="360"><span class="media-fallback" aria-hidden="true">R</span>{% else %}<span class="media-fallback" aria-hidden="true">R</span>{% endif %}
         </a>
-        <div><span class="eyebrow" dir="auto">Article of the day · {{ workspace.article_of_day.source }}</span><h3 dir="auto"><a data-article-open="{{ url_for('reading.open_article', article_id=workspace.article_of_day.id) }}" href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id) }}">{{ workspace.article_of_day.title }}</a></h3><p dir="auto">{{ workspace.article_of_day.excerpt or 'A saved local read, ready when you are.' }}</p></div>
+        <div><span class="eyebrow" dir="auto">Article of the day · {{ workspace.article_of_day.source }}</span><h3 dir="auto"><a data-article-open="{{ url_for('reading.open_article', article_id=workspace.article_of_day.id, return_to=url_for('core.index')) }}" href="{{ url_for('reading.detail', article_id=workspace.article_of_day.id, return_to=url_for('core.index')) }}">{{ workspace.article_of_day.title }}</a></h3><p dir="auto">{{ workspace.article_of_day.excerpt or 'A saved local read, ready when you are.' }}</p></div>
       </article>
       {% else %}
       {{ empty_state('No news yet', 'Sync articles to fill this mix from the latest News items.') }}

@@ -118,6 +118,7 @@ def test_cinesrc_is_an_explicitly_disabled_by_default_direct_provider(tmp_path: 
             "DRAGON_CINESRC_ENABLED": "true",
             "DRAGON_VIDCORE_ENABLED": "true",
             "DRAGON_VIDZEE_ENABLED": "true",
+            "DRAGON_VIDEM_ENABLED": "true",
         },
     )
 
@@ -125,7 +126,27 @@ def test_cinesrc_is_an_explicitly_disabled_by_default_direct_provider(tmp_path: 
     assert enabled.cinesrc_enabled is True
     assert enabled.vidcore_enabled is True
     assert enabled.vidzee_enabled is True
+    assert enabled.videm_enabled is True
     assert enabled.safe_summary()["cinesrc_enabled"] is True
+
+
+def test_multiembed_direct_providers_are_enabled_by_default_and_accept_player_source_aliases(
+    tmp_path: Path,
+):
+    defaults = Settings.load(tmp_path, {"TESTING": True})
+    aliases_disabled = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "PLAYER_SOURCE_MULTIEMBED_ENABLED": "false",
+            "PLAYER_SOURCE_MULTIEMBED_VIP_ENABLED": "false",
+        },
+    )
+
+    assert defaults.multiembed_enabled is True
+    assert defaults.multiembed_vip_enabled is True
+    assert aliases_disabled.multiembed_enabled is False
+    assert aliases_disabled.multiembed_vip_enabled is False
 
 
 def test_indexed_embed_provider_urls_are_typed_and_private(tmp_path: Path):
@@ -269,3 +290,17 @@ def test_private_youtube_settings_enable_playlist_sync(tmp_path: Path):
     assert settings.youtube_sync_enabled is True
     assert "youtube_api_key" not in settings.safe_summary()
     assert "youtube_watch_later_playlist_id" not in settings.safe_summary()
+
+
+def test_private_youtube_oauth_token_enables_sync_and_deletion(tmp_path: Path):
+    secret_root = tmp_path / "secrets"
+    secret_root.mkdir()
+    (secret_root / "youtube_token.json").write_text("{}", encoding="utf-8")
+    (secret_root / "youtube_watch_later_playlist_id").write_text(
+        "PL-test-playlist-123", encoding="utf-8"
+    )
+
+    settings = Settings.load(tmp_path, {"TESTING": True})
+
+    assert settings.youtube_sync_enabled is True
+    assert settings.youtube_delete_enabled is True
