@@ -49,6 +49,25 @@ def test_invalid_login_has_safe_message(client, admin_user):
     assert b"Username or password is incorrect" in response.data
 
 
+def test_expired_login_form_redirects_to_a_clean_sign_in_page(client, admin_user):
+    with client.session_transaction() as session:
+        session["stale_prelogin_value"] = "discard-me"
+
+    response = client.post(
+        "/auth/login",
+        data={"username": "walid", "password": "correct horse battery staple"},
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 303
+    assert response.headers["Location"] == "/auth/login"
+    with client.session_transaction() as session:
+        assert "stale_prelogin_value" not in session
+
+    refreshed_page = client.get(response.headers["Location"])
+    assert b"Your sign-in page expired. Please sign in again." in refreshed_page.data
+
+
 def test_login_accepts_existing_short_password(client, app):
     with app.app_context():
         user = User(username="legacy-user", password_hash="")

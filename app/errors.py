@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from flask import Flask, render_template, request
+from flask import Flask, flash, redirect, render_template, request, session, url_for
 from flask_wtf.csrf import CSRFError
 from werkzeug.exceptions import HTTPException
 
@@ -20,6 +20,16 @@ def register_error_handlers(app: Flask) -> None:
     def handle_csrf(error: CSRFError):
         if _is_api_request():
             return error_response("forbidden", "The security token is missing or invalid.", 400)
+
+        # Mobile browsers can keep an outdated login form open after a session
+        # cookie changes.  Send that unsafe submission to a fresh GET instead of
+        # stranding the user on an error page.  The credentials are never used
+        # until they are submitted again with the new CSRF token.
+        if request.endpoint == "auth.login" and request.method == "POST":
+            session.clear()
+            flash("Your sign-in page expired. Please sign in again.", "warning")
+            return redirect(url_for("auth.login"), code=303)
+
         return render_template("errors/error.html", status=400, title="Request expired"), 400
 
     @app.errorhandler(HTTPException)
