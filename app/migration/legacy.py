@@ -6,7 +6,7 @@ import re
 import shutil
 import sqlite3
 from collections import Counter
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -83,7 +83,7 @@ def _datetime(value: Any) -> datetime | None:
     for candidate in (normalized, normalized.replace(".", "-")):
         try:
             parsed = datetime.fromisoformat(candidate)
-            return parsed.replace(tzinfo=parsed.tzinfo or UTC)
+            return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc)
         except ValueError:
             continue
     return None

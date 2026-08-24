@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from app.books.services import BookService
 from app.chess.services import ChessService
@@ -24,7 +24,7 @@ def _rotation_bucket(moment: datetime, interval: int) -> int:
 
 
 def _next_rotation(bucket: int, interval: int) -> str:
-    value = datetime.fromtimestamp((bucket + 1) * interval, tz=UTC)
+    value = datetime.fromtimestamp((bucket + 1) * interval, tz=timezone.utc)
     return value.isoformat().replace("+00:00", "Z")
 
 
@@ -48,9 +48,9 @@ def _seeded_random_window(items: list[dict], *, seed: str, limit: int) -> list[d
 class TodayService:
     @staticmethod
     def live_rotation(at: datetime | None = None) -> dict:
-        moment = at or datetime.now(UTC)
+        moment = at or datetime.now(timezone.utc)
         moment = (
-            moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
+            moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment.astimezone(timezone.utc)
         )
         movie_bucket = _rotation_bucket(moment, MOVIE_ROTATION_SECONDS)
         youtube_bucket = _rotation_bucket(moment, YOUTUBE_ROTATION_SECONDS)

@@ -25,6 +25,18 @@ def test_mytv_parser_reads_metadata_and_stream_type():
     assert channels[0].kind == "hls"
 
 
+def test_mytv_parser_can_force_transcoding_for_nonstandard_hls():
+    channels = list(
+        parse_m3u(
+            [
+                '#EXTINF:-1 dragon-stream-kind="stream",Medi1 TV Arabic',
+                "https://stream.example/live/index.m3u8",
+            ]
+        )
+    )
+    assert channels[0].kind == "stream"
+
+
 def test_mytv_channel_key_survives_expiring_url_changes():
     first = ChannelEntry("Channel", "Group", "https://one.example/token/1.ts")
     second = ChannelEntry("Channel", "Group", "https://two.example/new-token/1.ts")
@@ -64,7 +76,7 @@ def test_mytv_repairs_verified_epg_ids_without_overriding_unrelated_channels():
         resolved_epg_id(
             "Al Jazeera Documentary (1080p) [Geo-blocked]", "AlJazeeraDocumentary.qa@SD"
         )
-        == "Al.Jazeera.Documentary.HD.ae"
+        == "Al.Jazeera.Documentary.be"
     )
     assert (
         resolved_epg_id("FBI Files", "FBIFiles.us@UK")
@@ -79,3 +91,17 @@ def test_mytv_repairs_verified_epg_ids_without_overriding_unrelated_channels():
         ChannelEntry("AR: NATIONAL GEOGRAPHIC HD", "documentary", "https://stream.example/live")
     )
     assert entry.tvg_id == "Nat.Geo.Abu.Dhabi.HD.ae"
+    assert resolved_epg_id("AR: AD NAT GEO") == "Nat.Geo.Abu.Dhabi.HD.ae"
+    assert resolved_epg_id("AR: AL SHARQ DISCOVERY") == "Asharq.Discovery.HD.ae"
+    assert resolved_epg_id("AR: FRANCE 24") == "France.24.Arabic.ae"
+    assert resolved_epg_id("USA: HISTORY CHANNEL (EAST)") == "History.HD.us2"
+    assert resolved_epg_id("AR|DOCU: DW ARABIC") == "DW.Arabia.HD.ae"
+    assert resolved_epg_id("Authentic History (1080p)", "AutenticHistory.de@SD") == (
+        "GB3200005SO@samsungtvplus.gb"
+    )
+    assert resolved_epg_id("Discovering China (1080p)", "DiscoveringChina.cn@SD") == (
+        "DiscoveringChina@distro.tv"
+    )
+    assert resolved_epg_id("RT Documentary English", "RTDocumentary.ru@English") == (
+        "RTDocumentary@mts.rs"
+    )

@@ -33,10 +33,19 @@ def install_request_middleware(app: Flask) -> None:
         frame_sources = ["'self'"]
         script_sources = ["'self'"]
         media_sources = ["'self'"]
-        if request.endpoint in {"youtube.detail", "reading.detail"}:
+        worker_sources = ["'self'"]
+        if request.endpoint in {"youtube.detail", "reading.detail", "personal_tv.index"}:
             frame_sources.extend(("https://www.youtube-nocookie.com", "https://www.youtube.com"))
-        if request.endpoint == "youtube.detail":
+        if request.endpoint in {"youtube.detail", "personal_tv.index"}:
             script_sources.append("https://www.youtube.com")
+        if request.endpoint == "mytv.index":
+            script_sources.append("https://cdn.jsdelivr.net")
+            # hls.js attaches its MediaSource through an in-memory blob URL.
+            # Keep this permission scoped to IPTV instead of weakening media
+            # policy for every page.
+            media_sources.append("blob:")
+            # hls.js also creates its demuxing worker from an in-memory blob.
+            worker_sources.append("blob:")
         if app.config.get("DRAGON_VIDSRC_ENABLED"):
             parsed = urlsplit(str(app.config.get("DRAGON_VIDSRC_EMBED_URL") or ""))
             try:
@@ -96,6 +105,7 @@ def install_request_middleware(app: Flask) -> None:
             "img-src 'self' data: https:; "
             "connect-src 'self'; "
             f"media-src {' '.join(media_sources)}; "
+            f"worker-src {' '.join(worker_sources)}; "
             f"frame-src {' '.join(frame_sources)}; "
             "frame-ancestors 'none'; "
             "base-uri 'self'; "

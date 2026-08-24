@@ -4,7 +4,7 @@ import json
 import re
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -37,6 +37,27 @@ def duration_seconds(value: object) -> int:
 
 class YouTubeProviderError(ValueError):
     """A safe provider failure that never includes credentials or request URLs."""
+
+
+def _request_error_message(error: HTTPError) -> str:
+    """Turn selected Google API errors into safe, actionable messages."""
+    if error.code == 403:
+        try:
+            payload = json.loads(error.read().decode("utf-8", "replace"))
+            details = payload.get("error", {}).get("errors", [])
+            reasons = {
+                str(detail.get("reason") or "")
+                for detail in details
+                if isinstance(detail, dict)
+            }
+        except (AttributeError, UnicodeError, json.JSONDecodeError):
+            reasons = set()
+        if "quotaExceeded" in reasons or "dailyLimitExceeded" in reasons:
+            return (
+                "YouTube API quota has been exceeded. It resets daily; try again after "
+                "the quota resets or increase the quota for this Google Cloud project."
+            )
+    return f"YouTube playlist request failed with HTTP {error.code}."
 
 
 class YouTubePlaylistClient:
@@ -86,8 +107,8 @@ class YouTubePlaylistClient:
             except ValueError:
                 return False
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=UTC)
-        return parsed <= datetime.now(UTC) + timedelta(seconds=30)
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed <= datetime.now(timezone.utc) + timedelta(seconds=30)
 
     def _refresh_oauth_token(self, payload: dict[str, Any]) -> dict[str, Any]:
         token_uri = str(payload.get("token_uri") or "").strip()
@@ -130,7 +151,7 @@ class YouTubePlaylistClient:
             raise YouTubeProviderError("YouTube OAuth refresh returned no access token.")
         payload["token"] = access_token
         payload["expiry"] = (
-            datetime.now(UTC) + timedelta(seconds=max(1, int(refreshed.get("expires_in") or 3600)))
+            datetime.now(timezone.utc) + timedelta(seconds=max(1, int(refreshed.get("expires_in") or 3600)))
         ).isoformat()
         self._write_oauth_payload(payload)
         return payload
@@ -212,7 +233,7 @@ class YouTubePlaylistClient:
         if str(exchanged.get("refresh_token") or "").strip():
             payload["refresh_token"] = str(exchanged["refresh_token"]).strip()
         payload["expiry"] = (
-            datetime.now(UTC) + timedelta(seconds=max(1, int(exchanged.get("expires_in") or 3600)))
+            datetime.now(timezone.utc) + timedelta(seconds=max(1, int(exchanged.get("expires_in") or 3600)))
         ).isoformat()
         self._write_oauth_payload(payload)
 
@@ -244,9 +265,7 @@ class YouTubePlaylistClient:
                 if exc.code == 401 and oauth is not None and attempt == 0:
                     oauth = self._refresh_oauth_token(oauth)
                     continue
-                raise YouTubeProviderError(
-                    f"YouTube playlist request failed with HTTP {exc.code}."
-                ) from None
+                raise YouTubeProviderError(_request_error_message(exc)) from None
             except (URLError, TimeoutError, json.JSONDecodeError, UnicodeError):
                 raise YouTubeProviderError(
                     "YouTube playlist request could not be completed."

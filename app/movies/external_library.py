@@ -224,6 +224,45 @@ def resolve_missing_tmdb_identity(movie: Movie) -> Movie:
     return movie
 
 
+def hydrate_missing_recommendation_overviews() -> int:
+    """Fill missing local recommendation synopses from TMDB when available.
+
+    Notion remains the primary source.  TMDB is only consulted for local
+    ``want_to_watch`` rows with an empty Overview, and successful results are
+    cached locally so future recommendation pages need no repeat lookup.
+    """
+    provider = tmdb_catalog_provider()
+    if not getattr(provider, "configured", True):
+        return 0
+
+    movies = list(
+        db.session.scalars(
+            db.select(Movie).where(Movie.status == "want_to_watch")
+        )
+    )
+    updated = 0
+    for movie in movies:
+        if str(movie.overview or "").strip():
+            continue
+        movie = resolve_missing_tmdb_identity(movie)
+        tmdb_id = _optional_int((movie.external_ids or {}).get("tmdb_id"))
+        if not tmdb_id:
+            continue
+        try:
+            details = provider.details(movie.media_type, tmdb_id)
+        except MediaIntegrationError:
+            continue
+        overview = str(details.get("overview") or "").strip()
+        if not overview:
+            continue
+        movie.overview = overview
+        updated += 1
+
+    if updated:
+        db.session.commit()
+    return updated
+
+
 def add_to_library(
     *,
     media_type: str,

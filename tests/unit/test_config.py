@@ -24,6 +24,7 @@ def test_feature_flags_default_safe(tmp_path: Path):
     assert settings.ai_enabled is False
     assert settings.playback_enabled is False
     assert settings.vidsrc_enabled is False
+    assert settings.jackett_enabled is False
     assert settings.magnets_enabled is False
     assert settings.playback_cache_gb == 10
     assert settings.playback_cache_ttl_hours == 168
@@ -36,6 +37,7 @@ def test_feature_flags_default_safe(tmp_path: Path):
     assert settings.tv_epg_enabled is True
     assert settings.tv_epg_refresh_minutes == 360
     assert settings.tv_epg_urls == ""
+    assert settings.mytv_http_timeout == 15
     assert settings.vidsrc_embed_url == "https://v2.vidsrc.me/embed"
     assert settings.subtitle_languages == "ar,en"
 
@@ -61,6 +63,15 @@ def test_tv_epg_configuration_is_typed(tmp_path: Path):
     assert settings.tv_epg_enabled is False
     assert settings.tv_epg_refresh_minutes == 120
     assert settings.tv_epg_urls == "https://guide.example/one.xml"
+
+
+def test_mytv_http_timeout_is_typed(tmp_path: Path):
+    settings = Settings.load(tmp_path, {"TESTING": True, "DRAGON_MYTV_HTTP_TIMEOUT": "30"})
+
+    assert settings.mytv_http_timeout == 30
+    assert settings.flask_mapping()["MYTV_HTTP_TIMEOUT"] == 30
+    with pytest.raises(ValueError, match="between 1"):
+        Settings.load(tmp_path, {"TESTING": True, "DRAGON_MYTV_HTTP_TIMEOUT": "0"})
 
 
 def test_playback_cache_limits_are_typed(tmp_path: Path):

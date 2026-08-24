@@ -1,6 +1,6 @@
 <section class="source-manager" id="source-manager" aria-labelledby="tv-sources-title">
   <div class="source-manager__header">
-    <div><span class="eyebrow">My TV · sources</span><h2 id="tv-sources-title">Channel sources</h2><p>Add M3U links, GitHub repositories or files, and local playlists. Sources stay separate from channel choices.</p></div>
+    <div><span class="eyebrow">IPTV · sources</span><h2 id="tv-sources-title">Channel sources</h2><p>Add M3U links, GitHub repositories or files, and local playlists. Sources stay separate from channel choices.</p></div>
     <details class="source-manager__add"><summary class="button button--primary">Add source</summary>
       <form class="source-editor" method="post" action="{{ url_for('admin.create_tv_source') }}" enctype="multipart/form-data" data-source-draft-form data-test-url="{{ url_for('admin.test_tv_source_draft') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -62,7 +62,7 @@
 </section>
 
 <section class="source-manager" id="category-manager" aria-labelledby="tv-categories-title">
-  <div class="source-manager__header"><div><span class="eyebrow">My TV · categories</span><h2 id="tv-categories-title">Channel categories</h2><p>Rename, hide, reorder, or merge the smart categories created from your playlists.</p>{% if tv_category_total %}<small>{{ tv_category_total }} categories · page {{ tv_category_page }} of {{ tv_category_pages }}</small>{% endif %}</div></div>
+  <div class="source-manager__header"><div><span class="eyebrow">IPTV · categories</span><h2 id="tv-categories-title">Channel categories</h2><p>Rename, hide, reorder, or merge the smart categories created from your playlists.</p>{% if tv_category_total %}<small>{{ tv_category_total }} categories · page {{ tv_category_page }} of {{ tv_category_pages }}</small>{% endif %}</div></div>
   {% if tv_categories %}
   <datalist id="tv-category-options">{% for target in tv_category_options %}<option value="{{ target.name }}"></option>{% endfor %}</datalist>
   <div class="category-manager-list">
@@ -91,4 +91,4 @@
   {% else %}<p class="control-note">Categories appear after the first playlist refresh.</p>{% endif %}
 </section>
 
-<section class="source-manager source-manager--compact" aria-labelledby="tv-playback-title"><div class="source-manager__header"><div><span class="eyebrow">My TV · playback</span><h2 id="tv-playback-title">Playback</h2><p>My TV uses Dragon's browser player and shared playback safety settings.</p></div><a class="button button--secondary" href="{{ url_for('playback_settings.index') }}">Open playback settings →</a></div></section>
+<section class="source-manager source-manager--compact" aria-labelledby="tv-playback-title"><div class="source-manager__header"><div><span class="eyebrow">IPTV · playback</span><h2 id="tv-playback-title">Playback</h2><p>IPTV uses Dragon's browser player and shared playback safety settings.</p></div><a class="button button--secondary" href="{{ url_for('playback_settings.index') }}">Open playback settings →</a></div></section>

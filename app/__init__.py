@@ -33,9 +33,11 @@ from app.movies import bp as movies_bp
 from app.mytv import bp as mytv_bp
 from app.playback import bp as playback_bp
 from app.playback.settings import bp as playback_settings_bp
+from app.personal_tv import bp as personal_tv_bp
 from app.reading import bp as reading_bp
 from app.reading.providers import ArticleExtractor, FeedClient
 from app.youtube import bp as youtube_bp
+from app.youtube.cli import apply_pockettube_group_map, export_pockettube_groups
 
 
 def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
@@ -91,9 +93,12 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     app.register_blueprint(admin_bp)
     app.register_blueprint(movies_bp)
     app.register_blueprint(mytv_bp)
+    app.register_blueprint(personal_tv_bp)
     app.register_blueprint(playback_bp)
     app.register_blueprint(playback_settings_bp)
     app.register_blueprint(youtube_bp)
+    app.cli.add_command(apply_pockettube_group_map)
+    app.cli.add_command(export_pockettube_groups)
     app.register_blueprint(reading_bp)
     app.register_blueprint(books_bp)
     app.register_blueprint(knowledge_settings_bp)

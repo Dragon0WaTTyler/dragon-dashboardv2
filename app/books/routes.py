@@ -94,6 +94,9 @@ def _availability_providers():
     providers = current_app.extensions.get("dragon_book_availability_providers")
     if providers is not None:
         return providers
+    if not current_app.config.get("DRAGON_JACKETT_ENABLED"):
+        current_app.extensions["dragon_book_availability_providers"] = []
+        return []
     providers = [
         JackettBookAvailabilityProvider(
             base_url=current_app.config["DRAGON_JACKETT_URL"],
@@ -1759,6 +1762,8 @@ def parse_availability_candidate(book_id: str):
 @bp.post("/<book_id>/availability-candidates/jackett-search")
 @login_required
 def search_jackett_availability_candidates(book_id: str):
+    if not current_app.config.get("DRAGON_JACKETT_ENABLED"):
+        abort(404)
     book = BookRepository.get(book_id)
     if book is None:
         abort(404)

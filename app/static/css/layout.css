@@ -520,7 +520,7 @@
     left: 0;
     z-index: 50;
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     min-height: 72px;
     padding-bottom: env(safe-area-inset-bottom);
     border-top: 1px solid var(--color-border);
@@ -538,7 +538,7 @@
     min-width: 0;
     min-height: 64px;
     color: var(--color-text-muted);
-    font-size: 0.7rem;
+    font-size: 0.62rem;
     text-decoration: none;
   }
 

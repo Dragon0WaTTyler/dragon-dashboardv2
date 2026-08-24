@@ -9,6 +9,7 @@ from app.mytv.epg import (
     EPGSyncError,
     EPGSyncService,
     FavoriteChannel,
+    _selected_sources,
     now_next_for_ids,
     parse_xmltv,
     status_payload,
@@ -115,8 +116,45 @@ def test_xmltv_parser_matches_favorite_name_and_keeps_only_its_window():
     assert rows[0].subtitle == "Atlas"
 
 
+def test_epg_source_selection_recognizes_provider_country_suffix(app):
+    with app.app_context():
+        sources = _selected_sources(
+            [FavoriteChannel("History.HD.us2", "History Channel")]
+        )
+
+        assert [source.name for source in sources] == ["EPGshare United States"]
+
+
+def test_epg_source_selection_includes_required_specialist_guides(app):
+    with app.app_context():
+        sources = _selected_sources(
+            [
+                FavoriteChannel("DW.Arabia.HD.ae", "DW Arabic"),
+                FavoriteChannel("Al.Jazeera.Documentary.be", "Al Jazeera Documentary"),
+                FavoriteChannel("GB3200005SO@samsungtvplus.gb", "Authentic History"),
+                FavoriteChannel("DiscoveringChina@distro.tv", "Discovering China"),
+                FavoriteChannel("RTDocumentary@mts.rs", "RT Documentary"),
+                FavoriteChannel("PlutoTVHistory.de@GB", "Pluto TV History"),
+            ]
+        )
+
+        assert {source.name for source in sources} == {
+            "EPGshare Arabia",
+            "EPGshare Belgium",
+            "EPGshare Germany",
+            "Samsung TV Plus guide",
+            "Samsung TV Plus United Kingdom guide",
+            "Pluto TV Germany guide",
+            "Pluto TV United Kingdom guide",
+            "Pluto TV United States guide",
+            "Distro TV guide",
+            "MTS guide",
+        }
+
+
 def test_epg_sync_persists_only_favorite_programmes(app, monkeypatch):
     monkeypatch.setattr("app.mytv.epg.validate_stream_url", lambda value: value)
+    monkeypatch.setattr("app.mytv.epg.utc_now", lambda: NOW)
     with app.app_context():
         app.config["DRAGON_TV_EPG_URLS"] = "https://guide.example/guide.xml"
         db.session.add(favorite())
@@ -187,6 +225,7 @@ def test_epg_failure_preserves_last_saved_schedule(app, monkeypatch):
 
 def test_targeted_epg_sync_keeps_other_favorite_schedules(app, monkeypatch):
     monkeypatch.setattr("app.mytv.epg.validate_stream_url", lambda value: value)
+    monkeypatch.setattr("app.mytv.epg.utc_now", lambda: NOW)
     with app.app_context():
         app.config["DRAGON_TV_EPG_URLS"] = "https://guide.example/guide.xml"
         db.session.add(favorite())
@@ -297,3 +336,46 @@ def test_epg_status_marks_saved_guide_stale(app, monkeypatch):
         db.session.commit()
 
         assert status_payload()["stale"] is True
+
+
+def test_epg_sync_rejects_a_schedule_that_does_not_cover_now(app, monkeypatch):
+    monkeypatch.setattr("app.mytv.epg.validate_stream_url", lambda value: value)
+    monkeypatch.setattr("app.mytv.epg.utc_now", lambda: NOW)
+    stale_xml = guide_xml().replace(b"20260816113000", b"20260815113000").replace(
+        b"20260816123000", b"20260815123000"
+    ).replace(b"20260816133000", b"20260815133000")
+    with app.app_context():
+        app.config["DRAGON_TV_EPG_URLS"] = "https://guide.example/guide.xml"
+        db.session.add(favorite())
+        db.session.commit()
+
+        result = EPGSyncService(session=FakeSession(stale_xml)).sync()
+
+        assert result["programmes"] == 0
+        assert "rejected stale schedules" in db.session.get(TVEPGState, 1).last_error
+
+
+def test_epg_status_reports_channel_coverage_audit(app, monkeypatch):
+    monkeypatch.setattr("app.mytv.epg.utc_now", lambda: NOW)
+    with app.app_context():
+        db.session.add(favorite())
+        db.session.add(
+            TVEPGState(id=1, status="ready", message="Saved guide", last_success_at=NOW)
+        )
+        db.session.add(
+            TVProgramme(
+                tvg_id=favorite().tvg_id,
+                title="Current",
+                starts_at=NOW - timedelta(minutes=10),
+                ends_at=NOW + timedelta(hours=2),
+                source="iptv-org / aljazeera.com",
+                fetched_at=NOW,
+            )
+        )
+        db.session.commit()
+
+        audit = status_payload()["audit"]
+
+        assert audit["summary"] == {"healthy": 0, "degraded": 1, "stale": 0, "missing": 0}
+        assert audit["channels"][0]["state"] == "degraded"
+        assert audit["channels"][0]["source"] == "iptv-org / aljazeera.com"

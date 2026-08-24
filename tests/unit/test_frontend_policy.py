@@ -25,3 +25,16 @@ def test_library_uses_logical_rtl_styles_and_global_auto_direction():
 
     assert "border-inline-start" in library_css
     assert 'setAttribute("dir", "auto")' in core_js
+
+
+def test_iptv_uses_hls_load_policies_without_a_manual_reconnect_loop():
+    mytv_js = (ROOT / "app" / "static" / "js" / "mytv.js").read_text(encoding="utf-8")
+
+    assert "manifestLoadPolicy" in mytv_js
+    assert "playlistLoadPolicy" in mytv_js
+    assert "fragLoadPolicy" in mytv_js
+    assert "lowLatencyMode: false" in mytv_js
+    assert "hls.startLoad(" not in mytv_js
+    assert "elements.videoPlayer.onerror = () => switchToBackup" in mytv_js
+    assert "else switchToBackup(" in mytv_js
+    assert "scheduleStallFailover();" in mytv_js

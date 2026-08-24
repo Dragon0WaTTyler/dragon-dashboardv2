@@ -6,7 +6,7 @@ import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from time import perf_counter
 from urllib.parse import urlsplit
 
@@ -204,7 +204,7 @@ class TVHealthCoordinator:
                             )
                             db.session.add(health)
                         health.status = "online" if result.online else "offline"
-                        health.checked_at = datetime.now(UTC)
+                        health.checked_at = datetime.now(timezone.utc)
                         health.latency_ms = result.latency_ms
                         health.source_fingerprint = result.source_fingerprint
                         health.failure_count = (
@@ -332,7 +332,7 @@ def record_channel_health(
         health = TVChannelHealth(preference_key=preference_key, failure_count=0)
         db.session.add(health)
     health.status = "online" if online else "offline"
-    health.checked_at = datetime.now(UTC)
+    health.checked_at = datetime.now(timezone.utc)
     health.latency_ms = None
     health.source_fingerprint = (
         hashlib.sha256(source_url.encode("utf-8", "ignore")).hexdigest()

@@ -1,4 +1,4 @@
-from app.movies.integrations import JackettReleaseProvider
+from app.movies.integrations import JackettReleaseProvider, NotionMovieProvider, _notion_status
 
 
 class FakeResponse:
@@ -44,6 +44,15 @@ class FakeSession:
         return FakeResponse()
 
 
+def _notion_provider() -> NotionMovieProvider:
+    provider = NotionMovieProvider(token="token", data_source_id="movie-source")
+    provider._schema_cache["movie"] = {
+        "Status": {"type": "status"},
+        "Watched": {"type": "checkbox"},
+    }
+    return provider
+
+
 def test_jackett_filters_low_seed_and_duplicate_results():
     session = FakeSession()
     provider = JackettReleaseProvider(
@@ -61,6 +70,67 @@ def test_jackett_filters_low_seed_and_duplicate_results():
     assert results[0]["seeders"] == 18
     assert results[0]["quality_label"] == "1080p"
     assert "1080p" in results[0]["release_tags"]
+
+
+def test_notion_movie_completion_uses_watched_for_legacy_finished_status():
+    properties = _notion_provider()._media_properties(
+        {"title": "Arrival", "tmdb_id": 329865, "media_type": "movie"},
+        magnet_uri="",
+        release_title="",
+        season=None,
+        episode=None,
+        status="finished",
+    )
+
+    assert properties["Status"] == {"status": {"name": "Watched"}}
+    assert _notion_status("Finished") == "watched"
+
+
+def test_notion_mark_watched_does_not_write_finished_status():
+    provider = _notion_provider()
+    requests = []
+    provider.ensure_writeback_schema = lambda *, kind: None
+    provider._request = lambda method, path, **kwargs: requests.append((method, path, kwargs))
+
+    provider.mark_watched("notion-page")
+
+    assert requests[0][0:2] == ("PATCH", "/pages/notionpage")
+    assert requests[0][2]["json"]["properties"]["Status"] == {
+        "status": {"name": "Watched"}
+    }
+
+
+def test_notion_consolidates_finished_into_watched_and_removes_the_option():
+    provider = _notion_provider()
+    provider._schema_cache["movie"]["Status"]["status"] = {
+        "options": [
+            {"id": "finished", "name": "Finished", "color": "green"},
+            {"id": "watched", "name": "Watched", "color": "green"},
+        ]
+    }
+    provider._movie_pages_with_status = lambda _value, _property_type: [
+        {
+            "id": "finished-page",
+            "properties": {"Status": {"type": "status", "status": {"name": "Finished"}}},
+        }
+    ]
+    requests = []
+
+    def request(method, path, **kwargs):
+        requests.append((method, path, kwargs))
+        if method == "GET":
+            return {"properties": provider._schema_cache["movie"]}
+        return {}
+
+    provider._request = request
+
+    assert provider.consolidate_movie_completion_status() is True
+    assert requests[1][0:2] == ("PATCH", "/pages/finishedpage")
+    assert requests[1][2]["json"]["properties"]["Status"] == {
+        "status": {"name": "Watched"}
+    }
+    options = requests[2][2]["json"]["properties"]["Status"]["status"]["options"]
+    assert [option["name"] for option in options] == ["Watched"]
 
 
 def test_jackett_returns_only_exact_episode_when_available():

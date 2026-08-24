@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import UTC, timedelta
+from datetime import timedelta, timezone
 from time import sleep
 
 from flask import Flask
@@ -12,7 +12,9 @@ from app.shared.models import SnapshotRecord
 from app.shared.time import utc_now
 
 LOGGER = logging.getLogger(__name__)
-POCKETTUBE_AUTO_SYNC_INTERVAL_SECONDS = 2 * 60 * 60
+# A PocketTube refresh queries each subscribed channel.  Keeping it daily stays
+# comfortably within the standard YouTube Data API daily quota for large libraries.
+POCKETTUBE_AUTO_SYNC_INTERVAL_SECONDS = 24 * 60 * 60
 READING_AUTO_SYNC_INTERVAL_SECONDS = 5 * 60
 _CHECK_INTERVAL_SECONDS = 60
 _sync_lock = threading.Lock()
@@ -145,5 +147,5 @@ def _snapshot_sync_due(domain: str, *, seconds: int) -> bool:
         return True
     last_success_at = snapshot.last_success_at
     if last_success_at.tzinfo is None:
-        last_success_at = last_success_at.replace(tzinfo=UTC)
+        last_success_at = last_success_at.replace(tzinfo=timezone.utc)
     return utc_now() - last_success_at >= timedelta(seconds=seconds)

@@ -1,0 +1,114 @@
+import json
+from datetime import UTC, datetime
+
+from app.extensions import db
+from app.personal_tv.providers import YouTubeCandidateProvider
+from app.youtube.cli import build_pockettube_payload
+from app.youtube.models import YouTubeVideo
+from app.youtube.services import YouTubeService
+
+
+def test_pockettube_export_keeps_favorites_as_an_overlay():
+    payload = build_pockettube_payload(
+        [
+            {"Channel ID": "UCscience", "Theme": "Science & Ideas", "Favorite": "Yes"},
+            {"Channel ID": "UCmusic", "Theme": "Music", "Favorite": "No"},
+        ]
+    )
+
+    assert payload["my favoret"] == ["UCscience"]
+    assert payload["Science & Knowledge"] == ["UCscience"]
+    assert payload["Music"] == ["UCmusic"]
+    assert "ysc_collection" in payload and "ysc_meta" in payload
+
+
+def test_personal_tv_keeps_all_pockettube_memberships_and_prioritises_favo(app):
+    with app.app_context():
+        db.session.add_all(
+            [
+                YouTubeVideo(
+                    external_id="shared-video::pt:Science & Knowledge",
+                    source="pockettube",
+                    group_name="Science & Knowledge",
+                    channel_title="Trusted channel",
+                    title="A science programme",
+                    duration_seconds=1800,
+                    published_at=datetime(2026, 8, 20, tzinfo=UTC),
+                ),
+                YouTubeVideo(
+                    external_id="shared-video::pt:my favoret",
+                    source="pockettube",
+                    group_name="my favoret",
+                    channel_title="Trusted channel",
+                    title="A science programme",
+                    duration_seconds=1800,
+                    published_at=datetime(2026, 8, 20, tzinfo=UTC),
+                ),
+                YouTubeVideo(
+                    external_id="archived-video::pt:Archive / Review Later",
+                    source="pockettube",
+                    group_name="Archive / Review Later",
+                    channel_title="Old channel",
+                    title="An old programme",
+                    duration_seconds=1800,
+                    published_at=datetime(2026, 8, 20, tzinfo=UTC),
+                ),
+            ]
+        )
+        db.session.commit()
+
+        candidates = YouTubeCandidateProvider.candidates()
+        assert len(candidates) == 1
+        candidate = candidates[0]
+        assert candidate.favorite is True
+        assert set(candidate.groups) == {"Science & Knowledge", "my favoret"}
+        assert candidate.quality_score == 12
+
+        groups = YouTubeCandidateProvider.groups()
+        assert [group["name"] for group in groups] == [
+            "my favoret",
+            "Science & Knowledge",
+        ]
+        assert groups[0]["favorite"] is True
+
+
+def test_group_map_relabels_cached_pockettube_videos_without_network(app, tmp_path):
+    export_path = tmp_path / "pockettube.json"
+    export_path.write_text(
+        json.dumps(
+            {
+                "my favoret": ["UCtrusted"],
+                "Science & Knowledge": ["UCtrusted"],
+                "ysc_collection": {},
+            }
+        ),
+        encoding="utf-8",
+    )
+    with app.app_context():
+        db.session.add(
+            YouTubeVideo(
+                external_id="cached-video::pt:legacy",
+                source="pockettube",
+                group_name="legacy",
+                channel_id="UCtrusted",
+                channel_title="Trusted channel",
+                title="A trusted programme",
+                duration_seconds=1800,
+                published_at=datetime(2026, 8, 20, tzinfo=UTC),
+            )
+        )
+        db.session.commit()
+
+        counts = YouTubeService.apply_pockettube_group_map(export_path)
+        active = list(
+            db.session.scalars(
+                db.select(YouTubeVideo)
+                .where(
+                    YouTubeVideo.source == "pockettube",
+                    YouTubeVideo.removed_from_source.is_(False),
+                )
+                .order_by(YouTubeVideo.group_name)
+            )
+        )
+        assert counts["videos"] == 2
+        assert {video.group_name for video in active} == {"Science & Knowledge", "my favoret"}

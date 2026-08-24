@@ -55,6 +55,12 @@ svg {
   max-width: 100%;
 }
 
+video,
+iframe {
+  display: block;
+  max-inline-size: 100%;
+}
+
 h1,
 h2,
 h3,

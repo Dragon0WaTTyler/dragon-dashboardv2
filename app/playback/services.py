@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from time import perf_counter
 from urllib.parse import parse_qs, urlparse
@@ -41,7 +41,7 @@ DEFAULT_PROVIDER_PRIORITIES = {
 
 
 def _as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
 
 
 def _optional_int(value) -> int | None:

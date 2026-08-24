@@ -1,5 +1,6 @@
 import io
 import json
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -69,6 +70,24 @@ def test_duration_client_batches_fifty_video_ids_per_request():
     assert len(parse_qs(urlsplit(requests[0][0].full_url).query)["id"][0].split(",")) == 50
     assert durations["video-0"] == 65
     assert durations["video-50"] == 65
+
+
+def test_playlist_client_explains_youtube_quota_errors():
+    def opener(_request, *, timeout):
+        raise HTTPError(
+            "https://www.googleapis.com/youtube/v3/playlistItems",
+            403,
+            "Forbidden",
+            hdrs=None,
+            fp=io.BytesIO(
+                b'{"error":{"errors":[{"reason":"quotaExceeded"}]}}'
+            ),
+        )
+
+    client = YouTubePlaylistClient("private-key", opener=opener)
+
+    with pytest.raises(YouTubeProviderError, match="API quota has been exceeded"):
+        client.fetch_playlist("PL-test-playlist-123")
 
 
 def test_oauth_client_deletes_the_playlist_item_not_the_video(tmp_path):

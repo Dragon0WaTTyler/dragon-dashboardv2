@@ -27,10 +27,11 @@
     healthTimer: null,
     epgTimer: null,
     playbackTimer: null,
+    stallTimer: null,
     playbackSession: 0,
     playbackController: null,
+    hls: null,
     playbackCapabilities: null,
-    pausedForNavigation: false,
     playerControlsTimer: null,
     volumeFeedbackTimer: null,
     requestTokens: {
@@ -166,7 +167,7 @@
     state.requestTokens.bootstrap += 1;
     const token = state.requestTokens.bootstrap;
     try {
-      const data = await api("/my-tv/api/bootstrap");
+      const data = await api("/iptv/api/bootstrap");
       if (token !== state.requestTokens.bootstrap) return;
       state.bootstrap = data;
       elements.statEnabled.textContent = number(data.stats.enabled_channels);
@@ -208,7 +209,7 @@
     const { token, signal } = beginAbortableRequest("manageGroups");
     const params = new URLSearchParams({ visibility: elements.bouquetVisibility.value });
     if (elements.groupSearch.value.trim()) params.set("q", elements.groupSearch.value.trim());
-    const data = await api(`/my-tv/api/groups?${params}`, { signal });
+    const data = await api(`/iptv/api/groups?${params}`, { signal });
     if (!isCurrentRequest("manageGroups", token)) return;
     state.manageGroups = data.groups;
     renderBouquets();
@@ -257,8 +258,9 @@
     const params = new URLSearchParams({ page: targetPage, per_page: 100, state: selectedView, active_only: selectedView === "enabled" ? "true" : "false", favorites_first: elements.tvConfig.dataset.favoritesFirst || "false", sort: selectedSort });
     const query = elements.channelSearch.value.trim();
     if (query) params.set("q", query);
+    let failed = false;
     try {
-      const data = await api(`/my-tv/api/channels?${params}`, { signal });
+      const data = await api(`/iptv/api/channels?${params}`, { signal });
       if (!isCurrentRequest("channels", token)) return;
       state.channels = append ? mergeChannels(state.channels, data.channels) : data.channels;
       state.page = data.pagination.page;
@@ -267,12 +269,26 @@
       syncChannelViewControls();
       updateChannelViewContext(selectedView, state.total);
       elements.loadMoreChannels.hidden = state.page >= state.pages;
+      delete elements.loadMoreChannels.dataset.retry;
+      delete elements.loadMoreChannels.dataset.retryAppend;
+      elements.loadMoreChannels.textContent = "Load more channels";
       renderChannels();
+    } catch (error) {
+      if (isCurrentRequest("channels", token) && !isAbortError(error)) {
+        failed = true;
+        elements.channelLoadStatus.textContent = "Could not load channels. Retry when you are ready.";
+        elements.channelLoadStatus.hidden = false;
+        elements.loadMoreChannels.hidden = false;
+        elements.loadMoreChannels.textContent = "Retry loading channels";
+        elements.loadMoreChannels.dataset.retry = "true";
+        elements.loadMoreChannels.dataset.retryAppend = String(append);
+      }
+      throw error;
     } finally {
       if (isCurrentRequest("channels", token)) {
         state.loadingChannels = false;
         elements.channelGrid.removeAttribute("aria-busy");
-        elements.channelLoadStatus.hidden = true;
+        if (!failed) elements.channelLoadStatus.hidden = true;
       }
     }
   }
@@ -321,7 +337,7 @@
     const query = elements.manageChannelSearch.value.trim();
     if (query) params.set("q", query);
     try {
-      const data = await api(`/my-tv/api/channels?${params}`, { signal });
+      const data = await api(`/iptv/api/channels?${params}`, { signal });
       if (!isCurrentRequest("manageChannels", token)) return;
       state.manageChannels = append ? mergeChannels(state.manageChannels, data.channels) : data.channels;
       state.manageChannelPage = data.pagination.page;
@@ -350,7 +366,7 @@
 
   async function startSync(mode, ids = [], quiet = false) {
     try {
-      const result = await api("/my-tv/api/sync", { method: "POST", body: JSON.stringify({ mode, playlist_ids: ids }) });
+      const result = await api("/iptv/api/sync", { method: "POST", body: JSON.stringify({ mode, playlist_ids: ids }) });
       updateSyncBanner(result.sync);
       pollSync();
       if (!quiet) toast(mode === "fetch" ? "Updating packages used by your choices…" : mode === "catalog" ? "Refreshing source catalogue…" : "Import started…");
@@ -370,7 +386,7 @@
     window.clearTimeout(state.syncTimer);
     const poll = async () => {
       try {
-        const status = await api("/my-tv/api/sync");
+        const status = await api("/iptv/api/sync");
         updateSyncBanner(status);
         if (status.state === "running") state.syncTimer = window.setTimeout(poll, 1200);
         else {
@@ -397,7 +413,7 @@
 
   async function startHealthCheck({ quiet = false, themeId = null } = {}) {
     try {
-      const result = await api("/my-tv/api/health", { method: "POST", body: JSON.stringify({ theme_id: themeId }) });
+      const result = await api("/iptv/api/health", { method: "POST", body: JSON.stringify({ theme_id: themeId }) });
       updateHealthBanner(result.health);
       pollHealth();
       if (!quiet) toast("Checking enabled channels and their alternatives…");
@@ -410,7 +426,7 @@
     window.clearTimeout(state.healthTimer);
     const poll = async () => {
       try {
-        const health = await api("/my-tv/api/health");
+        const health = await api("/iptv/api/health");
         updateHealthBanner(health);
         if (health.state === "running") state.healthTimer = window.setTimeout(poll, 1500);
         else {
@@ -427,11 +443,32 @@
     const suffix = status.last_success_at ? ` Last updated ${relativeTime(status.last_success_at)}.` : "";
     elements.epgStatusText.textContent = `${status.message || "Guide status unavailable."}${status.stale ? " Saved guide may be outdated." : ""}${suffix}`;
     elements.refreshEpg.disabled = status.state === "running";
+    renderEpgAudit(status.audit);
+  }
+
+  function renderEpgAudit(audit) {
+    if (!elements.epgAuditSummary || !elements.epgAuditChannels) return;
+    const summary = audit?.summary || {};
+    const channels = audit?.channels || [];
+    const labels = ["healthy", "degraded", "stale", "missing"]
+      .filter((state) => summary[state])
+      .map((state) => `${number(summary[state])} ${state}`);
+    elements.epgAuditSummary.textContent = labels.length ? labels.join(" · ") : "No favorite channels to audit.";
+    elements.epgAuditChannels.replaceChildren();
+    channels.forEach((channel) => {
+      const item = document.createElement("article");
+      item.className = `tv-epg-audit-row is-${channel.state}`;
+      item.setAttribute("role", "listitem");
+      const source = channel.source || "No accepted source";
+      const coverage = channel.programme_count ? `${channel.coverage_hours}h ahead · ${number(channel.programme_count)} slots` : "No schedule found";
+      item.innerHTML = `<div><strong>${escapeHtml(channel.name)}</strong><small>${escapeHtml(source)}</small></div><div><span class="tv-epg-state">${escapeHtml(channel.state)}</span><small>${escapeHtml(coverage)}</small></div>`;
+      elements.epgAuditChannels.append(item);
+    });
   }
 
   async function startEpgRefresh({ quiet = false } = {}) {
     try {
-      const result = await api("/my-tv/api/epg", { method: "POST", body: "{}" });
+      const result = await api("/iptv/api/epg", { method: "POST", body: "{}" });
       updateEpgStatus(result.epg);
       pollEpg();
       if (!quiet) toast("Refreshing schedules for favorite channels…");
@@ -444,7 +481,7 @@
     window.clearTimeout(state.epgTimer);
     const poll = async () => {
       try {
-        const status = await api("/my-tv/api/epg");
+        const status = await api("/iptv/api/epg");
         updateEpgStatus(status);
         if (status.state === "running") state.epgTimer = window.setTimeout(poll, 1800);
         else {
@@ -465,7 +502,15 @@
     state.playbackTimer = null;
   }
 
+  function clearStallTimer() {
+    window.clearTimeout(state.stallTimer);
+    state.stallTimer = null;
+  }
+
   function clearVideoSource() {
+    clearStallTimer();
+    state.hls?.destroy();
+    state.hls = null;
     elements.videoPlayer.onloadeddata = null;
     elements.videoPlayer.oncanplay = null;
     elements.videoPlayer.onplaying = null;
@@ -478,6 +523,84 @@
     elements.videoPlayer.removeAttribute("src");
     elements.videoPlayer.load();
     elements.videoPlayer.hidden = true;
+  }
+
+  function startHlsPlayback(url, session, failureMessage, onExhausted) {
+    if (!window.Hls?.isSupported()) return false;
+    const hls = new window.Hls({
+      enableWorker: true,
+      // Start at the lightest rendition, then let ABR move up only when the
+      // connection can sustain it. IPTV providers and home connections are
+      // often bursty, so favour a stable live buffer over ultra-low latency.
+      startLevel: 0,
+      capLevelToPlayerSize: true,
+      lowLatencyMode: false,
+      initialLiveManifestSize: 3,
+      startOnSegmentBoundary: true,
+      liveSyncMode: "buffered",
+      maxBufferLength: 60,
+      maxMaxBufferLength: 120,
+      backBufferLength: 60,
+      maxBufferHole: 0.5,
+      nudgeMaxRetry: 5,
+      manifestLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 12000,
+          maxLoadTimeMs: 30000,
+          timeoutRetry: { maxNumRetry: 3, retryDelayMs: 800, maxRetryDelayMs: 4000, backoff: "exponential" },
+          errorRetry: { maxNumRetry: 4, retryDelayMs: 1000, maxRetryDelayMs: 8000, backoff: "exponential" },
+        },
+      },
+      playlistLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 10000,
+          maxLoadTimeMs: 25000,
+          timeoutRetry: { maxNumRetry: 4, retryDelayMs: 500, maxRetryDelayMs: 4000, backoff: "exponential" },
+          errorRetry: { maxNumRetry: 6, retryDelayMs: 1000, maxRetryDelayMs: 8000, backoff: "exponential" },
+        },
+      },
+      fragLoadPolicy: {
+        default: {
+          maxTimeToFirstByteMs: 10000,
+          maxLoadTimeMs: 60000,
+          timeoutRetry: { maxNumRetry: 4, retryDelayMs: 500, maxRetryDelayMs: 4000, backoff: "exponential" },
+          errorRetry: { maxNumRetry: 6, retryDelayMs: 1000, maxRetryDelayMs: 8000, backoff: "exponential" },
+        },
+      },
+      liveSyncDurationCount: 4,
+      liveSyncOnStallIncrease: 2,
+      liveMaxLatencyDurationCount: 12,
+    });
+    const recoveries = { media: 0 };
+    state.hls = hls;
+    hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
+      if (isCurrentPlayback(session)) elements.videoPlayer.play().catch(() => {});
+    });
+    hls.on(window.Hls.Events.FRAG_BUFFERED, () => {
+      if (!isCurrentPlayback(session) || !recoveries.media) return;
+      recoveries.media = 0;
+      playbackReady(session);
+    });
+    hls.on(window.Hls.Events.ERROR, (_event, detail) => {
+      if (!isCurrentPlayback(session) || !detail.fatal) return;
+      if (
+        detail.type === window.Hls.ErrorTypes.MEDIA_ERROR
+        && recoveries.media < 2
+      ) {
+        recoveries.media += 1;
+        setPlayerState("reconnecting", "Restoring the live stream…");
+        hls.recoverMediaError();
+        return;
+      }
+      // A fatal network error means the configured request retries are already
+      // exhausted. Restarting the same Hls instance here creates a reconnect
+      // loop; move to a different source instead.
+      if (onExhausted) onExhausted();
+      else playbackFailed(failureMessage, session);
+    });
+    hls.loadSource(url);
+    hls.attachMedia(elements.videoPlayer);
+    return true;
   }
 
   function beginPlaybackSession() {
@@ -609,6 +732,7 @@
   function playbackReady(session) {
     if (!isCurrentPlayback(session)) return;
     clearPlaybackTimer();
+    clearStallTimer();
     state.activeChannel = state.requestedChannel || state.activeChannel;
     state.retryChannel = state.activeChannel || state.retryChannel;
     state.requestedChannel = null;
@@ -619,7 +743,6 @@
     elements.videoPlayer.hidden = false;
     elements.playerControls.hidden = false;
     elements.playerShell.classList.add("has-playback");
-    state.pausedForNavigation = false;
     if (state.activeChannel) {
       state.activeChannel.last_watched_at = new Date().toISOString();
       setNowPlaying(state.activeChannel, state.activeChannel.group_name, { live: true });
@@ -650,7 +773,7 @@
     showPlaybackStatus(message, true);
   }
 
-  async function playChannel(id) {
+  async function playChannel(id, { failover = false, failoverAttempt = 0 } = {}) {
     const item = state.channels.find((channel) => channel.id === id)
       || (state.bootstrap?.last_channel?.id === id ? state.bootstrap.last_channel : null);
     if (!item) return;
@@ -663,12 +786,23 @@
     renderChannels();
     showPlaybackStatus("Opening live stream…");
     try {
-      const playback = await api(`/my-tv/api/channels/${id}/playback`, { signal: state.playbackController.signal });
+      const playback = await api(
+        failover
+          ? `/iptv/api/channels/${id}/playback/failover`
+          : `/iptv/api/channels/${id}/playback`,
+        {
+          method: failover ? "POST" : "GET",
+          signal: state.playbackController.signal,
+        },
+      );
       if (!isCurrentPlayback(session)) return;
       elements.playerEmpty.hidden = true;
       state.playbackCapabilities = playback.capabilities || null;
       const sourceNote = playback.source_count > 1 ? ` · ${playback.source_count} fallback sources` : "";
-      setNowPlaying({ ...item, name: playback.name, logo_url: playback.logo_url || item.logo_url }, `${item.group_name} · Opening stream${sourceNote}…`);
+      const isDirect = playback.delivery === "direct";
+      const openingLabel = isDirect ? "Connecting your device directly…" : `Opening stream${sourceNote}…`;
+      const directFailure = "This provider did not allow direct browser playback. Try another favorite channel.";
+      setNowPlaying({ ...item, name: playback.name, logo_url: playback.logo_url || item.logo_url }, `${item.group_name} · ${openingLabel}`);
       elements.videoPlayer.onloadeddata = () => playbackReady(session);
       elements.videoPlayer.oncanplay = () => playbackReady(session);
       elements.videoPlayer.onplaying = () => {
@@ -677,26 +811,84 @@
         syncPlayerControls();
       };
       elements.videoPlayer.onwaiting = () => {
-        if (isCurrentPlayback(session)) setPlayerState("buffering", "Buffering live channel…");
+        if (isCurrentPlayback(session)) {
+          setPlayerState("buffering", "Buffering live channel…");
+          scheduleStallFailover();
+        }
       };
       elements.videoPlayer.onstalled = () => {
-        if (isCurrentPlayback(session)) setPlayerState("reconnecting", "Reconnecting to live channel…");
+        if (isCurrentPlayback(session)) {
+          setPlayerState("reconnecting", "Reconnecting to live channel…");
+          scheduleStallFailover();
+        }
       };
       elements.videoPlayer.onpause = () => {
+        clearStallTimer();
         if (isCurrentPlayback(session) && state.activeChannel) setPlayerState("paused", "Live channel paused");
         syncPlayerControls();
       };
       elements.videoPlayer.onvolumechange = syncPlayerControls;
-      elements.videoPlayer.onerror = () => playbackFailed("No working source is available for this channel.", session);
+      const canFailOver = playback.delivery === "proxy"
+        && playback.source_count > 1
+        && failoverAttempt < playback.source_count - 1;
+      const switchToBackup = (failureMessage) => {
+        if (!isCurrentPlayback(session)) return;
+        if (!canFailOver) {
+          playbackFailed(failureMessage, session);
+          return;
+        }
+        clearPlaybackTimer();
+        showPlaybackStatus("Switching to a backup source…");
+        playChannel(id, { failover: true, failoverAttempt: failoverAttempt + 1 })
+          .catch(() => playbackFailed(failureMessage, session));
+      };
+      const scheduleStallFailover = () => {
+        if (!isCurrentPlayback(session) || elements.videoPlayer.paused || state.stallTimer) return;
+        const stalledAt = elements.videoPlayer.currentTime;
+        state.stallTimer = window.setTimeout(() => {
+          state.stallTimer = null;
+          if (!isCurrentPlayback(session) || elements.videoPlayer.paused) return;
+          const advanced = elements.videoPlayer.currentTime - stalledAt;
+          if (advanced > 0.5 && elements.videoPlayer.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) return;
+          switchToBackup("This live source stopped sending video.");
+        }, 10000);
+      };
       const timeoutSeconds = Number(playback.startup_timeout_seconds) || 20;
       state.playbackTimer = window.setTimeout(() => {
         if (!isCurrentPlayback(session)) return;
         if (elements.videoPlayer.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) playbackReady(session);
-        else playbackFailed(`This channel did not respond within ${timeoutSeconds} seconds.`, session);
+        else switchToBackup(
+          isDirect ? directFailure : `This channel did not respond within ${timeoutSeconds} seconds.`,
+        );
       }, timeoutSeconds * 1000);
-      elements.videoPlayer.src = playback.url;
-      elements.videoPlayer.load();
-      elements.videoPlayer.play().catch(() => {});
+      if (playback.mode === "hls") {
+        // hls.js owns the MediaSource lifecycle. A native <video> error can be
+        // emitted while it swaps media sources and is not necessarily a failed
+        // stream, so let hls.js decide when an HLS error is fatal.
+        elements.videoPlayer.onerror = null;
+        const canUseNativeHls = elements.videoPlayer.canPlayType("application/vnd.apple.mpegurl");
+        const hlsFailure = isDirect ? directFailure : "This live HLS stream could not be opened.";
+        if (startHlsPlayback(playback.url, session, hlsFailure, () => {
+          switchToBackup(hlsFailure);
+        })) {
+          // hls.js owns the media source and begins playback once the manifest
+          // has been parsed.
+        } else if (canUseNativeHls) {
+          elements.videoPlayer.onerror = () => switchToBackup(hlsFailure);
+          elements.videoPlayer.src = playback.url;
+          elements.videoPlayer.load();
+          elements.videoPlayer.play().catch(() => {});
+        } else {
+          playbackFailed("This browser cannot play HLS live streams.", session);
+        }
+      } else {
+        elements.videoPlayer.onerror = () => switchToBackup(
+          isDirect ? directFailure : "No working source is available for this channel.",
+        );
+        elements.videoPlayer.src = playback.url;
+        elements.videoPlayer.load();
+        elements.videoPlayer.play().catch(() => {});
+      }
       renderChannels();
     } catch (error) {
       if (!isAbortError(error) && isCurrentPlayback(session)) playbackFailed(error.message || "This channel could not be opened.", session);
@@ -718,11 +910,6 @@
     });
     if (focus) tab.focus();
     if (tab.dataset.view === "manage") {
-      if (state.activeChannel && !elements.videoPlayer.paused) {
-        state.pausedForNavigation = true;
-        elements.videoPlayer.pause();
-        toast("Live playback paused while you manage your lineup.");
-      }
       Promise.all([loadManageGroups(), loadManageChannels()]).catch((error) => { if (!isAbortError(error)) toast(error.message, true); });
     }
   }
@@ -739,12 +926,12 @@
     state.savingGroups.add(item.id);
     renderBouquets();
     try {
-      const result = await api(`/my-tv/api/groups/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled: enabling }) });
+      const result = await api(`/iptv/api/groups/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled: enabling }) });
       await refreshManage({ focusSelector: `[data-toggle-group="${item.id}"]` });
       toast(`${number(result.affected_channels)} channels ${enabling ? "activated" : "deactivated"}.`, false, {
         label: "Undo",
         run: async () => {
-          await api(`/my-tv/api/groups/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled: previous }) });
+          await api(`/iptv/api/groups/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled: previous }) });
           await refreshManage({ focusSelector: `[data-toggle-group="${item.id}"]` });
         },
       });
@@ -762,13 +949,13 @@
     state.savingGroups.add(groupId);
     renderBouquets();
     try {
-      const result = await api(`/my-tv/api/groups/${groupId}/channels`, { method: "POST", body: JSON.stringify({ action }) });
+      const result = await api(`/iptv/api/groups/${groupId}/channels`, { method: "POST", body: JSON.stringify({ action }) });
       const copy = action === "inherit" ? "Channel exceptions cleared." : `${number(result.affected_channels)} channels turned ${action === "enable" ? "on" : "off"}.`;
       await refreshManage({ focusSelector: `[data-group-action="${action}"][data-group-id="${groupId}"]` });
       toast(copy, false, {
         label: "Undo",
         run: async () => {
-          await api(`/my-tv/api/groups/${groupId}/channels/undo`, { method: "POST", body: JSON.stringify({ token: result.undo_token }) });
+          await api(`/iptv/api/groups/${groupId}/channels/undo`, { method: "POST", body: JSON.stringify({ token: result.undo_token }) });
           await refreshManage({ focusSelector: `[data-group-action="${action}"][data-group-id="${groupId}"]` });
         },
       });
@@ -784,7 +971,7 @@
     state.savingFavorites.add(item.id);
     renderChannels();
     try {
-      await api(`/my-tv/api/channels/${item.id}/favorite`, { method: "PATCH", body: JSON.stringify({ favorite: nextValue }) });
+      await api(`/iptv/api/channels/${item.id}/favorite`, { method: "PATCH", body: JSON.stringify({ favorite: nextValue }) });
       item.favorite = nextValue;
       toast(nextValue ? "Saved to favorites. Schedule refresh queued." : "Removed from favorites.");
       await loadBootstrap({ quiet: true });
@@ -868,7 +1055,10 @@
     if (event.target.closest("#resumeLastChannel")) {
       return playChannel(Number(elements.resumeLastChannel.dataset.channelId));
     }
-    if (event.target.closest("#loadMoreChannels")) return loadChannels({ append: true });
+    if (event.target.closest("#loadMoreChannels")) {
+      const retrying = elements.loadMoreChannels.dataset.retry === "true";
+      return loadChannels({ append: retrying ? elements.loadMoreChannels.dataset.retryAppend === "true" : true });
+    }
     if (event.target.closest("#loadMoreManageChannels")) return loadManageChannels({ append: true });
     if (event.target.closest("[data-empty-sync]")) startSync("fetch");
   });
@@ -890,7 +1080,7 @@
       const select = event.target;
       select.disabled = true;
       try {
-        await api(`/my-tv/api/channels/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
+        await api(`/iptv/api/channels/${item.id}`, { method: "PATCH", body: JSON.stringify({ enabled }) });
         item.enabled_override = enabled;
         item.enabled = enabled === null ? item.resolved_default : enabled;
         select.disabled = false;
@@ -1023,7 +1213,7 @@
     if (editable || event.altKey || event.ctrlKey || event.metaKey) return;
     const key = event.key.toLowerCase();
     const channelNavigationKey = event.key === "ArrowUp" || event.key === "ArrowDown";
-    if (channelNavigationKey && !event.target.closest("#channelGrid, #playerControls") && navigationChannel()) {
+    if (channelNavigationKey && event.target.closest("#playerFrame") && navigationChannel()) {
       event.preventDefault();
       const channel = adjacentChannel(event.key === "ArrowUp" ? -1 : 1);
       if (channel) playChannel(channel.id);
@@ -1081,21 +1271,19 @@
   document.addEventListener("fullscreenchange", syncFullscreenControls);
   elements.videoPlayer.addEventListener("enterpictureinpicture", syncPlayerControls);
   elements.videoPlayer.addEventListener("leavepictureinpicture", syncPlayerControls);
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden && state.activeChannel && !elements.videoPlayer.paused) {
-      elements.videoPlayer.pause();
-    }
-  });
   elements.videoPlayer.controls = false;
 
-  document.addEventListener("error", (event) => {
-    if (event.target instanceof HTMLImageElement && event.target.dataset.tvFallback) {
-      event.target.parentElement.textContent = event.target.dataset.tvFallback;
-      if (event.target.dataset.tvFallbackLabel) {
-        event.target.parentElement.setAttribute("aria-label", event.target.dataset.tvFallbackLabel);
-        event.target.parentElement.setAttribute("title", event.target.dataset.tvFallbackLabel);
-      }
+document.addEventListener("error", (event) => {
+  if (event.target instanceof HTMLImageElement && event.target.dataset.tvFallback) {
+    const fallback = event.target.parentElement;
+    if (!fallback) return;
+
+    fallback.textContent = event.target.dataset.tvFallback;
+    if (event.target.dataset.tvFallbackLabel) {
+      fallback.setAttribute("aria-label", event.target.dataset.tvFallbackLabel);
+      fallback.setAttribute("title", event.target.dataset.tvFallbackLabel);
     }
-  }, true);
+  }
+}, true);
   loadBootstrap();
 })();

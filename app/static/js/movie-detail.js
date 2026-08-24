@@ -24,7 +24,6 @@
   const playerTitle = player.querySelector("#movie-player-title");
   const selectedEpisodeSummary = document.querySelector("[data-player-selected-episode]");
   const source = player.querySelector("[data-player-source]");
-  const sourceChoices = Array.from(player.querySelectorAll("[data-player-source-choice]"));
   const launch = player.querySelector("[data-player-launch]");
   const launchTitle = player.querySelector("[data-player-launch-title]");
   const launchHint = player.querySelector("[data-player-launch-hint]");
@@ -36,6 +35,7 @@
   const externalToolbar = player.querySelector("[data-player-external-toolbar]");
   const externalCaption = player.querySelector("[data-player-external-caption]");
   const externalBack = player.querySelector("[data-player-external-back]");
+  const externalFullscreen = player.querySelector("[data-player-external-fullscreen]");
   const externalReload = player.querySelector("[data-player-external-reload]");
   const externalOpen = player.querySelector("[data-player-external-open]");
   const badge = player.querySelector("[data-player-badge]");
@@ -197,6 +197,8 @@
   let packRequestToken = 0;
   let videoPaintCheckTimer = 0;
   let controlsHideTimer = 0;
+  let embedCinemaMode = false;
+  let embedCinemaUsesBrowserFullscreen = false;
   let volumeFeedbackTimer = 0;
   let subtitlePanelOpen = false;
   let selectedSubtitleIndex = -1;
@@ -308,13 +310,6 @@
   const selectedProvider = () => selectedOption()?.dataset.provider || "local";
   const selectedProviderLabel = () => selectedOption()?.dataset.providerLabel || "Local";
   const selectedEmbedEndpoint = () => selectedOption()?.dataset.embedEndpoint || "";
-  const syncSourceChoices = () => {
-    sourceChoices.forEach((choice) => {
-      const isSelected = choice.dataset.sourceId === source.value;
-      choice.classList.toggle("is-active", isSelected);
-      choice.setAttribute("aria-pressed", String(isSelected));
-    });
-  };
   const selectedSourceMeta = () => {
     const option = selectedOption();
     if (!option || option.dataset.kind !== "local") return null;
@@ -855,6 +850,38 @@
     mediaShell.dataset.fullscreen = document.fullscreenElement === mediaShell ? "true" : "false";
     showControlsBriefly();
     window.requestAnimationFrame(() => renderActiveCaption());
+  };
+  const syncEmbedCinemaControls = () => {
+    if (!externalFullscreen) return;
+    const active = embedCinemaMode || document.fullscreenElement === player;
+    externalFullscreen.textContent = active ? "Exit full screen" : "Full screen";
+    externalFullscreen.setAttribute("aria-pressed", String(active));
+    externalFullscreen.setAttribute("aria-label", active ? "Exit full screen" : "Enter full screen");
+  };
+  const setEmbedCinemaMode = (active) => {
+    embedCinemaMode = active;
+    player.classList.toggle("is-embed-fullscreen", active);
+    document.documentElement.classList.toggle("is-player-embed-fullscreen", active);
+    document.body.classList.toggle("is-player-embed-fullscreen", active);
+    syncEmbedCinemaControls();
+  };
+  const exitEmbedCinemaMode = async () => {
+    if (document.fullscreenElement === player) {
+      await document.exitFullscreen?.();
+    }
+    embedCinemaUsesBrowserFullscreen = false;
+    setEmbedCinemaMode(false);
+  };
+  const enterEmbedCinemaMode = () => {
+    setEmbedCinemaMode(true);
+    if (!player.requestFullscreen) return;
+    player.requestFullscreen().then(() => {
+      embedCinemaUsesBrowserFullscreen = document.fullscreenElement === player;
+    }).catch(() => {
+      // iPhone Safari does not expose element fullscreen for cross-origin frames.
+      // The viewport-sized cinema mode remains available in that case.
+      embedCinemaUsesBrowserFullscreen = false;
+    });
   };
   const syncQuickControls = () => {
     if (mediaShell) {
@@ -1545,7 +1572,8 @@
       return;
     }
     subtitleEntries = items.map((item, index) => {
-      const label = `${item.language_name || "Subtitle"} · Track ${index + 1}${item.hearing_impaired ? " · HI" : ""}`;
+      const trackLabel = item.label || `Track ${index + 1}`;
+      const label = `${item.language_name || "Subtitle"} · ${trackLabel}${item.hearing_impaired ? " · HI" : ""}`;
       const entry = {
         item,
         label,
@@ -1631,6 +1659,11 @@
   };
 
   const resetViewport = () => {
+    if (embedCinemaMode || document.fullscreenElement === player) {
+      void document.exitFullscreen?.();
+      embedCinemaUsesBrowserFullscreen = false;
+      setEmbedCinemaMode(false);
+    }
     clearVideoPaintCheck();
     clearNextEpisode();
     setWatchMode(false);
@@ -1697,7 +1730,6 @@
         setSubtitleStatus("Arabic will be selected first. Open Sub after Local starts to tune font, color, blur, or timing.");
       }
     }
-    syncSourceChoices();
   };
 
   const showError = (message, { keepViewport = false } = {}) => {
@@ -1719,7 +1751,7 @@
     if (inlineFallback) inlineFallback.hidden = activeKind !== "local" || !fallbackEmbedOption();
     if (retry) retry.hidden = false;
     if (fallback) fallback.hidden = activeKind !== "local" || !fallbackEmbedOption();
-    if (stop) stop.hidden = true;
+    if (stop) stop.hidden = activeKind !== "local" || !localSession;
     setStatus(message);
   };
 
@@ -1797,22 +1829,12 @@
     scheduleVideoPaintCheck();
     return true;
   };
-  const videoHasVisibleFrames = () => Number(video.videoWidth || 0) > 0 && Number(video.videoHeight || 0) > 0;
   const scheduleVideoPaintCheck = () => {
-    if (activeKind !== "local" || !localSession) return;
+    // A zero-sized video frame is not a playback failure: hardware decoding,
+    // remote streams, and browser privacy constraints can all report it while
+    // the video is visibly playing. Real failures still arrive through the
+    // native `error` and `stalled` events below.
     clearVideoPaintCheck();
-    videoPaintCheckTimer = window.setTimeout(() => {
-      videoPaintCheckTimer = 0;
-      if (activeKind !== "local" || !localSession) return;
-      if (video.paused || video.ended || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
-      if (videoHasVisibleFrames()) return;
-      if (localSession.streamKind !== "transcode" && switchLocalToTranscode()) {
-        setPlayerState("buffering", "Audio started but the browser could not render video frames. Switching to local transcoding…");
-        return;
-      }
-      const message = classifyLocalFailure("local transcoding did not produce visible frames");
-      showError(message, { keepViewport: true });
-    }, localSession.streamKind === "transcode" ? 4000 : 1600);
   };
 
   const loadEmbed = () => {
@@ -1993,8 +2015,10 @@
     player.scrollIntoView({ block: "center", behavior: "smooth" });
   };
 
-  source.addEventListener("change", async () => {
-    await stopLocal({ silent: true });
+  source.addEventListener("change", () => {
+    // Stop the old runtime without making the next source wait on its network shutdown.
+    // `stopLocal` clears its local state synchronously before its cleanup request awaits.
+    void stopLocal({ silent: true, persistProgress: false });
     subtitleOptions = null;
     subtitleOptionsKey = "";
     savedProgress = null;
@@ -2008,14 +2032,6 @@
     syncEpisodeUrl();
     syncSourceUi();
     void loadSavedProgress();
-  });
-  sourceChoices.forEach((choice) => {
-    choice.addEventListener("click", () => {
-      const sourceId = String(choice.dataset.sourceId || "");
-      if (!sourceId || sourceId === source.value) return;
-      source.value = sourceId;
-      source.dispatchEvent(new Event("change", { bubbles: true }));
-    });
   });
   packEpisode?.addEventListener("change", async () => {
     const localWasActive = activeKind === "local" && (Boolean(localSession) || !video.hidden || video.hasAttribute("src"));
@@ -2102,6 +2118,13 @@
   });
   externalReload?.addEventListener("click", () => reload.click());
   externalBack?.addEventListener("click", () => { void exitWatchMode(); });
+  externalFullscreen?.addEventListener("click", () => {
+    if (embedCinemaMode || document.fullscreenElement === player) {
+      void exitEmbedCinemaMode();
+    } else {
+      enterEmbedCinemaMode();
+    }
+  });
   stop.addEventListener("click", async () => {
     await stopLocal();
     resetViewport();
@@ -2385,7 +2408,16 @@
     }
     showControlsBriefly();
   });
-  document.addEventListener("fullscreenchange", syncFullscreenChrome);
+  document.addEventListener("fullscreenchange", () => {
+    syncFullscreenChrome();
+    if (document.fullscreenElement === player) {
+      embedCinemaUsesBrowserFullscreen = true;
+      setEmbedCinemaMode(true);
+    } else if (embedCinemaUsesBrowserFullscreen) {
+      embedCinemaUsesBrowserFullscreen = false;
+      setEmbedCinemaMode(false);
+    }
+  });
   mediaShell?.addEventListener("pointerenter", showControlsBriefly);
   mediaShell?.addEventListener("pointermove", showControlsBriefly);
   mediaShell?.addEventListener("touchstart", showControlsBriefly, { passive: true });
@@ -2449,12 +2481,10 @@
   });
   video.addEventListener("stalled", () => {
     if (activeKind !== "local") return;
-    setPlayerState("stalled", "The torrent stalled. Waiting briefly for peers before offering recovery options.");
-    window.setTimeout(() => {
-      if (activeKind === "local" && player.dataset.playbackState === "stalled") {
-        showError(classifyLocalFailure("torrent stalled"));
-      }
-    }, 3000);
+    // `stalled` is advisory and is frequently emitted between buffered ranges.
+    // Do not replace a visible, recoverable video with an error screen; a real
+    // runtime failure is reported by the native `error` event or the session poll.
+    setPlayerState("buffering", "The stream paused briefly while more torrent pieces arrive.");
   });
   video.addEventListener("playing", () => {
     if (activeKind === "local") {

@@ -247,7 +247,8 @@ def to_webvtt(payload: bytes, file_format: str) -> bytes:
                 f"{match.group(4)}.{match.group(5)}{match.group(6)}"
             )
         converted.append(line)
-    body = f"WEBVTT\n\n{'\n'.join(converted).rstrip()}\n"
+    cues = "\n".join(converted).rstrip()
+    body = f"WEBVTT\n\n{cues}\n"
     if not any(WEBVTT_TIMING_PATTERN.match(line.strip()) for line in body.split("\n")):
         raise SubtitleProviderError("The downloaded file does not contain subtitle cues.")
     return body.encode()

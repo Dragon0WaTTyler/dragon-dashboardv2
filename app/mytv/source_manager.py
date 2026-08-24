@@ -3,7 +3,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import re
-from datetime import UTC, timedelta
+from datetime import timedelta, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urlsplit
 
@@ -136,7 +136,7 @@ class TVSourceManager:
         ):
             last_success = source.last_success_at
             if last_success is not None and last_success.tzinfo is None:
-                last_success = last_success.replace(tzinfo=UTC)
+                last_success = last_success.replace(tzinfo=timezone.utc)
             if last_success is None or now - last_success >= timedelta(
                 minutes=source.refresh_interval_minutes
             ):

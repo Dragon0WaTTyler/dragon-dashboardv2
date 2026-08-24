@@ -161,6 +161,7 @@ def test_legacy_notion_movie_gets_tmdb_identity_for_jackett_and_embed_sources(
     html = detail.get_data(as_text=True)
     assert "Player 1 · VidSrc" in html
     assert "Search Jackett releases" in html
+    assert 'js/movies.js' in html
     with app.app_context():
         movie = db.session.get(Movie, movie_id)
         assert movie.external_ids == {
@@ -248,6 +249,38 @@ def test_movies_exposes_multiple_recommendations_for_try_another(authenticated_c
     assert 'data-recommendation-items="' in html
     assert "First pick" in html
     assert "Second pick" in html
+
+
+def test_movies_hydrates_missing_recommendation_overview_from_tmdb(
+    authenticated_client, app
+):
+    class OverviewTmdbProvider:
+        configured = True
+
+        def details(self, media_type, tmdb_id):
+            assert (media_type, tmdb_id) == ("movie", 123)
+            return {"overview": "A synopsis fetched from TMDB."}
+
+    movie_id = add_movie(
+        app,
+        title="Missing overview",
+        normalized_title="missing overview",
+        status="want_to_watch",
+        category="movie",
+        source="My library",
+        overview="",
+        external_ids={"tmdb_id": "123", "tmdb_type": "movie"},
+        directors=[{"name": "A director"}],
+        genres=[{"name": "Drama"}],
+    )
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = OverviewTmdbProvider()
+
+    page = authenticated_client.get("/movies")
+
+    assert "A synopsis fetched from TMDB." in page.get_data(as_text=True)
+    with app.app_context():
+        assert db.session.get(Movie, movie_id).overview == "A synopsis fetched from TMDB."
 
 
 def test_movie_status_mutation_requires_csrf(authenticated_client, app):
@@ -417,6 +450,8 @@ def test_resolve_tv_episode_source_updates_episode_page_with_fallback(
         app.config["DRAGON_NOTION_WRITEBACK_ENABLED"] = True
         app.config["DRAGON_PLAYBACK_ENABLED"] = True
         app.config["DRAGON_MAGNETS_ENABLED"] = True
+        app.config["DRAGON_MULTIEMBED_ENABLED"] = False
+        app.config["DRAGON_MULTIEMBED_VIP_ENABLED"] = False
         app.extensions["dragon_notion_movie_provider"] = notion
         app.extensions["dragon_tmdb_catalog_provider"] = StubTmdbProvider()
 

@@ -59,7 +59,7 @@ def _canonical_external_id(value: str | None) -> str:
 def _pockettube_external_id(video_id: str, group_name: str) -> str:
     if not group_name:
         return video_id
-    group_digest = hashlib.sha1(group_name.encode("utf-8")).hexdigest()[:10]
+    group_digest = hashlib.sha1(group_name.encode("utf-8")).hexdigest()[:10]  # noqa: S324
     return f"{video_id}{_POCKETTUBE_ID_SEPARATOR}{group_digest}"
 
 
@@ -465,6 +465,135 @@ class YouTubeService:
         return candidates[0] if candidates else None
 
     @staticmethod
+    def apply_pockettube_group_map(export_path: str | Path) -> dict[str, int]:
+        """Relabel the local PocketTube snapshot without fetching new YouTube videos.
+
+        This keeps the cached catalog fast and applies a user-reviewed group export immediately.
+        A later normal PocketTube refresh may add newer uploads through the same group map.
+        """
+        path = Path(export_path)
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError, UnicodeError) as exc:
+            raise ValueError("PocketTube group export could not be read.") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("PocketTube group export is not valid.")
+
+        channel_groups: dict[str, list[str]] = {}
+        for group_name, value in payload.items():
+            if str(group_name).startswith("ysc_") or not isinstance(value, list):
+                continue
+            group = str(group_name).strip()[:160]
+            if not group:
+                continue
+            for channel_id in value:
+                channel = str(channel_id or "").strip()
+                if channel.startswith("UC"):
+                    memberships = channel_groups.setdefault(channel, [])
+                    if group not in memberships:
+                        memberships.append(group)
+
+        existing_rows = list(
+            db.session.scalars(
+                db.select(YouTubeVideo).where(YouTubeVideo.source == "pockettube")
+            )
+        )
+        existing = {video.external_id: video for video in existing_rows}
+        representatives: dict[str, YouTubeVideo] = {}
+        for video in sorted(
+            existing_rows,
+            key=lambda item: (
+                item.removed_from_source,
+                item.position,
+                item.id,
+            ),
+        ):
+            representatives.setdefault(_canonical_external_id(video.external_id), video)
+
+        counts = {
+            "channels": len(channel_groups),
+            "created": 0,
+            "updated": 0,
+            "removed": 0,
+            "videos": 0,
+        }
+        active_memberships: set[str] = set()
+        try:
+            for canonical_id, representative in representatives.items():
+                groups = channel_groups.get(representative.channel_id, [])
+                for group in groups:
+                    membership_id = _pockettube_external_id(canonical_id, group)
+                    target = existing.get(membership_id)
+                    if target is None:
+                        target = YouTubeVideo(
+                            external_id=membership_id,
+                            source="pockettube",
+                            title=representative.title,
+                        )
+                        db.session.add(target)
+                        existing[membership_id] = target
+                        counts["created"] += 1
+                    else:
+                        counts["updated"] += 1
+                    target.playlist_item_id = representative.playlist_item_id
+                    target.group_name = group
+                    target.channel_id = representative.channel_id
+                    target.channel_title = representative.channel_title
+                    target.title = representative.title
+                    target.description = representative.description
+                    target.thumbnail_url = representative.thumbnail_url
+                    target.published_at = representative.published_at
+                    target.duration_seconds = representative.duration_seconds
+                    target.position = representative.position
+                    target.watched = representative.watched
+                    target.removed_from_source = False
+                    target.local_history = [
+                        *(representative.local_history or []),
+                        {
+                            "event": "pockettube_group_map_applied",
+                            "at": utc_iso(),
+                            "group_names": groups,
+                        },
+                    ][-20:]
+                    active_memberships.add(membership_id)
+
+            for video in existing_rows:
+                canonical_id = _canonical_external_id(video.external_id)
+                if video.external_id not in active_memberships and not video.removed_from_source:
+                    video.removed_from_source = True
+                    counts["removed"] += 1
+
+            counts["videos"] = len(active_memberships)
+            checksum = hashlib.sha256("\n".join(sorted(active_memberships)).encode()).hexdigest()
+            snapshot = db.session.scalar(
+                db.select(SnapshotRecord).where(SnapshotRecord.domain == "youtube_pockettube")
+            )
+            now = utc_now()
+            if snapshot is None:
+                snapshot = SnapshotRecord(
+                    domain="youtube_pockettube",
+                    schema_version="pockettube-group-map-v1",
+                    relative_path=f"file://{path.name}",
+                    checksum=checksum,
+                    generated_at=now,
+                    last_success_at=now,
+                )
+                db.session.add(snapshot)
+            snapshot.schema_version = "pockettube-group-map-v1"
+            snapshot.checksum = checksum
+            snapshot.state = "fresh"
+            snapshot.message = (
+                f"{len(active_memberships)} cached videos regrouped from PocketTube export."
+            )
+            snapshot.generated_at = now
+            snapshot.last_success_at = now
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+            raise
+        return counts
+
+    @staticmethod
     def sync_pockettube(
         client: YouTubePlaylistClient,
         export_path: str | Path,
@@ -497,7 +626,7 @@ class YouTubeService:
 
         channels = list(channel_groups)[: max(1, min(maximum, 5000))]
         channel_limits = {channel_id: 1 for channel_id in channels}
-        for group, group_channel_ids in group_channels.items():
+        for _group, group_channel_ids in group_channels.items():
             if not group_channel_ids:
                 continue
             base_need = math.ceil(POCKETTUBE_GROUP_VIDEO_LIMIT / len(group_channel_ids))

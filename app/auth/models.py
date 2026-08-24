@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 from flask_login import UserMixin
 from sqlalchemy import Boolean, DateTime, String
@@ -11,7 +11,7 @@ from app.extensions import db
 
 
 def utc_now() -> datetime:
-    return datetime.now(UTC)
+    return datetime.now(timezone.utc)
 
 
 class User(UserMixin, db.Model):

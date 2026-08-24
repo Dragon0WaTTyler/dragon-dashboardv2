@@ -43,7 +43,7 @@
       </div>
       <p class="movie-release-browser__summary" data-release-summary>{% if media.media_type == 'tv' %}Save the series first if you want it to appear in Movies immediately. After that, choose a season and episode here or later from the local detail page.{% else %}Use + when you just want the title in Notion. Use release search when you want to attach a playable magnet right now.{% endif %}</p>
       {% if media.media_type == 'tv' %}
-      <div class="movie-release-browser__controls release-dialog__episode-picker">
+      <div class="movie-release-browser__controls">
         <label class="field"><span>Season</span><select data-season-select><option value="">Choose a season</option></select></label>
         <label class="field"><span>Episode</span><select data-episode-select disabled><option value="">Choose an episode</option></select></label>
         <button class="button button--secondary" type="button" data-season-pack-load>Find best season pack</button>

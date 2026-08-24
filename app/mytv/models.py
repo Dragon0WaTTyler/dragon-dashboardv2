@@ -164,6 +164,9 @@ class TVChannelPreference(db.Model):
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     last_watched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     watch_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    preferred_source_fingerprint: Mapped[str] = mapped_column(
+        String(64), default="", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )

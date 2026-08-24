@@ -3,7 +3,20 @@
   const open = document.querySelector("[data-recommendation-open]");
   const next = document.querySelector("[data-recommendation-next]");
   const dismiss = document.querySelector("[data-recommendation-dismiss]");
-  if (!section || !dismiss) return;
+  if (!section) return;
+
+  const reveal = () => {
+    section.hidden = false;
+    try {
+      sessionStorage.removeItem("dragon:recommendation-dismissed");
+    } catch {
+      // Showing the recommendation must not depend on browser storage.
+    }
+    section.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  open?.addEventListener("click", reveal);
+  if (!dismiss) return;
 
   let recommendations = [];
   try {
@@ -13,18 +26,57 @@
   }
   if (!recommendations.length) return;
 
-  const storageKey = "dragon:movie-recommendation-index";
-  const savedIndex = Number.parseInt(sessionStorage.getItem(storageKey) || "0", 10);
-  let currentIndex = Number.isInteger(savedIndex) && savedIndex >= 0
-    ? savedIndex % recommendations.length
-    : 0;
+  const moviesById = new Map(recommendations.map((movie) => [String(movie.id), movie]));
+  const movieIds = [...moviesById.keys()];
+  const poolKey = movieIds.slice().sort().join("|");
+  const deckKey = `dragon:movie-recommendation-deck:${poolKey}`;
+  const lastKey = `dragon:movie-recommendation-last:${poolKey}`;
+  const shuffle = (ids) => {
+    const shuffled = ids.slice();
+    for (let index = shuffled.length - 1; index > 0; index -= 1) {
+      const replacement = Math.floor(Math.random() * (index + 1));
+      [shuffled[index], shuffled[replacement]] = [shuffled[replacement], shuffled[index]];
+    }
+    return shuffled;
+  };
+  const readDeck = () => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(deckKey) || "[]");
+      if (!Array.isArray(saved)) return [];
+      return saved.filter((id, index) => movieIds.includes(String(id)) && saved.indexOf(id) === index).map(String);
+    } catch {
+      return [];
+    }
+  };
+  const buildDeck = (excludedId = "") => {
+    const available = movieIds.filter((id) => id !== String(excludedId));
+    return shuffle(available.length ? available : movieIds);
+  };
+
+  let deck = readDeck();
+  const lastId = sessionStorage.getItem(lastKey) || "";
+  if (!deck.length) deck = buildDeck(lastId);
+  if (deck[0] === lastId && deck.length > 1) {
+    const differentIndex = deck.findIndex((id) => id !== lastId);
+    [deck[0], deck[differentIndex]] = [deck[differentIndex], deck[0]];
+  }
+  let currentMovie = moviesById.get(deck.shift()) || recommendations[0];
   const poster = section.querySelector("[data-recommendation-poster]");
   const fallback = section.querySelector("[data-recommendation-fallback]");
   const title = section.querySelector("[data-recommendation-title]");
   const meta = section.querySelector("[data-recommendation-meta]");
+  let overview = section.querySelector("[data-recommendation-overview]");
   const reason = section.querySelector("[data-recommendation-reason]");
+  const controls = section.querySelector(".movie-recommendation__controls");
   const confidence = section.querySelector("[data-recommendation-confidence]");
   const details = section.querySelector("[data-recommendation-details]");
+  if (!overview && reason) {
+    overview = document.createElement("p");
+    overview.className = "movie-recommendation__overview";
+    overview.dataset.recommendationOverview = "";
+    reason.before(overview);
+    controls?.after(reason);
+  }
   const detailUrl = (movie) => (section.dataset.recommendationDetailTemplate || "")
     .replace("999999999", encodeURIComponent(movie.id));
   const render = (movie) => {
@@ -33,7 +85,17 @@
     title.textContent = movie.title;
     title.href = url;
     meta.textContent = labels.join(" · ");
-    reason.textContent = movie.recommendation_reason || "A strong fit for your queue.";
+    if (overview) overview.textContent = movie.overview || "No synopsis is available yet.";
+    if (reason) {
+      if (overview) {
+        const reasonLabel = document.createElement("span");
+        reasonLabel.textContent = "Why this pick";
+        reason.replaceChildren(reasonLabel, movie.recommendation_reason || "A strong fit for your queue.");
+      } else {
+        // Keep the older server-rendered card functional during a live reload.
+        reason.textContent = movie.recommendation_reason || "A strong fit for your queue.";
+      }
+    }
     confidence.textContent = `A quiet pick for tonight · ${movie.recommendation_explanation?.confidence || "medium"} confidence`;
     details.href = url;
     poster.parentElement.href = url;
@@ -44,18 +106,19 @@
     fallback.textContent = (movie.title || "?").slice(0, 1).toUpperCase();
   };
 
-  render(recommendations[currentIndex]);
+  const persistSelection = () => {
+    sessionStorage.setItem(deckKey, JSON.stringify(deck));
+    sessionStorage.setItem(lastKey, String(currentMovie.id));
+  };
 
-  open?.addEventListener("click", () => {
-    section.hidden = false;
-    sessionStorage.removeItem("dragon:recommendation-dismissed");
-    section.scrollIntoView({ behavior: "smooth", block: "center" });
-  });
+  render(currentMovie);
+  persistSelection();
 
   next?.addEventListener("click", () => {
-    currentIndex = (currentIndex + 1) % recommendations.length;
-    sessionStorage.setItem(storageKey, String(currentIndex));
-    render(recommendations[currentIndex]);
+    if (!deck.length) deck = buildDeck(currentMovie.id);
+    currentMovie = moviesById.get(deck.shift()) || currentMovie;
+    render(currentMovie);
+    persistSelection();
   });
 
   dismiss.addEventListener("click", () => {
@@ -67,7 +130,6 @@
 
 (() => {
   const discovery = document.querySelector("[data-media-discovery]");
-  const dialog = document.querySelector("[data-release-dialog]");
   if (!discovery) return;
 
   const form = discovery.querySelector("[data-discovery-form]");
@@ -77,7 +139,6 @@
   const searchStatus = discovery.querySelector("[data-discovery-status]");
   const results = discovery.querySelector("[data-discovery-results]");
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
-  const openButton = document.querySelector("[data-discovery-open]");
 
   const element = (tag, className = "", text = "") => {
     const node = document.createElement(tag);
@@ -251,10 +312,6 @@
       submitButton.removeAttribute("aria-busy");
     }
   });
-  openButton?.addEventListener("click", () => {
-    discovery.scrollIntoView({ behavior: "smooth", block: "start" });
-    window.setTimeout(() => queryInput.focus(), 200);
-  });
 })();
 
 (() => {
@@ -414,9 +471,10 @@
       return;
     }
     releaseList.replaceChildren();
-    if (loadButton) {
-      loadButton.disabled = true;
-      loadButton.setAttribute("aria-busy", "true");
+    const searchButton = mode === "season_pack" ? seasonPackButton : loadButton;
+    if (searchButton) {
+      searchButton.disabled = true;
+      searchButton.setAttribute("aria-busy", "true");
     }
     status.textContent = mode === "season_pack"
       ? "Searching Jackett for full-season packs, strongest seed/size matches first…"
@@ -451,9 +509,9 @@
     } catch (error) {
       status.textContent = error.message;
     } finally {
-      if (loadButton) {
-        loadButton.disabled = false;
-        loadButton.removeAttribute("aria-busy");
+      if (searchButton) {
+        searchButton.disabled = false;
+        searchButton.removeAttribute("aria-busy");
       }
     }
   };
@@ -535,16 +593,4 @@
   });
   seasonPackButton?.addEventListener("click", () => loadReleases("season_pack"));
   addButton?.addEventListener("click", addToLibrary);
-})();
-
-(() => {
-  const moreFilters = document.querySelector(".filter-more");
-  if (!moreFilters) return;
-  const summary = moreFilters.querySelector("summary");
-  moreFilters.addEventListener("keydown", (event) => {
-    if (event.key !== "Escape" || !moreFilters.open) return;
-    event.preventDefault();
-    moreFilters.open = false;
-    summary?.focus();
-  });
 })();

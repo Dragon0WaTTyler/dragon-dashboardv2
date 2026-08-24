@@ -126,6 +126,7 @@ class Settings:
     uqload_embed_url: str
     tmdb_api_key: str
     tmdb_read_access_token: str
+    jackett_enabled: bool
     jackett_url: str
     jackett_api_key: str
     jackett_min_seeders: int
@@ -142,6 +143,8 @@ class Settings:
     tv_epg_enabled: bool
     tv_epg_refresh_minutes: int
     tv_epg_urls: str
+    mytv_direct_favorites: bool
+    mytv_http_timeout: int
     notion_sync_enabled: bool
     notion_writeback_enabled: bool
     notion_token: str
@@ -524,6 +527,7 @@ class Settings:
             uqload_embed_url=uqload_embed_url,
             tmdb_api_key=tmdb_api_key,
             tmdb_read_access_token=tmdb_read_access_token,
+            jackett_enabled=feature("JACKETT_ENABLED", False),
             jackett_url=jackett_url,
             jackett_api_key=jackett_api_key,
             jackett_min_seeders=positive_integer("JACKETT_MIN_SEEDERS", 5, maximum=100000),
@@ -544,6 +548,8 @@ class Settings:
                 "TV_EPG_REFRESH_MINUTES", 360, maximum=1440
             ),
             tv_epg_urls=tv_epg_urls,
+            mytv_direct_favorites=feature("MYTV_DIRECT_FAVORITES", False),
+            mytv_http_timeout=positive_integer("MYTV_HTTP_TIMEOUT", 15, maximum=120),
             notion_sync_enabled=feature(
                 "NOTION_SYNC_ENABLED",
                 bool(
@@ -650,6 +656,7 @@ class Settings:
             "DRAGON_UQLOAD_EMBED_URL": self.uqload_embed_url,
             "DRAGON_TMDB_API_KEY": self.tmdb_api_key,
             "DRAGON_TMDB_READ_ACCESS_TOKEN": self.tmdb_read_access_token,
+            "DRAGON_JACKETT_ENABLED": self.jackett_enabled,
             "DRAGON_JACKETT_URL": self.jackett_url,
             "DRAGON_JACKETT_API_KEY": self.jackett_api_key,
             "DRAGON_JACKETT_MIN_SEEDERS": self.jackett_min_seeders,
@@ -666,6 +673,8 @@ class Settings:
             "DRAGON_TV_EPG_ENABLED": self.tv_epg_enabled,
             "DRAGON_TV_EPG_REFRESH_MINUTES": self.tv_epg_refresh_minutes,
             "DRAGON_TV_EPG_URLS": self.tv_epg_urls,
+            "DRAGON_MYTV_DIRECT_FAVORITES": self.mytv_direct_favorites,
+            "MYTV_HTTP_TIMEOUT": self.mytv_http_timeout,
             "DRAGON_NOTION_SYNC_ENABLED": self.notion_sync_enabled,
             "DRAGON_NOTION_WRITEBACK_ENABLED": self.notion_writeback_enabled,
             "DRAGON_NOTION_TOKEN": self.notion_token,

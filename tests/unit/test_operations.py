@@ -64,7 +64,7 @@ def test_youtube_operation_uses_explicit_injected_playlist_client(app):
         assert db.session.scalar(db.select(YouTubeVideo)).source == "watch_later"
 
 
-def test_pockettube_auto_sync_waits_two_hours_between_runs(app):
+def test_pockettube_auto_sync_waits_one_day_between_runs(app):
     with app.app_context():
         db.session.add(
             SnapshotRecord(
@@ -85,7 +85,7 @@ def test_pockettube_auto_sync_waits_two_hours_between_runs(app):
                 SnapshotRecord.domain == "youtube_pockettube"
             )
         )
-        snapshot.last_success_at = utc_now() - timedelta(hours=2, minutes=1)
+        snapshot.last_success_at = utc_now() - timedelta(days=1, minutes=1)
         db.session.commit()
 
         assert _pockettube_sync_due() is True

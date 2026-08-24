@@ -5,7 +5,7 @@ Revises: b4e8d2a6c9f1
 Create Date: 2026-08-15 03:30:00
 """
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from alembic import op
@@ -66,7 +66,7 @@ def upgrade():
                 sa.Column("position", sa.Integer(), nullable=False, server_default="0")
             )
 
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     sources = sa.table(
         "tv_sources",
         sa.column("id", sa.Integer),

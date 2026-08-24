@@ -311,30 +311,22 @@ def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app)
     page.set_viewport_size({"width": 1440, "height": 900})
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies")
-    option_colors = page.locator("select[name='status'] option").first.evaluate(
-        """element => ({
-          background: getComputedStyle(element).backgroundColor,
-          color: getComputedStyle(element).color,
-        })"""
-    )
-    assert option_colors == {
-        "background": "rgb(23, 19, 19)",
-        "color": "rgb(244, 240, 233)",
-    }
-    page.locator(".filter-more summary").click()
-    layout = page.evaluate(
-        """() => {
-          const panel = document.querySelector('.filter-more__panel');
-          const results = document.querySelector('.movie-grid');
-          return {
-            position: getComputedStyle(panel).position,
-            panelBottom: panel.getBoundingClientRect().bottom,
-            resultsTop: results.getBoundingClientRect().top,
-          };
-        }"""
-    )
-    assert layout["position"] == "static"
-    assert layout["panelBottom"] <= layout["resultsTop"]
+    discovery = page.locator("#movie-discovery")
+    assert discovery.is_visible()
+    discovery_box = discovery.bounding_box()
+    filters_box = page.locator(".filter-bar").bounding_box()
+    assert discovery_box and filters_box
+    assert abs(discovery_box["x"] - filters_box["x"]) <= 1
+    assert abs(discovery_box["width"] - filters_box["width"]) <= 1
+    filters = page.get_by_role("button", name="More filters")
+    filters.click()
+    filter_dialog = page.locator("#movie-filter-dialog")
+    filter_dialog.wait_for(state="visible")
+    assert filter_dialog.evaluate("dialog => dialog.open") is True
+    assert filter_dialog.get_by_role("button", name="Apply filters").is_visible()
+    page.keyboard.press("Escape")
+    filter_dialog.wait_for(state="hidden")
+    assert page.evaluate("() => document.activeElement?.textContent?.includes('More filters')")
 
     page.get_by_role("button", name="What should I watch?").click()
     recommendation = page.locator("[data-recommendation-card]")
@@ -342,6 +334,11 @@ def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app)
     first_title = recommendation.locator("h2").inner_text()
     page.get_by_role("button", name="Try another").click()
     assert recommendation.locator("h2").inner_text() != first_title
+    second_title = recommendation.locator("h2").inner_text()
+
+    page.reload()
+
+    assert recommendation.locator("h2").inner_text() != second_title
 
 
 def test_movie_recommendation_try_another_switches_the_pick(page, live_app, app):
@@ -380,10 +377,16 @@ def test_movie_recommendation_try_another_switches_the_pick(page, live_app, app)
     page.goto(f"{live_app}/movies")
     recommendation = page.locator("[data-recommendation-card]")
     first_title = recommendation.locator("h2").inner_text()
+    first_overview = recommendation.locator("[data-recommendation-overview]").inner_text()
+    assert first_overview in {
+        "A complete recommendation candidate.",
+        "Another complete recommendation candidate.",
+    }
 
     page.get_by_role("button", name="Try another").click()
 
     assert recommendation.locator("h2").inner_text() != first_title
+    assert recommendation.locator("[data-recommendation-overview]").inner_text() != first_overview
 
 
 def test_movie_discovery_opens_series_detail_and_seeded_release(page, live_app, app):

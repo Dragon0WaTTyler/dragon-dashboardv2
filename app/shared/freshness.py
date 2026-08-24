@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from app.extensions import db
@@ -20,8 +20,8 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def serialize_freshness(record: SnapshotRecord | None, domain: str) -> dict[str, Any]:
@@ -42,7 +42,7 @@ def serialize_freshness(record: SnapshotRecord | None, domain: str) -> dict[str,
     last_success_at = _as_utc(record.last_success_at)
     age_seconds = None
     if last_success_at:
-        age_seconds = max(0, int((datetime.now(UTC) - last_success_at).total_seconds()))
+        age_seconds = max(0, int((datetime.now(timezone.utc) - last_success_at).total_seconds()))
     return {
         "domain": record.domain,
         "state": record.state,

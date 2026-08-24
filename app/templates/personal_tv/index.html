@@ -1,0 +1,66 @@
+{% extends "layouts/app.html" %}
+
+{% block title %}My TV · Dragon{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/personal-tv.css') }}">
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/personal-tv.js') }}" defer></script>
+{% endblock %}
+
+{% block content %}
+<div class="personal-tv" data-personal-tv>
+  <header class="personal-tv__header">
+    <div>
+      <span class="eyebrow">Personal programming</span>
+      <h1>My TV</h1>
+      <p>Tell Dragon how much time you have. It builds one continuous session from your YouTube library.</p>
+    </div>
+    <div class="personal-tv__promise"><span aria-hidden="true">◉</span><strong>Less choosing.<br>More watching.</strong></div>
+  </header>
+
+  <section class="tv-station" data-tv-setup aria-labelledby="program-title">
+    <div class="tv-station__rail" aria-hidden="true"><span></span><span></span><span></span></div>
+    <div class="tv-station__body">
+      <div class="tv-station__heading"><span class="eyebrow">Build a session</span><h2 id="program-title">What do you want on My TV?</h2></div>
+      <fieldset class="tv-fieldset"><legend>Available time</legend><div class="duration-picker" role="group" aria-label="Available time"><button type="button" data-duration="30">30m</button><button type="button" data-duration="60">60m</button><button type="button" data-duration="90">90m</button><button type="button" data-duration="120">120m</button></div></fieldset>
+      <fieldset class="tv-fieldset"><legend>My TV collections <small>Choose a collection, or leave empty for a balanced session. Favo boosts your trusted channels without replacing their main themes.</small></legend><div class="group-picker" data-group-picker aria-live="polite"><span class="group-picker__loading">Loading your YouTube collections…</span></div></fieldset>
+      <label class="tv-intent"><span>Or describe the programme</span><input type="text" data-intent placeholder="90 minutes of calm science, no debates or Shorts"><button class="button button--quiet" type="button" data-apply-intent>Apply</button></label>
+      <div class="tv-options">
+        <label class="tv-check"><input type="checkbox" data-avoid-watched checked><span><strong>Avoid watched</strong><small>Keep completed videos out of this session</small></span></label>
+        <label class="tv-check"><input type="checkbox" data-no-shorts checked><span><strong>No Shorts</strong><small>Keep the session intentionally long-form</small></span></label>
+        <label class="tv-check"><input type="checkbox" data-allow-live><span><strong>Include live TV</strong><small>Only programmes available through your IPTV favourites</small></span></label>
+      </div>
+      <div class="tv-station__actions"><button class="button button--primary personal-tv__start" type="button" data-start-session>Start My TV <span aria-hidden="true">→</span></button><p data-program-status role="status" aria-live="polite">YouTube is the first provider. IPTV stays independent.</p></div>
+    </div>
+  </section>
+
+  <section class="tv-preferences" aria-labelledby="tv-preferences-title">
+    <div><span class="eyebrow">Your controls</span><h2 id="tv-preferences-title">Tune My TV</h2><p>Explicit choices stay editable. Dragon never turns a quick skip into a permanent rule on its own.</p></div>
+    <div class="tv-preferences__grid">
+      <label>Topics<input type="text" data-preference-topics placeholder="Science, History"></label>
+      <label>Formats<input type="text" data-preference-formats placeholder="documentary, explainer"></label>
+      <label>Languages<input type="text" data-preference-languages placeholder="en, ar"></label>
+      <label>Discovery<select data-discovery-level><option value="low">Low</option><option value="balanced">Balanced</option><option value="high">High</option></select></label>
+    </div>
+    <div class="tv-preferences__actions"><button class="button button--secondary" type="button" data-save-preferences>Save My TV preferences</button><button class="button button--quiet" type="button" data-prepare-dayparts>Prepare today</button><p data-profile-summary aria-live="polite"></p></div>
+  </section>
+
+  <section class="tv-session" data-tv-session hidden aria-labelledby="session-title">
+    <div class="tv-session__topline"><span class="eyebrow">My TV · active session</span><span data-session-remaining></span></div>
+    <div class="tv-player-shell">
+      <div class="tv-player" data-player-host aria-label="My TV player"><div class="tv-player__loading">Preparing your programme…</div></div>
+      <div class="tv-now">
+        <div><span class="eyebrow">Now</span><h2 id="session-title" data-now-title>Loading…</h2><p data-now-creator></p><p class="tv-now__reason" data-now-reason></p></div>
+        <div class="tv-now__actions"><button class="button button--secondary" type="button" data-pause-session>Pause</button><button class="button button--quiet" type="button" data-regenerate-session>Refresh rest</button><button class="button button--quiet" type="button" data-skip-session>Skip</button><button class="button button--quiet" type="button" data-stop-session>Stop</button></div>
+      </div>
+    </div>
+    <div class="tv-up-next"><div><span class="eyebrow">Up next</span><p data-lineup-summary></p></div><ol data-session-lineup></ol></div>
+    <div class="tv-feedback" aria-label="Programme feedback"><span>Help tune this session</span><button type="button" data-feedback="more_like_this">More like this</button><button type="button" data-feedback="less_like_this">Less like this</button><button type="button" data-feedback="hide_channel">Hide channel</button></div>
+  </section>
+
+  <section class="tv-prepared" data-prepared-programs hidden aria-labelledby="prepared-title"><span class="eyebrow">Later on My TV</span><h2 id="prepared-title">Prepared programmes</h2><ol data-prepared-list></ol></section>
+</div>
+{% endblock %}

@@ -138,11 +138,12 @@ def test_recommendation_pool_uses_profile_and_excludes_watched(app):
 
         result = MovieService.recommendation_pool()
 
-        assert [item["id"] for item in result["items"]] == [candidate.id]
-        assert result["items"][0]["tier"] == 0
-        assert result["items"][0]["recommendation_explanation"]["confidence"] == "high"
-        assert "Same director" in result["items"][0]["recommendation_reason"]
-        assert result["summary"]["excluded_watched"] == 2
+    assert [item["id"] for item in result["items"]] == [candidate.id]
+    assert result["items"][0]["tier"] == 0
+    assert result["items"][0]["overview"] == "Two stories of love and chance in Hong Kong."
+    assert result["items"][0]["recommendation_explanation"]["confidence"] == "high"
+    assert "Same director" in result["items"][0]["recommendation_reason"]
+    assert result["summary"]["excluded_watched"] == 2
 
 
 def test_tv_season_workspace_handles_episodes_without_progress(app):

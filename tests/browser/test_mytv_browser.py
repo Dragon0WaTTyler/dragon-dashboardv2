@@ -163,13 +163,13 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
         };
         """
     )
-    page.goto(f"{live_app}/my-tv")
-    assert page.get_by_role("heading", name="My TV", level=1).count() == 1
+    page.goto(f"{live_app}/iptv")
+    assert page.get_by_role("heading", name="IPTV", level=1).count() == 1
     page.get_by_text("Channel 001", exact=True).wait_for()
     current_mobile_item = page.locator(
         "nav[aria-label='Mobile navigation'] a[aria-current='page']"
     )
-    assert current_mobile_item.inner_text().endswith("My TV")
+    assert current_mobile_item.inner_text().endswith("IPTV")
     metrics = page.evaluate(
         """() => ({
           scrollWidth: document.documentElement.scrollWidth,
@@ -198,7 +198,7 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
             body='{"message":"Browser playback failure"}',
         )
 
-    page.route("**/my-tv/api/channels/*/playback", reject_playback)
+    page.route("**/iptv/api/channels/*/playback", reject_playback)
     page.get_by_role("button", name="Play Channel 001").click()
     expect(page.locator("#playerLoadingText")).to_have_text(
         "Browser playback failure", timeout=5000
@@ -211,7 +211,7 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     expect(page.get_by_role("button", name="Next channel")).to_be_visible()
     expect(page.get_by_role("button", name="Previous channel")).to_be_enabled()
     expect(page.get_by_role("button", name="Next channel")).to_be_enabled()
-    page.unroute("**/my-tv/api/channels/*/playback")
+    page.unroute("**/iptv/api/channels/*/playback")
     page.evaluate(
         """() => {
           document.querySelector('[data-channel-view="favorites"]').click();
@@ -232,6 +232,25 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     expect(page.locator("#channelViewTitle")).to_have_text("Ready to watch")
     expect(page.locator("#channelViewCount")).to_have_text("121 channels")
     expect(page.get_by_text("Archived Channel", exact=True)).to_have_count(0)
+
+    def reject_channel_list(route):
+        route.fulfill(
+            status=503,
+            content_type="application/json",
+            body='{"message":"Channel list temporarily unavailable"}',
+        )
+
+    page.route("**/iptv/api/channels?*", reject_channel_list)
+    page.get_by_role("button", name="Disabled", exact=True).click()
+    expect(page.locator("#channelLoadStatus")).to_have_text(
+        "Could not load channels. Retry when you are ready."
+    )
+    expect(page.get_by_role("button", name="Retry loading channels")).to_be_visible()
+    page.unroute("**/iptv/api/channels?*", reject_channel_list)
+    page.get_by_role("button", name="Retry loading channels").click()
+    expect(page.locator("#channelViewTitle")).to_have_text("Disabled channels")
+    expect(page.get_by_text("Archived Channel", exact=True)).to_be_visible()
+
     page.get_by_role("button", name="All", exact=True).click()
     expect(page.get_by_text("Archived Channel", exact=True)).to_be_visible()
     expect(page.locator("#channelViewTitle")).to_have_text("All channels")
@@ -284,11 +303,11 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     expect(page.locator("#playerOverlayTitle")).to_have_attribute("data-channel-name", "News One")
     expect(page.get_by_role("button", name="Previous channel")).to_be_visible()
     expect(page.get_by_role("button", name="Next channel")).to_be_visible()
-    assert page.locator("#togglePlayback").is_hidden()
+    expect(page.get_by_role("button", name="Pause live channel")).to_be_visible()
     expect(page.locator("#playerConnectionState")).to_have_text("Live now")
-    page.locator("#videoPlayer").evaluate("element => element.click()")
+    page.get_by_role("button", name="Pause live channel").click()
     expect(page.locator("#playerConnectionState")).to_have_text("Live channel paused")
-    page.locator("#videoPlayer").evaluate("element => element.click()")
+    page.get_by_role("button", name="Play live channel").click()
     expect(page.locator("#playerConnectionState")).to_have_text("Live now")
     page.locator("#playerFrame").evaluate(
         "element => element.dispatchEvent(new WheelEvent('wheel', "
@@ -364,6 +383,7 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     page.evaluate('document.documentElement.dir = "ltr"')
 
     page.get_by_role("tab", name="Manage", exact=True).click()
+    assert page.locator("#videoPlayer").evaluate("element => element.paused") is False
     assert page.get_by_role("heading", name="Keep channels current", level=2).is_visible()
     assert page.get_by_role("heading", name="Channel exceptions", level=2).is_visible()
     assert page.get_by_role("button", name="Check availability").is_visible()
@@ -427,4 +447,4 @@ def test_mytv_is_integrated_responsive_and_manageable(page, live_app, app):
     expect(page.locator("#nowPlayingTitle")).to_have_text("Channel 002")
     page.wait_for_timeout(450)
     expect(page.locator("#nowPlayingTitle")).to_have_text("Channel 002")
-    assert page.locator("#videoPlayer").get_attribute("data-test-src") == f"/my-tv/play/{second_id}"
+    assert page.locator("#videoPlayer").get_attribute("data-test-src") == f"/iptv/play/{second_id}"

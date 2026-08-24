@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import not_
@@ -57,8 +57,8 @@ def _utc_json(value: datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=UTC)
-    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def progress_dict(progress: MovieProgress | None) -> dict[str, Any] | None:
@@ -818,10 +818,10 @@ class MovieService:
         if progress.id and client_updated_at and progress.client_updated_at:
             stored = progress.client_updated_at
             if stored.tzinfo is None:
-                stored = stored.replace(tzinfo=UTC)
+                stored = stored.replace(tzinfo=timezone.utc)
             candidate = client_updated_at
             if candidate.tzinfo is None:
-                candidate = candidate.replace(tzinfo=UTC)
+                candidate = candidate.replace(tzinfo=timezone.utc)
             if candidate < stored:
                 raise ProgressConflictError(progress_dict(progress) or {})
         progress.current_seconds = current_seconds
@@ -986,6 +986,7 @@ class MovieService:
                     **movie_item(movie),
                     "category": movie.category,
                     "source": movie.source,
+                    "overview": movie.overview,
                     "genres": _entry_names(movie.genres),
                     "directors": _entry_names(movie.directors),
                     "pool": "primary",

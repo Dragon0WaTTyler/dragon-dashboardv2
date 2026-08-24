@@ -18,6 +18,7 @@ from app.mytv.models import (
 from app.mytv.services import (
     ChannelEntry,
     GithubTVSync,
+    migrate_epg_preferences,
     persist_theme_preference,
     prune_irrelevant_playlist_cache,
     purge_unavailable_playlists,
@@ -81,14 +82,14 @@ def seed_tv() -> tuple[int, int, int]:
 
 
 def csrf_header(client) -> dict[str, str]:
-    page = client.get("/my-tv")
+    page = client.get("/iptv")
     match = CSRF_META.search(page.get_data(as_text=True))
     assert match is not None
     return {"X-CSRFToken": match.group(1)}
 
 
 def test_mytv_requires_login(client):
-    response = client.get("/my-tv")
+    response = client.get("/iptv")
     assert response.status_code == 302
     assert "/auth/login" in response.headers["Location"]
 
@@ -98,12 +99,15 @@ def test_mytv_renders_inside_dragon_and_lists_enabled_channels(
 ):
     with app.app_context():
         seed_tv()
-    page = authenticated_client.get("/my-tv")
+    page = authenticated_client.get("/iptv")
     assert page.status_code == 200
     html = page.get_data(as_text=True)
     assert "My TV" in html
+    assert "https://cdn.jsdelivr.net" in page.headers["Content-Security-Policy"]
+    assert "media-src 'self' blob:" in page.headers["Content-Security-Policy"]
+    assert "worker-src 'self' blob:" in page.headers["Content-Security-Policy"]
     assert 'active_module="mytv"' not in html
-    assert 'href="/my-tv" aria-current="page"' in html
+    assert 'href="/iptv" aria-current="page"' in html
     assert 'id="groupFilter"' not in html
     assert 'class="field tv-visibility-filter"' in html
     assert 'id="channelSearch"' in html
@@ -117,11 +121,12 @@ def test_mytv_renders_inside_dragon_and_lists_enabled_channels(
     assert 'data-channel-view="favorites"' in html
     assert 'id="refreshEpg"' in html
     assert 'id="loadMoreChannels"' in html
+    assert 'hls.js@1.6.16' in html
 
-    bootstrap = authenticated_client.get("/my-tv/api/bootstrap").get_json()
+    bootstrap = authenticated_client.get("/iptv/api/bootstrap").get_json()
     assert bootstrap["stats"]["total_channels"] == 2
     assert bootstrap["stats"]["enabled_channels"] == 1
-    channels = authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()
+    channels = authenticated_client.get("/iptv/api/channels?state=enabled").get_json()
     assert [item["name"] for item in channels["channels"]] == ["News One"]
 
 
@@ -149,7 +154,7 @@ def test_primary_tv_catalogue_can_be_reconfigured_from_settings(authenticated_cl
         assert source.locator == "example-owner/example-tv"
         assert source.branch == "playlists"
         assert source.refresh_interval_minutes == 60
-    lineup = authenticated_client.get("/my-tv").get_data(as_text=True)
+    lineup = authenticated_client.get("/iptv").get_data(as_text=True)
     assert "https://github.com/example-owner/example-tv" in lineup
 
 
@@ -158,28 +163,28 @@ def test_mytv_group_and_channel_overrides(authenticated_client, app):
         _, group_id, channel_id = seed_tv()
     headers = csrf_header(authenticated_client)
     response = authenticated_client.patch(
-        f"/my-tv/api/groups/{group_id}", json={"enabled": False}, headers=headers
+        f"/iptv/api/groups/{group_id}", json={"enabled": False}, headers=headers
     )
     assert response.status_code == 200
     with app.app_context():
         durable_theme = db.session.get(TVThemePreference, "news")
         assert durable_theme.enabled is False
-    assert authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()[
+    assert authenticated_client.get("/iptv/api/channels?state=enabled").get_json()[
         "pagination"
     ]["total"] == 0
 
     response = authenticated_client.patch(
-        f"/my-tv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
+        f"/iptv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
     )
     assert response.status_code == 200
-    channels = authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()
+    channels = authenticated_client.get("/iptv/api/channels?state=enabled").get_json()
     assert [item["name"] for item in channels["channels"]] == ["News Two"]
 
     response = authenticated_client.patch(
-        f"/my-tv/api/channels/{channel_id}", json={"enabled": None}, headers=headers
+        f"/iptv/api/channels/{channel_id}", json={"enabled": None}, headers=headers
     )
     assert response.status_code == 200
-    all_channels = authenticated_client.get("/my-tv/api/channels?state=all").get_json()
+    all_channels = authenticated_client.get("/iptv/api/channels?state=all").get_json()
     restored = next(item for item in all_channels["channels"] if item["id"] == channel_id)
     assert restored["enabled_override"] is None
     with app.app_context():
@@ -192,7 +197,7 @@ def test_mytv_bulk_change_can_be_undone(authenticated_client, app):
         _, group_id, channel_id = seed_tv()
     headers = csrf_header(authenticated_client)
     authenticated_client.patch(
-        f"/my-tv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
+        f"/iptv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
     )
     with app.app_context():
         channel = db.session.get(TVChannel, channel_id)
@@ -200,7 +205,7 @@ def test_mytv_bulk_change_can_be_undone(authenticated_client, app):
         db.session.commit()
 
     changed = authenticated_client.post(
-        f"/my-tv/api/groups/{group_id}/channels",
+        f"/iptv/api/groups/{group_id}/channels",
         json={"action": "disable"},
         headers=headers,
     )
@@ -208,17 +213,17 @@ def test_mytv_bulk_change_can_be_undone(authenticated_client, app):
     payload = changed.get_json()
     assert payload["affected_channels"] == 2
     assert payload["undo_seconds"] == 20
-    assert authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()[
+    assert authenticated_client.get("/iptv/api/channels?state=enabled").get_json()[
         "pagination"
     ]["total"] == 0
 
     restored = authenticated_client.post(
-        f"/my-tv/api/groups/{group_id}/channels/undo",
+        f"/iptv/api/groups/{group_id}/channels/undo",
         json={"token": payload["undo_token"]},
         headers=headers,
     )
     assert restored.status_code == 200
-    enabled = authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()
+    enabled = authenticated_client.get("/iptv/api/channels?state=enabled").get_json()
     assert {item["name"] for item in enabled["channels"]} == {"News One", "News Two"}
     with app.app_context():
         channel = db.session.get(TVChannel, channel_id)
@@ -228,7 +233,7 @@ def test_mytv_bulk_change_can_be_undone(authenticated_client, app):
         )
     assert (
         authenticated_client.post(
-            f"/my-tv/api/groups/{group_id}/channels/undo",
+            f"/iptv/api/groups/{group_id}/channels/undo",
             json={"token": payload["undo_token"]},
             headers=headers,
         ).status_code
@@ -253,9 +258,9 @@ def test_mytv_confirmed_offline_channels_are_hidden(authenticated_client, app):
         db.session.commit()
         query_cache.invalidate()
 
-    channels = authenticated_client.get("/my-tv/api/channels?state=enabled").get_json()
+    channels = authenticated_client.get("/iptv/api/channels?state=enabled").get_json()
     assert channels["pagination"]["total"] == 0
-    bootstrap = authenticated_client.get("/my-tv/api/bootstrap").get_json()
+    bootstrap = authenticated_client.get("/iptv/api/bootstrap").get_json()
     assert bootstrap["stats"]["enabled_channels"] == 0
     assert bootstrap["health"]["known_offline"] == 1
 
@@ -271,14 +276,14 @@ def test_mytv_health_check_route_is_protected_and_scoped(
         lambda _app, theme_id=None: calls.append(theme_id) or True,
     )
     response = authenticated_client.post(
-        "/my-tv/api/health",
+        "/iptv/api/health",
         json={"theme_id": theme_id},
         headers=csrf_header(authenticated_client),
     )
     assert response.status_code == 202
     assert calls == [theme_id]
     assert authenticated_client.post(
-        "/my-tv/api/health", json={"theme_id": theme_id}
+        "/iptv/api/health", json={"theme_id": theme_id}
     ).status_code == 400
 
 
@@ -290,74 +295,74 @@ def test_mytv_epg_route_is_protected_and_reports_status(
         "app.mytv.routes.epg_coordinator.start",
         lambda _app, force=False, tvg_ids=None: calls.append((force, tvg_ids)) or True,
     )
-    status = authenticated_client.get("/my-tv/api/epg")
+    status = authenticated_client.get("/iptv/api/epg")
     assert status.status_code == 200
     assert "state" in status.get_json()
     started = authenticated_client.post(
-        "/my-tv/api/epg", json={}, headers=csrf_header(authenticated_client)
+        "/iptv/api/epg", json={}, headers=csrf_header(authenticated_client)
     )
     assert started.status_code == 202
     assert calls == [(True, None)]
-    assert authenticated_client.post("/my-tv/api/epg", json={}).status_code == 400
+    assert authenticated_client.post("/iptv/api/epg", json={}).status_code == 400
 
 
 def test_mytv_active_selector_hides_disabled_smart_theme(authenticated_client, app):
     with app.app_context():
         _, theme_id, _ = seed_tv()
-    active = authenticated_client.get("/my-tv/api/groups?active_only=1").get_json()
+    active = authenticated_client.get("/iptv/api/groups?active_only=1").get_json()
     assert [item["name"] for item in active["groups"]] == ["News"]
     assert [
         item["name"]
         for item in authenticated_client.get(
-            "/my-tv/api/groups?visibility=on"
+            "/iptv/api/groups?visibility=on"
         ).get_json()["groups"]
     ] == ["News"]
     assert authenticated_client.get(
-        "/my-tv/api/groups?visibility=off"
+        "/iptv/api/groups?visibility=off"
     ).get_json()["groups"] == []
 
     headers = csrf_header(authenticated_client)
     authenticated_client.patch(
-        f"/my-tv/api/groups/{theme_id}", json={"enabled": False}, headers=headers
+        f"/iptv/api/groups/{theme_id}", json={"enabled": False}, headers=headers
     )
-    hidden = authenticated_client.get("/my-tv/api/groups?active_only=1").get_json()
+    hidden = authenticated_client.get("/iptv/api/groups?active_only=1").get_json()
     assert hidden["groups"] == []
     assert authenticated_client.get(
-        "/my-tv/api/channels?state=all&active_only=true"
+        "/iptv/api/channels?state=all&active_only=true"
     ).get_json()["channels"] == []
     assert len(
-        authenticated_client.get("/my-tv/api/channels?state=all").get_json()[
+        authenticated_client.get("/iptv/api/channels?state=all").get_json()[
             "channels"
         ]
     ) == 2
     assert authenticated_client.get(
-        "/my-tv/api/groups?visibility=on"
+        "/iptv/api/groups?visibility=on"
     ).get_json()["groups"] == []
     assert [
         item["name"]
         for item in authenticated_client.get(
-            "/my-tv/api/groups?visibility=off"
+            "/iptv/api/groups?visibility=off"
         ).get_json()["groups"]
     ] == ["News"]
     assert authenticated_client.get(
-        "/my-tv/api/groups?visibility=unknown"
+        "/iptv/api/groups?visibility=unknown"
     ).status_code == 400
 
 
 def test_mytv_query_cache_hits_and_invalidates(authenticated_client, app):
     with app.app_context():
         _, theme_id, _ = seed_tv()
-    first = authenticated_client.get("/my-tv/api/bootstrap")
-    second = authenticated_client.get("/my-tv/api/bootstrap")
+    first = authenticated_client.get("/iptv/api/bootstrap")
+    second = authenticated_client.get("/iptv/api/bootstrap")
     assert first.headers["X-MyTV-Cache"] == "MISS"
     assert second.headers["X-MyTV-Cache"] == "HIT"
 
     authenticated_client.patch(
-        f"/my-tv/api/groups/{theme_id}",
+        f"/iptv/api/groups/{theme_id}",
         json={"enabled": False},
         headers=csrf_header(authenticated_client),
     )
-    refreshed = authenticated_client.get("/my-tv/api/bootstrap")
+    refreshed = authenticated_client.get("/iptv/api/bootstrap")
     assert refreshed.headers["X-MyTV-Cache"] == "MISS"
 
 
@@ -425,10 +430,10 @@ def test_mytv_favorite_and_override_follow_replacement_file(authenticated_client
         _, _, channel_id = seed_tv()
     headers = csrf_header(authenticated_client)
     authenticated_client.patch(
-        f"/my-tv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
+        f"/iptv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
     )
     favorite = authenticated_client.patch(
-        f"/my-tv/api/channels/{channel_id}/favorite",
+        f"/iptv/api/channels/{channel_id}/favorite",
         json={"favorite": True},
         headers=headers,
     )
@@ -453,10 +458,39 @@ def test_mytv_favorite_and_override_follow_replacement_file(authenticated_client
         assert preference.enabled_override is True
 
     favorites = authenticated_client.get(
-        "/my-tv/api/channels?state=favorites"
+        "/iptv/api/channels?state=favorites"
     ).get_json()
     assert favorites["pagination"]["total"] == 1
     assert favorites["channels"][0]["favorite"] is True
+
+
+def test_mytv_favorite_stays_playable_when_its_bouquet_is_disabled(
+    authenticated_client, app
+):
+    with app.app_context():
+        _, theme_id, _ = seed_tv()
+        channel = db.session.scalar(select(TVChannel).where(TVChannel.name == "News One"))
+        assert channel is not None
+        channel_id = channel.id
+
+    headers = csrf_header(authenticated_client)
+    disabled = authenticated_client.patch(
+        f"/iptv/api/groups/{theme_id}", json={"enabled": False}, headers=headers
+    )
+    assert disabled.status_code == 200
+    favorite = authenticated_client.patch(
+        f"/iptv/api/channels/{channel_id}/favorite",
+        json={"favorite": True},
+        headers=headers,
+    )
+    assert favorite.status_code == 200
+
+    favorites = authenticated_client.get("/iptv/api/channels?state=favorites").get_json()
+    assert favorites["channels"][0]["enabled"] is True
+    with app.app_context():
+        channel = db.session.get(TVChannel, channel_id)
+        assert channel.enabled_override is True
+        assert db.session.get(TVChannelPreference, channel.preference_key).enabled_override is True
 
 
 def test_mytv_import_repairs_epg_metadata_and_preserves_existing_favorite(app):
@@ -484,6 +518,39 @@ def test_mytv_import_repairs_epg_metadata_and_preserves_existing_favorite(app):
         assert imported.tvg_id == "Al.Jazeera.HD.ae"
         assert preference.favorite is True
         assert preference.tvg_id == "Al.Jazeera.HD.ae"
+
+
+def test_mytv_epg_repair_keeps_existing_favorite_visible(
+    authenticated_client, app
+):
+    with app.app_context():
+        seed_tv()
+        channel = db.session.scalar(select(TVChannel).where(TVChannel.name == "News One"))
+        assert channel is not None
+        old_key = ChannelEntry(
+            "AR: AL JAZEERA DOCUMENTARY", "news", "", tvg_id="AlJazeeraDocumentary.qa@SD"
+        ).preference_key("news")
+        channel.name = "AR: AL JAZEERA DOCUMENTARY"
+        channel.tvg_id = "AlJazeeraDocumentary.qa@SD"
+        channel.preference_key = old_key
+        db.session.add(
+            TVChannelPreference(
+                preference_key=old_key,
+                theme_key="news",
+                name="AR: AL JAZEERA DOCUMENTARY",
+                tvg_id="AlJazeeraDocumentary.qa@SD",
+                favorite=True,
+            )
+        )
+        db.session.commit()
+
+        assert migrate_epg_preferences() == 1
+        db.session.commit()
+        GithubTVSync.refresh_representatives()
+
+        favorites = authenticated_client.get("/iptv/api/channels?state=favorites").get_json()
+        assert favorites["pagination"]["total"] == 1
+        assert favorites["channels"][0]["tvg_id"] == "Al.Jazeera.Documentary.be"
 
 
 class FakeCatalogResponse:
@@ -700,12 +767,12 @@ def test_mytv_playback_url_privacy(authenticated_client, app):
         _, _, channel_id = seed_tv()
     headers = csrf_header(authenticated_client)
     authenticated_client.patch(
-        f"/my-tv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
+        f"/iptv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
     )
-    playback = authenticated_client.get(f"/my-tv/api/channels/{channel_id}/playback")
+    playback = authenticated_client.get(f"/iptv/api/channels/{channel_id}/playback")
     assert playback.status_code == 200
     payload = playback.get_json()
-    assert payload["url"] == f"/my-tv/play/{channel_id}"
+    assert payload["url"] == f"/iptv/play/{channel_id}"
     assert payload["startup_timeout_seconds"] >= 20
     assert payload["capabilities"] == {
         "live": True,
@@ -715,6 +782,133 @@ def test_mytv_playback_url_privacy(authenticated_client, app):
         "subtitle_selection": False,
     }
     assert "stream.example" not in playback.get_data(as_text=True)
+
+
+def test_mytv_direct_favorite_playback_uses_a_private_redirect(authenticated_client, app):
+    with app.app_context():
+        _, _, channel_id = seed_tv()
+    app.config["DRAGON_MYTV_DIRECT_FAVORITES"] = True
+    headers = csrf_header(authenticated_client)
+    authenticated_client.patch(
+        f"/iptv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
+    )
+    authenticated_client.patch(
+        f"/iptv/api/channels/{channel_id}/favorite",
+        json={"favorite": True},
+        headers=headers,
+    )
+
+    playback = authenticated_client.get(f"/iptv/api/channels/{channel_id}/playback")
+    assert playback.status_code == 200
+    payload = playback.get_json()
+    assert payload["url"] == f"/iptv/direct/{channel_id}"
+    assert payload["delivery"] == "direct"
+    assert "stream.example" not in playback.get_data(as_text=True)
+
+    redirect_response = authenticated_client.get(payload["url"], follow_redirects=False)
+    assert redirect_response.status_code == 302
+    assert redirect_response.headers["Location"].startswith("https://stream.example/")
+
+
+def test_mytv_direct_playback_rejects_non_favorites(authenticated_client, app):
+    with app.app_context():
+        _, _, channel_id = seed_tv()
+    app.config["DRAGON_MYTV_DIRECT_FAVORITES"] = True
+    headers = csrf_header(authenticated_client)
+    authenticated_client.patch(
+        f"/iptv/api/channels/{channel_id}", json={"enabled": True}, headers=headers
+    )
+
+    response = authenticated_client.get(f"/iptv/direct/{channel_id}")
+    assert response.status_code == 403
+
+
+def test_mytv_hls_playback_uses_an_adaptive_manifest(authenticated_client, app, monkeypatch):
+    with app.app_context():
+        seed_tv()
+        channel = db.session.scalar(select(TVChannel).where(TVChannel.name == "News One"))
+        assert channel is not None
+        channel.stream_url = "https://stream.example/live.m3u8"
+        channel.stream_kind = "hls"
+        channel.enabled_override = True
+        db.session.commit()
+        channel_id = channel.id
+
+    playback = authenticated_client.get(f"/iptv/api/channels/{channel_id}/playback")
+    assert playback.status_code == 200
+    assert playback.get_json()["mode"] == "hls"
+
+    calls: list[tuple[str, bool]] = []
+
+    def adaptive_proxy(url: str, *, force_manifest: bool = False):
+        calls.append((url, force_manifest))
+        return Response("#EXTM3U\n", content_type="application/vnd.apple.mpegurl")
+
+    monkeypatch.setattr("app.mytv.routes.proxy_stream", adaptive_proxy)
+    response = authenticated_client.get(f"/iptv/play/{channel_id}")
+
+    assert response.status_code == 200
+    assert response.content_type.startswith("application/vnd.apple.mpegurl")
+    assert calls == [("https://stream.example/live.m3u8", True)]
+
+
+def test_mytv_late_hls_failure_can_switch_to_an_alternate_source(
+    authenticated_client, app, monkeypatch
+):
+    with app.app_context():
+        seed_tv()
+        primary = db.session.scalar(select(TVChannel).where(TVChannel.name == "News One"))
+        assert primary is not None
+        channel_id = primary.id
+        primary.stream_url = "https://primary.example/live.m3u8"
+        primary.stream_kind = "hls"
+        primary.enabled_override = True
+        alternate = TVChannel(
+            playlist=primary.playlist,
+            group=primary.group,
+            external_key="news-one-alternate",
+            preference_key=primary.preference_key,
+            name=primary.name,
+            stream_url="https://alternate.example/live.mp4",
+            stream_kind="file",
+            position=99,
+            last_seen_sync="seed",
+        )
+        db.session.add(alternate)
+        db.session.commit()
+
+    playback = authenticated_client.get(f"/iptv/api/channels/{channel_id}/playback")
+    assert playback.get_json()["mode"] == "hls"
+    assert playback.get_json()["source_count"] == 2
+
+    failover = authenticated_client.post(
+        f"/iptv/api/channels/{channel_id}/playback/failover",
+        headers=csrf_header(authenticated_client),
+    )
+    assert failover.status_code == 200
+    assert failover.get_json()["mode"] == "native"
+
+    calls: list[str] = []
+
+    def alternate_proxy(url: str):
+        calls.append(url)
+        return Response(b"fallback-video", content_type="video/mp4")
+
+    monkeypatch.setattr("app.mytv.routes.proxy_file", alternate_proxy)
+    response = authenticated_client.get(f"/iptv/play/{channel_id}")
+
+    assert response.status_code == 200
+    assert response.get_data() == b"fallback-video"
+    assert calls == ["https://alternate.example/live.mp4"]
+
+    # The working fallback survives an application restart, when the in-memory
+    # failure quarantine is empty again.
+    monkeypatch.setattr("app.mytv.routes.stream_failure_penalty", lambda _url: 0)
+    persisted = authenticated_client.get(
+        f"/iptv/api/channels/{channel_id}/playback"
+    )
+    assert persisted.status_code == 200
+    assert persisted.get_json()["mode"] == "native"
 
 
 def test_mytv_playback_uses_an_alternate_source_and_quarantines_failure(
@@ -758,7 +952,7 @@ def test_mytv_playback_uses_an_alternate_source_and_quarantines_failure(
 
     calls: list[str] = []
 
-    def failed_transcode(url: str):
+    def failed_hls_proxy(url: str, *, force_manifest: bool = False):
         calls.append(url)
         return Response("upstream unavailable", status=503, content_type="text/plain")
 
@@ -766,10 +960,10 @@ def test_mytv_playback_uses_an_alternate_source_and_quarantines_failure(
         calls.append(url)
         return Response(b"fallback-video", content_type="video/mp4")
 
-    monkeypatch.setattr("app.mytv.routes.transcode_stream", failed_transcode)
+    monkeypatch.setattr("app.mytv.routes.proxy_stream", failed_hls_proxy)
     monkeypatch.setattr("app.mytv.routes.proxy_file", working_proxy)
 
-    first = authenticated_client.get(f"/my-tv/play/{failing_id}")
+    first = authenticated_client.get(f"/iptv/play/{failing_id}")
     assert first.status_code == 200
     assert first.get_data() == b"fallback-video"
     assert first.headers["X-Dragon-TV-Source-Attempt"] == "2"
@@ -779,22 +973,22 @@ def test_mytv_playback_uses_an_alternate_source_and_quarantines_failure(
     ]
 
     calls.clear()
-    second = authenticated_client.get(f"/my-tv/play/{failing_id}")
+    second = authenticated_client.get(f"/iptv/play/{failing_id}")
     assert second.status_code == 200
     assert second.headers["X-Dragon-TV-Source-Attempt"] == "1"
     assert calls == ["https://stream.example/one.mp4"]
 
-    recent = authenticated_client.get("/my-tv/api/channels?state=recent").get_json()
+    recent = authenticated_client.get("/iptv/api/channels?state=recent").get_json()
     assert [item["name"] for item in recent["channels"]] == ["News One"]
     assert recent["channels"][0]["last_watched_at"] is not None
-    bootstrap = authenticated_client.get("/my-tv/api/bootstrap").get_json()
+    bootstrap = authenticated_client.get("/iptv/api/bootstrap").get_json()
     assert bootstrap["last_channel"]["name"] == "News One"
     with app.app_context():
         preference = db.session.get(TVChannelPreference, preference_key)
         assert preference.watch_count == 2
 
 
-def test_mytv_playback_does_not_fall_back_from_a_custom_source(
+def test_mytv_playback_prefers_custom_source_but_keeps_catalogue_fallback(
     authenticated_client, app, monkeypatch
 ):
     with app.app_context():
@@ -839,27 +1033,31 @@ def test_mytv_playback_does_not_fall_back_from_a_custom_source(
 
     calls: list[str] = []
 
-    def failed_transcode(url: str):
+    def failed_hls_proxy(url: str, *, force_manifest: bool = False):
         calls.append(url)
         return Response("upstream unavailable", status=503, content_type="text/plain")
 
-    def unexpected_fallback(url: str):
+    def working_fallback(url: str):
         calls.append(url)
-        return Response(b"unexpected fallback", content_type="video/mp4")
+        return Response(b"catalogue-fallback", content_type="video/mp4")
 
-    monkeypatch.setattr("app.mytv.routes.transcode_stream", failed_transcode)
-    monkeypatch.setattr("app.mytv.routes.proxy_file", unexpected_fallback)
+    monkeypatch.setattr("app.mytv.routes.proxy_stream", failed_hls_proxy)
+    monkeypatch.setattr("app.mytv.routes.proxy_file", working_fallback)
 
-    response = authenticated_client.get(f"/my-tv/play/{official_id}")
+    response = authenticated_client.get(f"/iptv/play/{official_id}")
 
-    assert response.status_code == 502
-    assert calls == ["https://official.example/live.m3u8"]
+    assert response.status_code == 200
+    assert response.get_data() == b"catalogue-fallback"
+    assert calls == [
+        "https://official.example/live.m3u8",
+        "https://stream.example/one.mp4",
+    ]
 
 
 def test_mytv_writes_require_csrf(authenticated_client, app):
     with app.app_context():
         _, theme_id, _ = seed_tv()
     response = authenticated_client.patch(
-        f"/my-tv/api/groups/{theme_id}", json={"enabled": False}
+        f"/iptv/api/groups/{theme_id}", json={"enabled": False}
     )
     assert response.status_code == 400

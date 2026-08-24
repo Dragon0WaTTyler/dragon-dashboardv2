@@ -16,6 +16,7 @@ from flask_login import login_required
 from app.movies.external_library import (
     add_to_library,
     discover_item,
+    hydrate_missing_recommendation_overviews,
     import_release,
     notion_movie_provider,
     release_lookup,
@@ -46,7 +47,14 @@ from app.playback.services import PlaybackService
 bp = Blueprint("movies", __name__, url_prefix="/movies")
 
 
+def _playback_is_enabled() -> bool:
+    """Return the single server-side gate for every playable surface."""
+    return bool(current_app.config["DRAGON_PLAYBACK_ENABLED"])
+
+
 def _enabled_indexed_embed_providers() -> frozenset[str]:
+    if not _playback_is_enabled():
+        return frozenset()
     registry = build_provider_registry_from_config(current_app.config)
     direct_provider_keys = {spec.key for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
     return PlaybackService.enabled_provider_keys(
@@ -55,6 +63,8 @@ def _enabled_indexed_embed_providers() -> frozenset[str]:
 
 
 def _enabled_id_catalog_embed_providers() -> frozenset[str]:
+    if not _playback_is_enabled():
+        return frozenset()
     registry = build_provider_registry_from_config(current_app.config)
     provider_keys = {spec.key for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
     return PlaybackService.enabled_provider_keys(registry.keys() & provider_keys)
@@ -82,7 +92,7 @@ def _indexed_provider_options() -> list[dict[str, str]]:
 def _vidsrc_is_usable_candidate(movie: Movie) -> bool:
     external_ids = dict(movie.external_ids or {})
     return bool(
-        current_app.config["DRAGON_PLAYBACK_ENABLED"]
+        _playback_is_enabled()
         and current_app.config["DRAGON_VIDSRC_ENABLED"]
         and "vidsrc" in PlaybackService.enabled_provider_keys({"vidsrc"})
         and (external_ids.get("imdb_id") or external_ids.get("tmdb_id"))
@@ -130,6 +140,8 @@ def _jackett_search_available(movie: Movie) -> bool:
 
 
 def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> list[dict]:
+    if not _playback_is_enabled():
+        return []
     priorities = _provider_priorities()
     sources: list[dict] = []
     if _vidsrc_is_usable_candidate(movie):
@@ -148,6 +160,18 @@ def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> li
         sources,
         key=lambda source: priorities.get(source["provider"], 100),
     )
+
+
+def _default_player_selection(
+    last_selected_source, player_sources: list[dict]
+) -> tuple[str, str]:
+    """Prefer the saved local fallback when no source exists in the exact scope."""
+    if last_selected_source is not None:
+        return last_selected_source.id, last_selected_source.provider
+    selected_local = next((source for source in player_sources if source.get("selected")), None)
+    if selected_local is not None:
+        return str(selected_local["id"]), "local"
+    return "", ""
 
 
 def _positive_int(value: str | None, default: int, maximum: int) -> int:
@@ -199,6 +223,7 @@ def index():
     per_page = _positive_int(request.args.get("per_page"), 24, 100)
     offset = (page - 1) * per_page
     library_sync = sync_notion_library()
+    hydrate_missing_recommendation_overviews()
     movies, total = MovieRepository.list(
         filters,
         limit=per_page,
@@ -427,6 +452,9 @@ def detail(movie_id: str):
     )
     player_sources = PlaybackService.player_sources(movie_id) if local_player_enabled else []
     last_selected_source = PlaybackService.last_selected_source(movie_id)
+    last_selected_source_id, last_selected_provider = _default_player_selection(
+        last_selected_source, player_sources
+    )
     embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
     return render_template(
         "movies/detail.html",
@@ -440,8 +468,8 @@ def detail(movie_id: str):
         indexed_embed_sources=indexed_embed_sources,
         embed_player_sources=embed_player_sources,
         indexed_provider_options=_indexed_provider_options(),
-        last_selected_source_id=last_selected_source.id if last_selected_source else "",
-        last_selected_provider=last_selected_source.provider if last_selected_source else "",
+        last_selected_source_id=last_selected_source_id,
+        last_selected_provider=last_selected_provider,
         jackett_eligible=_jackett_is_eligible(
             movie,
             indexed_embed_sources=indexed_embed_sources,
@@ -541,6 +569,9 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
         season=season_number,
         episode=episode_number,
     )
+    last_selected_source_id, last_selected_provider = _default_player_selection(
+        last_selected_source, player_sources
+    )
     embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
     return render_template(
         "movies/tv_season.html",
@@ -552,8 +583,8 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
         indexed_embed_sources=indexed_embed_sources,
         embed_player_sources=embed_player_sources,
         indexed_provider_options=_indexed_provider_options(),
-        last_selected_source_id=last_selected_source.id if last_selected_source else "",
-        last_selected_provider=last_selected_source.provider if last_selected_source else "",
+        last_selected_source_id=last_selected_source_id,
+        last_selected_provider=last_selected_provider,
         vidsrc_enabled=_vidsrc_is_usable_candidate(movie),
         local_player_enabled=local_player_enabled,
         subtitles_enabled=subtitles_enabled,

@@ -1,8 +1,8 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge, empty_state %}
 {% block title %}Movies · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}" defer></script>{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-index-3">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-recommendation-rotation-4" defer></script>{% endblock %}
 {% block content %}
 <header class="page-header">
   <div>
@@ -13,7 +13,7 @@
   {{ badge(total ~ ' titles', 'accent') }}
 </header>
 {% if recommendation and dragon_feature('movies', 'recommendation') %}
-<section id="movie-recommendation" class="movie-recommendation" data-recommendation-card data-recommendation-items="{{ recommendations|tojson|forceescape }}" data-recommendation-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}" aria-labelledby="movie-recommendation-title">
+<section id="movie-recommendation" class="movie-recommendation" data-recommendation-card data-recommendation-items="{{ recommendations|tojson|forceescape }}" data-recommendation-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}" aria-labelledby="movie-recommendation-title" hidden>
   <article class="movie-recommendation__card">
     <a class="movie-recommendation__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=recommendation.id) }}">
       <img data-media-image data-recommendation-poster{% if not recommendation.poster_url %} hidden{% endif %}{% if recommendation.poster_url %} src="{{ recommendation.poster_url }}"{% endif %} alt="Poster for {{ recommendation.title }}" width="360" height="540">
@@ -23,12 +23,13 @@
       <span class="eyebrow" data-recommendation-confidence>A quiet pick for tonight · {{ recommendation.recommendation_explanation.confidence }} confidence</span>
       <h2 id="movie-recommendation-title"><a data-recommendation-title href="{{ url_for('movies.detail', movie_id=recommendation.id) }}">{{ recommendation.title }}</a></h2>
       <p class="movie-recommendation__meta" data-recommendation-meta>{{ [recommendation.year, recommendation.category, recommendation.genres[:2]|join(' · ')]|select|join(' · ') }}</p>
-      <p class="movie-recommendation__reason" data-recommendation-reason>{{ recommendation.recommendation_reason }}</p>
+      <p class="movie-recommendation__overview" data-recommendation-overview>{{ recommendation.overview or 'No synopsis is available yet.' }}</p>
       <div class="movie-recommendation__controls">
         <a class="button button--primary" data-recommendation-details href="{{ url_for('movies.detail', movie_id=recommendation.id) }}">View details</a>
         <button class="button button--secondary" type="button" data-recommendation-next{% if recommendations|length < 2 %} hidden{% endif %}>Try another</button>
         <button class="button button--secondary" type="button" data-recommendation-dismiss>Not now</button>
       </div>
+      <p class="movie-recommendation__reason" data-recommendation-reason><span>Why this pick</span>{{ recommendation.recommendation_reason }}</p>
     </div>
   </article>
 </section>
@@ -60,14 +61,15 @@
   {% endif %}
 </section>
 <div class="movie-actions">
-  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.watch_next') }}">Watch next</a><a href="#continue-watching-title">Continue watching</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a><a href="{{ url_for('movies.index', status='watched', sort='recently_updated') }}">Recently watched</a></nav>
+  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.watch_next') }}">Watch next</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a></nav>
   <div class="movie-actions__controls">
     {% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary movie-actions__recommend" type="button" data-recommendation-open aria-controls="movie-recommendation">What should I watch?</button>{% endif %}
-    <button class="button button--secondary movie-actions__add" type="button" data-discovery-open aria-controls="movie-discovery-title" aria-label="Add a movie or series to Notion">+</button>
+    <a class="button button--secondary movie-actions__add" href="#movie-discovery">+ Add title</a>
   </div>
 </div>
 
 <section
+  id="movie-discovery"
   class="movie-discovery"
   data-media-discovery
   data-library-endpoint="{{ url_for('movies.api_library') }}"
@@ -81,11 +83,10 @@
   data-discover-tv-template="{{ url_for('movies.discover', media_type='tv', tmdb_id=999999999) }}"
   aria-labelledby="movie-discovery-title"
 >
+  <div class="movie-discovery__header"><div><span class="eyebrow">Add to library</span><h2 id="movie-discovery-title">Find a movie or series</h2></div></div>
   <div class="movie-discovery__intro">
     <div>
-      <span class="eyebrow">Search beyond your library</span>
-      <h2 id="movie-discovery-title">Find any movie or series</h2>
-      <p>Dragon checks Notion first, then uses TMDB and Jackett only when the title is missing.</p>
+      <p>Search your library first. If it is missing, Dragon checks TMDB so you can add it deliberately.</p>
     </div>
   </div>
   <form class="movie-discovery__form" data-discovery-form>
@@ -97,20 +98,6 @@
   <div class="movie-discovery__results" data-discovery-results hidden></div>
 </section>
 
-<dialog class="release-dialog" data-release-dialog aria-labelledby="release-dialog-title">
-  <div class="release-dialog__header">
-    <div><span class="eyebrow" data-release-type>Release picker</span><h2 id="release-dialog-title" data-release-title>Choose a release</h2></div>
-    <button class="icon-button" type="button" data-release-close aria-label="Close release picker">×</button>
-  </div>
-  <p class="release-dialog__summary" data-release-summary></p>
-  <div class="release-dialog__episode-picker" data-episode-picker hidden>
-    <label class="field"><span>Season</span><select data-season-select><option value="">Choose a season</option></select></label>
-    <label class="field"><span>Episode</span><select data-episode-select disabled><option value="">Choose an episode</option></select></label>
-  </div>
-  <p class="release-dialog__status" data-release-status role="status" aria-live="polite"></p>
-  <div class="release-list" data-release-list></div>
-</dialog>
-
 {% if library_sync_error %}<div class="notice notice--error" role="status">Notion could not refresh. Showing the last locally synced Notion items. {{ library_sync_error }}</div>{% endif %}
 
 <form class="filter-bar" method="get" aria-label="Filter movies">
@@ -120,21 +107,22 @@
   <label class="field"><span>Sort</span><select name="sort"><option value="recently_updated"{% if filters.sort == 'recently_updated' %} selected{% endif %}>Recently updated</option><option value="title_asc"{% if filters.sort == 'title_asc' %} selected{% endif %}>Title A–Z</option><option value="year_desc"{% if filters.sort == 'year_desc' %} selected{% endif %}>Newest year</option><option value="score_desc"{% if filters.sort == 'score_desc' %} selected{% endif %}>Top rated</option></select></label>
   <label class="field"><span>View</span><select name="view"><option value="grid"{% if filters.view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if filters.view == 'list' %} selected{% endif %}>Compact list</option></select></label>
   <div class="filter-bar__actions">
-    <details class="filter-more">
-      <summary class="button button--secondary">More filters</summary>
-      <div class="filter-more__panel">
+    <button class="button button--secondary" type="button" data-dialog-open="movie-filter-dialog" aria-controls="movie-filter-dialog">More filters</button>
+    <dialog id="movie-filter-dialog" class="filter-dialog" aria-labelledby="movie-filter-title">
+      <div class="filter-dialog__header"><div><span class="eyebrow">Refine library</span><h2 id="movie-filter-title">More filters</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close more filters">×</button></div>
+      <div class="filter-dialog__panel">
         <label class="field"><span>Category</span><select name="category"><option value="">All</option>{% for value in filter_options.categories %}<option value="{{ value }}"{% if filters.category == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
         <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for value in filter_options.sources %}<option value="{{ value }}"{% if filters.source == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
         <label class="field"><span>Year from</span><input name="year_min" inputmode="numeric" value="{{ filters.year_min or '' }}"></label>
         <label class="field"><span>Year to</span><input name="year_max" inputmode="numeric" value="{{ filters.year_max or '' }}"></label>
         <label class="field"><span>Score from</span><input name="score_min" inputmode="decimal" value="{{ filters.score_min if filters.score_min is not none else '' }}"></label>
         <label class="field"><span>Score to</span><input name="score_max" inputmode="decimal" value="{{ filters.score_max if filters.score_max is not none else '' }}"></label>
-        <div class="filter-more__mobile-actions">
+        <div class="filter-dialog__actions">
           <button class="button button--primary" type="submit">Apply filters</button>
           <a class="button button--secondary" href="{{ url_for('movies.index') }}">Reset</a>
         </div>
       </div>
-    </details>
+    </dialog>
     <button class="button button--primary" type="submit">Apply</button>
     <a class="button button--quiet" href="{{ url_for('movies.index') }}">Reset</a>
   </div>

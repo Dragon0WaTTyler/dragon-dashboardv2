@@ -7,7 +7,7 @@ name = "dragon-v2"
 version = "0.11.0"
 description = "A private, local-first personal workspace."
 readme = "README.md"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.10,<3.14"
 dependencies = [
   "defusedxml>=0.7,<1",
   "Flask>=3.1,<4",
@@ -17,6 +17,7 @@ dependencies = [
   "Flask-WTF>=1.2,<2",
   "python-dotenv>=1,<2",
   "requests>=2.32,<3",
+  "typing-extensions>=4.6,<5",
   "SQLAlchemy>=2.0,<3",
   "Werkzeug>=3.1,<4",
 ]

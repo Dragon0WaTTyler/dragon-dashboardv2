@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import sqlalchemy as sa
 from alembic import op
@@ -81,7 +81,7 @@ def upgrade() -> None:
     )
     updates: list[dict[str, int | str]] = []
     preferences: dict[str, dict[str, object]] = {}
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     for row in rows.mappings():
         key = _preference_key(
             str(row["theme_key"]),

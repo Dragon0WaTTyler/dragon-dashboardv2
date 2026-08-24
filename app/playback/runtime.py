@@ -12,7 +12,7 @@ import threading
 import time
 from contextlib import suppress
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
@@ -131,7 +131,7 @@ class PlaybackSession:
     startup_timings: dict[str, int | None] = field(default_factory=dict)
     runtime_started: bool = False
     stopped: bool = False
-    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
 def _magnet_info_hash(magnet: str) -> str:
@@ -287,7 +287,7 @@ class MagnetPlaybackManager:
                 if session is not None and not session.stopped:
                     session.state = "failed"
                     session.message = str(exc)
-                    session.updated_at = datetime.now(UTC)
+                    session.updated_at = datetime.now(timezone.utc)
 
     def _cached_metadata(self, cache_key: str) -> Path | None:
         path = self.metadata_root / f"{cache_key}.torrent"
@@ -378,7 +378,7 @@ class MagnetPlaybackManager:
         else:
             session.state = "metadata"
             session.message = "Selecting the best video file from this torrent…"
-        session.updated_at = datetime.now(UTC)
+        session.updated_at = datetime.now(timezone.utc)
 
     def transcode_path(self, session_id: str, *, user_id: str) -> Path | None:
         """Return a safe completed cache file, keeping partial torrents on HTTP."""
@@ -405,7 +405,7 @@ class MagnetPlaybackManager:
             self._owns(session, user_id=user_id)
             session.state = "failed"
             session.message = str(message or "Local transcoding failed.")[:500]
-            session.updated_at = datetime.now(UTC)
+            session.updated_at = datetime.now(timezone.utc)
 
     def status(self, session_id: str, *, user_id: str) -> dict:
         with self._lock:
@@ -519,12 +519,12 @@ class MagnetPlaybackManager:
     def cleanup_cache(self, *, clear_all_inactive: bool = False) -> dict:
         active = self._active_cache_keys()
         entries = self._cache_entries()
-        cutoff = datetime.now(UTC) - timedelta(hours=self.cache_ttl_hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=self.cache_ttl_hours)
         removed_bytes = 0
         for entry in entries:
             if entry["key"] in active:
                 continue
-            expired = datetime.fromtimestamp(float(entry["modified"]), UTC) < cutoff
+            expired = datetime.fromtimestamp(float(entry["modified"]), timezone.utc) < cutoff
             if clear_all_inactive or expired:
                 removed_bytes += int(entry["bytes"])
                 self._remove_entry(entry)

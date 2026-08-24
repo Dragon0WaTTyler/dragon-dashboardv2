@@ -1,5 +1,3 @@
-import time
-
 import pytest
 
 from app.extensions import db
@@ -139,24 +137,46 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     page.goto(f"{live_app}/movies/{movie_id}")
     assert page.get_by_role("link", name="Provider settings").count() == 0
     assert page.locator("[data-subtitle-status]").is_hidden()
+    page.set_viewport_size({"width": 390, "height": 844})
+    player = page.locator("[data-movie-player]")
+    player.evaluate("element => element.classList.add('is-watch-mode')")
+    watch_mode_metrics = player.evaluate(
+        """element => {
+          const viewport = element.querySelector('.movie-player__viewport').getBoundingClientRect();
+          return {
+            viewportWidth: viewport.width,
+            viewportHeight: viewport.height,
+            pageWidth: document.documentElement.clientWidth,
+            pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+          };
+        }"""
+    )
+    assert watch_mode_metrics["viewportHeight"] == pytest.approx(
+        watch_mode_metrics["viewportWidth"] * 9 / 16,
+        abs=2,
+    )
+    assert watch_mode_metrics["viewportWidth"] <= watch_mode_metrics["pageWidth"]
+    assert watch_mode_metrics["pageOverflow"] == 0
+    player.evaluate("element => element.classList.remove('is-watch-mode')")
+    page.set_viewport_size({"width": 1280, "height": 800})
+    idle_viewport = page.locator("[data-movie-player] .movie-player__viewport").bounding_box()
+    assert idle_viewport is not None
+    assert 250 <= idle_viewport["height"] <= 380
     source = page.get_by_label("Player source")
     assert source.input_value() == "vidsrc"
-    source_choices = page.locator("[data-player-source-choice]")
-    assert source_choices.count() == 2
-    assert source_choices.nth(0).get_attribute("aria-pressed") == "true"
-    page.get_by_role("button", name="Local · FHD").click()
+    assert page.locator("[data-player-source-choice]").count() == 0
+    source.select_option(label="Local · FHD")
     page.wait_for_function(
         "() => document.querySelector('[data-player-source]')?.selectedOptions[0]?.dataset.kind"
         " === 'local'"
     )
-    assert source_choices.nth(1).get_attribute("aria-pressed") == "true"
     assert page.locator("[data-subtitle-select]").count() == 0
     assert page.locator("[data-player-badge]").inner_text() == "Local"
     page.get_by_role("button", name="Start local player").click()
     page.locator("[data-movie-player][data-playback-state]").wait_for()
     page.wait_for_function(
         "() => document.querySelector('[data-subtitle-status]')?.textContent"
-        ".includes('Arabic · Track 1 is selected')"
+        ".includes('Arabic · Arabic release is selected')"
     )
     assert page.locator("video track").count() == 0
     assert page.locator("[data-player-video]").evaluate("video => video.controls") is False
@@ -171,10 +191,6 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     assert page.locator("[data-player-video]").evaluate("video => video.volume") == pytest.approx(
         0.95
     )
-    assert "is-visible" in (
-        page.locator("[data-player-volume-feedback]").get_attribute("class") or ""
-    )
-    assert page.locator("[data-player-volume-value]").inner_text() == "95%"
     assert (
         page.locator("[data-player-dragon-controls]").evaluate(
             "node => getComputedStyle(node).opacity"
@@ -220,8 +236,8 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     page.locator("[data-player-caption-toggle]").click()
     page.locator("[data-player-subtitle-panel]").wait_for(state="visible")
     subtitle_list = page.locator("[data-player-subtitle-list]")
-    assert subtitle_list.get_by_text("Arabic · Track 1").count() == 1
-    assert subtitle_list.get_by_text("English · Track 2").count() == 1
+    assert subtitle_list.get_by_text("Arabic · Arabic release").count() == 1
+    assert subtitle_list.get_by_text("English · English release").count() == 1
     page.get_by_role("button", name="Appearance").click()
     page.locator("[data-player-subtitle-size]").evaluate(
         "node => { node.value = '44'; node.dispatchEvent(new Event('input', { bubbles: true })); }"
@@ -307,10 +323,10 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     )
     assert short_caption_size == long_caption_size
     page.get_by_role("button", name="Back to subtitles").click()
-    subtitle_list.locator("button").filter(has_text="English · Track 2").click()
+    subtitle_list.locator("button").filter(has_text="English · English release").click()
     page.wait_for_function(
         "() => document.querySelector('[data-subtitle-status]')?.textContent"
-        ".includes('English · Track 2 is selected')"
+        ".includes('English · English release is selected')"
     )
     page.get_by_role("button", name="Appearance").click()
     page.locator("[data-player-subtitle-preset]").select_option("Minimal")
@@ -365,6 +381,15 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     assert desktop_layout["playerTop"] >= max(
         desktop_layout["heroBottom"], desktop_layout["posterBottom"]
     )
+
+    # Changing sources while a local runtime is active must not wait for its shutdown.
+    source.select_option("vidsrc")
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-source]')?.value === 'vidsrc'"
+        " && document.querySelector('[data-player-badge]')?.textContent === 'VidSrc'"
+        " && !document.querySelector('[data-movie-player]')?.classList.contains('is-watch-mode')"
+    )
+    assert page.get_by_role("button", name="Play with VidSrc").is_visible()
 
     page.set_viewport_size({"width": 390, "height": 844})
     metrics = page.evaluate(
@@ -491,12 +516,7 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
     source_select = page.get_by_label("Player source")
     assert source_select.input_value() == source_id
     assert provider_requests == []
-    source_choices = page.locator("[data-player-source-choice]")
-    assert source_choices.count() == 4
-    assert (
-        source_choices.filter(has_text="VideoTube · Arabic").get_attribute("aria-pressed")
-        == "true"
-    )
+    assert page.locator("[data-player-source-choice]").count() == 0
 
     assert page.locator("[data-player-badge]").inner_text() == "VideoTube · Arabic"
     page.get_by_role("button", name="Play with VideoTube · Arabic").click()
@@ -515,21 +535,26 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
         .inner_text()
         .startswith("VideoTube · Arabic uses its own controls")
     )
+    cinema = page.get_by_role("button", name="Full screen")
+    cinema.click()
+    assert "is-embed-fullscreen" in page.locator("[data-movie-player]").get_attribute("class")
+    assert cinema.get_attribute("aria-pressed") == "true"
+    cinema.click()
+    assert "is-embed-fullscreen" not in page.locator("[data-movie-player]").get_attribute("class")
 
     page.get_by_role("button", name="Change source").click()
-    source_choices.filter(has_text="UpDown").click()
+    source_select.select_option(updown_id)
     page.wait_for_function(
         "() => document.querySelector('[data-player-badge]')?.textContent === 'UpDown'"
     )
     assert source_select.input_value() == updown_id
-    assert source_choices.filter(has_text="UpDown").get_attribute("aria-pressed") == "true"
     page.get_by_role("button", name="Play with UpDown").click()
     page.wait_for_function(
         "() => document.querySelector('[data-player-frame]')?.src === 'https://updown.icu/embed-updownasset-1280x640.html'"
     )
 
     page.get_by_role("button", name="Change source").click()
-    source_choices.filter(has_text="OK.ru").click()
+    source_select.select_option(ok_id)
     page.wait_for_function(
         "() => document.querySelector('[data-player-badge]')?.textContent === 'OK.ru'"
     )
@@ -540,7 +565,7 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
     )
 
     page.get_by_role("button", name="Change source").click()
-    source_choices.filter(has_text="VidSrc").click()
+    source_select.select_option("vidsrc")
     page.wait_for_function(
         "() => document.querySelector('[data-player-badge]')?.textContent === 'VidSrc'"
     )
@@ -684,7 +709,8 @@ def test_movie_player_refreshes_resume_point_after_saving_progress(page, live_ap
     assert local_requests[0]["resumeSeconds"] == 929
 
     page.locator("[data-player-video]").evaluate(
-        "video => { video.dispatchEvent(new Event('loadedmetadata')); video.currentTime = 2583; video.dispatchEvent(new Event('timeupdate')); video.dispatchEvent(new Event('pause')); }"
+        "video => { video.dispatchEvent(new Event('loadedmetadata')); video.currentTime = 2583; "
+        "video.dispatchEvent(new Event('timeupdate')); video.dispatchEvent(new Event('pause')); }"
     )
     page.get_by_role("button", name="Stop local stream").click()
     page.get_by_role("button", name="Resume from 43:03").wait_for()
@@ -1005,7 +1031,10 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     app.config.update(
         DRAGON_PLAYBACK_ENABLED=True,
         DRAGON_MAGNETS_ENABLED=True,
+        DRAGON_JACKETT_ENABLED=True,
         DRAGON_VIDSRC_ENABLED=False,
+        DRAGON_MULTIEMBED_ENABLED=False,
+        DRAGON_MULTIEMBED_VIP_ENABLED=False,
         DRAGON_SUBTITLES_ENABLED=True,
         DRAGON_SUBDL_API_KEY="private-key",
     )
@@ -1063,7 +1092,10 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
                 "items": [
                     {
                         "title": "The Sopranos Season 1 Complete 1080p",
-                        "magnet_uri": "magnet:?xt=urn:btih:fedcba9876543210fedcba9876543210fedcba98",
+                        "magnet_uri": (
+                            "magnet:?xt=urn:btih:fedcba9876543210"
+                            "fedcba9876543210fedcba98"
+                        ),
                         "tracker": "Jackett",
                         "seeders": 42,
                         "size": 5_000_000_000,
@@ -1135,9 +1167,9 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
         ")?.options.length > 1"
     )
     release_browser.get_by_role("button", name="Find full-season packs").click()
-    assert release_browser.get_by_role(
+    release_browser.get_by_role(
         "heading", name="The Sopranos Season 1 Complete 1080p"
-    ).is_visible()
+    ).wait_for(state="visible")
     assert release_browser.get_by_role("button", name="Add full-season pack").is_visible()
     pack_browser = page.locator("[data-player-pack-browser]")
     pack_browser.wait_for()

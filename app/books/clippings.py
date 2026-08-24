@@ -6,7 +6,7 @@ import re
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.books.matching import normalize_title
@@ -224,7 +224,7 @@ def _quarantine_state_file(path: Path) -> Path | None:
     try:
         if not path.exists():
             return None
-        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         target = path.with_name(f"{path.name}.corrupt-{stamp}")
         counter = 1
         while target.exists():

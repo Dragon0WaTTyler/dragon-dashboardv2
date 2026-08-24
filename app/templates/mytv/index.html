@@ -1,12 +1,13 @@
 {% extends "layouts/app.html" %}
 
-{% block title %}My TV · Dragon{% endblock %}
+{% block title %}IPTV · Dragon{% endblock %}
 
 {% block styles %}
 <link rel="stylesheet" href="{{ url_for('static', filename='css/pages/mytv.css') }}">
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.6.16/dist/hls.min.js" defer></script>
 <script src="{{ url_for('static', filename='js/mytv.js') }}" defer></script>
 {% endblock %}
 
@@ -15,7 +16,7 @@
 <header class="tv-page-header">
   <div class="tv-page-title">
     <span class="tv-live-dot" aria-hidden="true"></span>
-    <div><h1>My TV</h1><p id="tvTrustSummary">Loading your lineup…</p></div>
+    <div><h1>IPTV</h1><p id="tvTrustSummary">Loading your lineup…</p></div>
   </div>
   <p class="tv-shortcut-hint"><kbd>/</kbd> Search <span aria-hidden="true">·</span> <kbd>Space</kbd> Play <span aria-hidden="true">·</span> <kbd>F</kbd> Full screen <span aria-hidden="true">·</span> <kbd>M</kbd> Mute</p>
 </header>
@@ -32,7 +33,7 @@
   <span id="healthCount"></span>
 </section>
 
-<nav class="tv-tabs" aria-label="My TV views" role="tablist">
+<nav class="tv-tabs" aria-label="IPTV views" role="tablist">
   <button class="tv-tab" id="tv-tab-watch" type="button" role="tab" data-view="watch" aria-selected="true" aria-controls="tv-panel-watch" tabindex="0">Watch</button>
   <button class="tv-tab" id="tv-tab-manage" type="button" role="tab" data-view="manage" aria-selected="false" aria-controls="tv-panel-manage" tabindex="-1">Manage</button>
 </nav>
@@ -44,6 +45,7 @@
       <button type="button" data-channel-view="favorites" aria-pressed="false">Favorites</button>
       <button type="button" data-channel-view="recent" aria-pressed="false">Recent</button>
       <button type="button" data-channel-view="all" aria-pressed="false">All</button>
+      <button type="button" data-channel-view="disabled" aria-pressed="false">Disabled</button>
     </div>
     <label class="field tv-visibility-filter" aria-hidden="true"><span>Channel view</span><select id="stateFilter" tabindex="-1"><option value="enabled">Ready to watch</option><option value="favorites">Favorites</option><option value="recent">Recently watched</option><option value="all">All channels</option><option value="disabled">Disabled channels</option></select></label>
   </div>
@@ -68,7 +70,6 @@
             </div>
           </div>
         </div>
-        <button id="togglePlayback" type="button" hidden aria-label="Play or pause live channel"></button>
         <div class="tv-player-empty" id="playerEmpty">
           <span class="tv-signal-mark" aria-hidden="true"><i></i><i></i><i></i></span>
           <strong>Choose a channel to start</strong>
@@ -89,7 +90,7 @@
           <p id="nowPlayingMeta">Choose an enabled channel below.</p>
           <p class="tv-now-next" id="nowPlayingGuide" hidden></p>
         </div>
-        <div class="tv-player-actions"><span class="badge tv-live-badge" id="liveBadge" hidden>Live</span></div>
+        <div class="tv-player-actions"><button class="button button--secondary" id="togglePlayback" type="button" aria-label="Play live channel" aria-pressed="false" disabled>Play</button><span class="badge tv-live-badge" id="liveBadge" hidden>Live</span></div>
       </div>
     </section>
 
@@ -122,6 +123,11 @@
       <button class="button button--secondary" id="refreshCatalog" type="button">Refresh my lineup</button>
     </div>
   </div>
+
+  <section class="tv-epg-audit" aria-labelledby="epgAuditHeading">
+    <div class="tv-epg-audit__heading"><div><span class="eyebrow">Guide coverage</span><h2 id="epgAuditHeading">EPG freshness audit</h2><p>Only guides covering the current programme are accepted. A healthy guide also covers the next 24 hours.</p></div><p id="epgAuditSummary" class="tv-epg-audit__summary" role="status">Loading coverage…</p></div>
+    <div id="epgAuditChannels" class="tv-epg-audit__channels" role="list" aria-label="EPG coverage by favorite channel"></div>
+  </section>
 
   <section class="tv-stats" aria-label="TV catalogue summary">
     <div><span>Ready now</span><strong id="statEnabled">—</strong><small>channels in your lineup</small></div>

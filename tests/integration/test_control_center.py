@@ -202,7 +202,7 @@ def test_movies_news_and_iptv_defaults_persist_and_drive_their_pages(authenticat
         follow_redirects=True,
     )
     assert 'value="favorites" selected' in tv_saved.get_data(as_text=True)
-    tv = authenticated_client.get("/my-tv").get_data(as_text=True)
+    tv = authenticated_client.get("/iptv").get_data(as_text=True)
     assert 'data-default-view="favorites"' in tv
     assert 'data-default-sort="recent"' in tv
     assert 'data-favorites-first="true"' in tv

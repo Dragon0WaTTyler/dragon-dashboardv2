@@ -7,7 +7,7 @@ import unicodedata
 import uuid
 from contextlib import ExitStack
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote, urlsplit
@@ -63,15 +63,48 @@ EPG_ID_BY_CHANNEL_NAME = {
     "al jazeera english": "Al.Jazeera.English.HD.ae",
     "al jazeera mobasher": "Al.Jazeera.Mobasher.HD.ae",
     "al jazeera mubasher": "Al.Jazeera.Mobasher.HD.ae",
-    "al jazeera documentary": "Al.Jazeera.Documentary.HD.ae",
+    # The Belgian guide carries an independent Al Jazeera Documentary
+    # schedule, rather than the duplicated placeholder present in AE1.
+    "al jazeera documentary": "Al.Jazeera.Documentary.be",
+    "dw arabic": "DW.Arabia.HD.ae",
+    "ar docu dw arabic": "DW.Arabia.HD.ae",
+    "docu dw arabic": "DW.Arabia.HD.ae",
+    # These IDs are present in EPGshare's current UAE guide. Aliases cover
+    # the abbreviated labels used by the imported Arabic bouquets.
+    # ``geo`` is stripped by the normalizer as a geo-block marker, so the
+    # abbreviated playlist label resolves to ``ad nat``.
+    "ad nat": "Nat.Geo.Abu.Dhabi.HD.ae",
+    "al sharq discovery": "Asharq.Discovery.HD.ae",
     "asharq documentary": "Asharq.Documentary.HD.ae",
+    "al sharq documentary": "Asharq.Documentary.HD.ae",
+    "authentic history": "GB3200005SO@samsungtvplus.gb",
+    "autentic history": "GB3200005SO@samsungtvplus.gb",
+    "discovering china": "DiscoveringChina@distro.tv",
+    "rt documentary": "RTDocumentary@mts.rs",
+    "rt documentary english": "RTDocumentary@mts.rs",
+    "history": "History.HD.us2",
+    "al arabiya news": "Al.Arabiya.HD.ae",
+    "france 24": "France.24.Arabic.ae",
     "national geographic": "Nat.Geo.Abu.Dhabi.HD.ae",
+    "sky news arabia": "Sky.News.Arabia.HD.ae",
+    "uk vip al jazeera": "Al.Jazeera.HD.ae",
+    "uk vip aljazeera news english": "Al.Jazeera.English.HD.ae",
+    "uk vip france 24": "France.24.English.ae",
+    # The US guide identifies this feed with its provider suffix. The EPG
+    # resolver recognises that suffix as the US source family.
+    "us history channel": "History.HD.us2",
+    "usa history channel": "History.HD.us2",
+    "usa history channel east": "History.HD.us2",
     "fbi files": "6a1610bebdf296985fd95603-6582a024a90606db3c841b1b@plex.us",
 }
 SUPERSEDED_EPG_IDS = {
     "aljazeeradocumentary.qa@sd",
+    "al.jazeera.documentary.hd.ae",
     "asharqdocumentary.sa@sd",
+    "autentichistory.de@sd",
+    "discoveringchina.cn@sd",
     "fbifiles.us@uk",
+    "rtdocumentary.ru@english",
 }
 EPG_NAME_NOISE_TOKENS = {
     "1080p",
@@ -95,7 +128,7 @@ class TVSyncError(RuntimeError):
 
 def persist_theme_preference(theme: TVTheme) -> None:
     """Store only the durable ON/OFF policy, never catalogue relationships."""
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     statement = sqlite_insert(TVThemePreference).values(
         theme_key=theme.key,
         enabled=theme.enabled,
@@ -294,7 +327,7 @@ def with_resolved_epg_id(entry: ChannelEntry) -> ChannelEntry:
 
 
 def migrate_epg_preferences() -> int:
-    """Move existing favorites onto repaired IDs so an import does not lose them."""
+    """Move EPG repairs across preferences and their current catalogue rows."""
 
     preferences = list(db.session.scalars(select(TVChannelPreference)))
     by_key = {item.preference_key: item for item in preferences}
@@ -306,6 +339,12 @@ def migrate_epg_preferences() -> int:
         destination_key = ChannelEntry(
             preference.name, preference.theme_key, "", tvg_id=resolved_id
         ).preference_key(preference.theme_key)
+        old_key = preference.preference_key
+        channels = list(
+            db.session.scalars(
+                select(TVChannel).where(TVChannel.preference_key == old_key)
+            )
+        )
         destination = by_key.get(destination_key)
         if destination is not None and destination is not preference:
             destination.favorite = destination.favorite or preference.favorite
@@ -329,6 +368,14 @@ def migrate_epg_preferences() -> int:
             preference.preference_key = destination_key
             preference.tvg_id = resolved_id
             by_key[destination_key] = preference
+        for channel in channels:
+            channel.preference_key = destination_key
+            channel.tvg_id = resolved_id
+            # Keep imports idempotent after the repair. The same playlist
+            # entry should match this row instead of creating a detached copy.
+            channel.external_key = ChannelEntry(
+                channel.name, "", "", tvg_id=resolved_id, tvg_name=channel.tvg_name
+            ).external_key
         migrated += 1
     return migrated
 
@@ -393,12 +440,19 @@ def parse_m3u(lines):
                 "tvg_id": attributes.get("tvg-id", ""),
                 "tvg_name": attributes.get("tvg-name", ""),
                 "logo_url": attributes.get("tvg-logo", ""),
+                "kind": (
+                    attributes.get("dragon-stream-kind", "")
+                    if attributes.get("dragon-stream-kind", "")
+                    in {"hls", "file", "transport", "stream"}
+                    else ""
+                ),
             }
             continue
         if line.startswith("#"):
             continue
         if pending and line.lower().startswith(("http://", "https://")):
-            yield ChannelEntry(**pending, url=line, kind=classify_stream(line))
+            kind = pending.pop("kind") or classify_stream(line)
+            yield ChannelEntry(**pending, url=line, kind=kind)
             pending = None
 
 
@@ -408,7 +462,7 @@ def friendly_playlist_name(filename: str) -> str:
         stamp = parts[0].replace("FIW_", "").split("_", 1)[0]
         code = parts[1].removesuffix(".m3u")
         try:
-            moment = datetime.fromtimestamp(int(stamp), tz=UTC).strftime("%d %b · %H:%M")
+            moment = datetime.fromtimestamp(int(stamp), tz=timezone.utc).strftime("%d %b · %H:%M")
             return f"Package {code} · {moment}"
         except (OSError, ValueError):
             pass
@@ -522,7 +576,7 @@ class GithubTVSync:
             playlist.source_sha = str(item.get("sha") or "")
             playlist.size_bytes = int(item.get("size") or 0)
             playlist.available = True
-            playlist.discovered_at = datetime.now(UTC)
+            playlist.discovered_at = datetime.now(timezone.utc)
             db.session.flush()
             ids.append(playlist.id)
             if is_new:
@@ -533,7 +587,7 @@ class GithubTVSync:
                 self.pending_ids.append(playlist.id)
         source.status = "healthy"
         source.last_error = ""
-        source.last_tested_at = datetime.now(UTC)
+        source.last_tested_at = datetime.now(timezone.utc)
         db.session.commit()
         query_cache.invalidate()
         return ids
@@ -716,11 +770,11 @@ class GithubTVSync:
             playlist.group_count = stored_groups
             playlist.sync_status = "ready"
             playlist.sync_error = ""
-            playlist.last_synced_at = datetime.now(UTC)
+            playlist.last_synced_at = datetime.now(timezone.utc)
             if playlist.source:
                 playlist.source.status = "healthy"
                 playlist.source.last_error = ""
-                playlist.source.last_success_at = datetime.now(UTC)
+                playlist.source.last_success_at = datetime.now(timezone.utc)
             for auto_enabled_theme in auto_enabled_themes.values():
                 persist_theme_preference(auto_enabled_theme)
             db.session.commit()
@@ -885,7 +939,7 @@ class TVSyncCoordinator:
                 if sync.source_id:
                     source = db.session.get(TVSource, sync.source_id)
                     if source:
-                        source.last_success_at = datetime.now(UTC)
+                        source.last_success_at = datetime.now(timezone.utc)
                         db.session.commit()
                 with self._lock:
                     self._status.update(

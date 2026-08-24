@@ -204,7 +204,7 @@
       <span class="eyebrow">Today’s chess</span><h2 id="chess-today-title">Training queue</h2>
       {% if workspace.chess_training %}<ul class="check-list">{% for puzzle in workspace.chess_training %}<li><span aria-hidden="true">→</span><a href="{{ url_for('chess.puzzle', puzzle_id=puzzle.id) }}">Puzzle {{ puzzle.external_id }} · {{ puzzle.rating }}</a></li>{% endfor %}</ul>{% else %}<p class="muted">No puzzles in the local queue.</p>{% endif %}
     </section>{% endif %}
-    {% if dragon_home_block_visible('favorite_iptv') %}<section class="report-section today-iptv-block" style="order: {{ dragon_home_block_position('favorite_iptv') }}" aria-labelledby="iptv-today-title"><span class="eyebrow">Live favorites</span><h2 id="iptv-today-title">Favorite IPTV</h2><p>Your favorite channels are ready in the live catalogue.</p><a class="button button--secondary" href="{{ url_for('mytv.index') }}">Open My TV</a></section>{% endif %}
+    {% if dragon_home_block_visible('favorite_iptv') %}<section class="report-section today-iptv-block" style="order: {{ dragon_home_block_position('favorite_iptv') }}" aria-labelledby="iptv-today-title"><span class="eyebrow">Live favorites</span><h2 id="iptv-today-title">Favorite IPTV</h2><p>Your favorite channels are ready in the live catalogue.</p><a class="button button--secondary" href="{{ url_for('mytv.index') }}">Open IPTV</a></section>{% endif %}
   </aside>
   <span class="visually-hidden" data-live-announcer aria-live="polite"></span>
 </div>

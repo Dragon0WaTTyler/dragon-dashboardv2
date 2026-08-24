@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
 
@@ -682,6 +682,75 @@ class NotionMovieProvider:
         )
         self.schema(kind=kind, refresh=True)
 
+    def consolidate_movie_completion_status(self) -> bool:
+        """Replace the duplicate Finished option with the single Watched state."""
+        schema = self.schema(kind="movie", refresh=True)
+        definition = schema.get("Status") or {}
+        property_type = str(definition.get("type") or "")
+        if property_type not in {"status", "select"}:
+            return False
+
+        configuration = dict(definition.get(property_type) or {})
+        options = list(configuration.get("options") or [])
+        has_finished = any(
+            str(option.get("name") or "").strip().casefold() == "finished"
+            for option in options
+        )
+        if not has_finished:
+            return False
+
+        watched_option = next(
+            (
+                option
+                for option in options
+                if str(option.get("name") or "").strip().casefold() == "watched"
+            ),
+            None,
+        )
+        if watched_option is None:
+            options.append({"name": "Watched", "color": "green"})
+
+        for page in self._movie_pages_with_status("Finished", property_type):
+            self._request(
+                "PATCH",
+                f"/pages/{str(page.get('id') or '').replace('-', '')}",
+                json={"properties": {"Status": {property_type: {"name": "Watched"}}}},
+            )
+
+        retained_options = [
+            option
+            for option in options
+            if str(option.get("name") or "").strip().casefold() != "finished"
+        ]
+        self._request(
+            "PATCH",
+            f"/data_sources/{self.data_source_id}",
+            json={"properties": {"Status": {property_type: {"options": retained_options}}}},
+        )
+        self.schema(kind="movie", refresh=True)
+        return True
+
+    def _movie_pages_with_status(self, value: str, property_type: str) -> list[dict]:
+        pages = []
+        cursor = None
+        while True:
+            body: dict[str, Any] = {
+                "page_size": 100,
+                "filter": {"property": "Status", property_type: {"equals": value}},
+            }
+            if cursor:
+                body["start_cursor"] = cursor
+            payload = self._request(
+                "POST",
+                f"/data_sources/{self.data_source_id}/query",
+                json=body,
+            )
+            pages.extend(payload.get("results") or [])
+            cursor = payload.get("next_cursor")
+            if not payload.get("has_more") or not cursor:
+                break
+        return [page for page in pages if not page.get("in_trash")]
+
     def movie_score_option_labels(self) -> list[str]:
         definition = self.schema(kind="movie").get("Score /5") or {}
         if definition.get("type") != "select":
@@ -988,7 +1057,7 @@ class NotionMovieProvider:
 
     def mark_watched(self, notion_page_id: str, *, started: bool = False) -> None:
         self.ensure_writeback_schema(kind="movie")
-        now = datetime.now(UTC).isoformat()
+        now = datetime.now(timezone.utc).isoformat()
         values = (
             {"watching history": now, "Status": "Not finished"}
             if started
@@ -996,7 +1065,7 @@ class NotionMovieProvider:
                 "Watched": True,
                 "Date Watched": now,
                 "finishing history": now,
-                "Status": "Finished",
+                "Status": "Watched",
             }
         )
         properties = self._properties(values, kind="movie")
@@ -1030,7 +1099,9 @@ class NotionMovieProvider:
         notion_status = {
             "want_to_watch": "Want to watch",
             "watching": "Not finished",
-            "finished": "Finished",
+            # Notion has one completed state.  Keep accepting the legacy
+            # internal value, but never write a separate "Finished" option.
+            "finished": "Watched",
             "watched": "Watched",
         }.get(status, "Not finished")
         values = {
@@ -1078,7 +1149,7 @@ class NotionMovieProvider:
                 "finished": "Finished",
                 "watched": "Watched",
             }.get(status, "Watching"),
-            "Last Synced": datetime.now(UTC).date().isoformat(),
+            "Last Synced": datetime.now(timezone.utc).date().isoformat(),
         }
         return self._properties(values, kind="tv_show")
 
@@ -1108,7 +1179,7 @@ class NotionMovieProvider:
             "Fallback Season Pack Magnet": (existing or {}).get("fallback_magnet"),
             "Release Title": (existing or {}).get("release_title"),
             "Release Mode": (existing or {}).get("release_mode"),
-            "Last Synced": datetime.now(UTC).date().isoformat(),
+            "Last Synced": datetime.now(timezone.utc).date().isoformat(),
         }
         return self._properties(values, kind="tv_episode")
 
@@ -1486,7 +1557,9 @@ def _notion_status(value: Any) -> str:
         "want to watch": "want_to_watch",
         "not finished": "watching",
         "watching": "watching",
-        "finished": "finished",
+        # Older rows may still use "Finished"; treat them as the single
+        # current completed state while subsequent writes normalize to Watched.
+        "finished": "watched",
         "watched": "watched",
     }.get(normalized, "unknown")
 

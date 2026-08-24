@@ -5,6 +5,7 @@ import re
 from sqlalchemy import func, or_
 
 from app.extensions import db
+from app.youtube.grouping import ordered_groups
 from app.youtube.models import YouTubeVideo
 
 
@@ -103,7 +104,7 @@ class YouTubeRepository:
             .group_by(YouTubeVideo.group_name)
             .order_by(YouTubeVideo.group_name)
         )
-        return [{"name": name, "count": count} for name, count in rows]
+        return ordered_groups([{"name": name, "count": count} for name, count in rows])
 
 
 def _group_key(value: str) -> str:

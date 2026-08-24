@@ -7,6 +7,7 @@ import shutil
 import socket
 import subprocess
 import threading
+import time
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -17,6 +18,11 @@ from flask import Response, current_app, request, stream_with_context, url_for
 from itsdangerous import BadSignature, URLSafeTimedSerializer
 
 URI_ATTRIBUTE_RE = re.compile(r'URI="([^"]+)"')
+MEDIA_SEQUENCE_RE = re.compile(r"^(\s*#EXT-X-MEDIA-SEQUENCE:)(\d+)(\s*)$")
+DISCONTINUITY_SEQUENCE_RE = re.compile(r"^(\s*#EXT-X-DISCONTINUITY-SEQUENCE:)(\d+)(\s*)$")
+LIVE_PLAYLIST_SEGMENT_LIMIT = 12
+UPSTREAM_OPEN_ATTEMPTS = 3
+RETRYABLE_UPSTREAM_STATUS_CODES = {408, 429, 500, 502, 503, 504}
 _transcode_lock = threading.Lock()
 _transcode_semaphore: threading.BoundedSemaphore | None = None
 _transcode_limit = 0
@@ -79,24 +85,46 @@ def _open_upstream(
     if request.headers.get("Range"):
         headers["Range"] = request.headers["Range"]
 
-    current_url = url
-    for _ in range(4):
-        validate_stream_url(current_url, allow_private=allow_private)
-        response = requests.get(
-            current_url,
-            headers=headers,
-            stream=True,
-            allow_redirects=False,
-            timeout=(current_app.config["MYTV_HTTP_TIMEOUT"], 45),
-        )
-        if response.status_code not in {301, 302, 303, 307, 308}:
-            return response, current_url
-        location = response.headers.get("Location")
-        response.close()
-        if not location:
-            raise requests.RequestException("Stream redirect did not include a location")
-        current_url = urljoin(current_url, location)
-    raise requests.TooManyRedirects("The stream redirected too many times")
+    connect_timeout = max(1, int(current_app.config.get("MYTV_HTTP_TIMEOUT", 15)))
+    last_error: requests.RequestException | None = None
+    for attempt in range(UPSTREAM_OPEN_ATTEMPTS):
+        current_url = url
+        try:
+            for _ in range(4):
+                validate_stream_url(current_url, allow_private=allow_private)
+                response = requests.get(
+                    current_url,
+                    headers=headers,
+                    stream=True,
+                    allow_redirects=False,
+                    timeout=(connect_timeout, 45),
+                )
+                if response.status_code not in {301, 302, 303, 307, 308}:
+                    if (
+                        response.status_code in RETRYABLE_UPSTREAM_STATUS_CODES
+                        and attempt < UPSTREAM_OPEN_ATTEMPTS - 1
+                    ):
+                        response.close()
+                        time.sleep(0.25 * (attempt + 1))
+                        break
+                    return response, current_url
+                location = response.headers.get("Location")
+                response.close()
+                if not location:
+                    raise requests.RequestException(
+                        "Stream redirect did not include a location"
+                    )
+                current_url = urljoin(current_url, location)
+            else:
+                raise requests.TooManyRedirects("The stream redirected too many times")
+        except (requests.RequestException, OSError) as error:
+            last_error = error
+            if attempt == UPSTREAM_OPEN_ATTEMPTS - 1:
+                raise
+            time.sleep(0.25 * (attempt + 1))
+    if last_error is not None:  # pragma: no cover - loop exits through raise/return
+        raise last_error
+    raise requests.RequestException("The stream could not be opened")
 
 
 def _serializer() -> URLSafeTimedSerializer:
@@ -114,6 +142,71 @@ def read_resource_token(token: str) -> str:
         raise UnsafeStreamUrl("The playback link is invalid or expired") from error
 
 
+def _trim_live_playlist(lines: list[str]) -> list[str]:
+    """Keep HLS media playlists small enough to start promptly in the browser."""
+    # Byte ranges can be implicit: the offset of a range may depend on the
+    # discarded segment before it.  Keep those playlists intact rather than
+    # producing a fast-start manifest that points at the wrong bytes.
+    if any(line.strip().startswith("#EXT-X-BYTERANGE:") for line in lines):
+        return lines
+    segment_starts = [
+        index for index, line in enumerate(lines) if line.strip().startswith("#EXTINF:")
+    ]
+    if len(segment_starts) <= LIVE_PLAYLIST_SEGMENT_LIMIT:
+        return lines
+
+    first_segment = segment_starts[0]
+    kept_segment = segment_starts[-LIVE_PLAYLIST_SEGMENT_LIMIT]
+    skipped_segments = len(segment_starts) - LIVE_PLAYLIST_SEGMENT_LIMIT
+    header = lines[:first_segment]
+    for index, line in enumerate(header):
+        match = MEDIA_SEQUENCE_RE.match(line)
+        if match:
+            sequence = int(match.group(2)) + skipped_segments
+            header[index] = f"{match.group(1)}{sequence}{match.group(3)}"
+            break
+
+    # A discontinuity before a discarded segment still counts toward the
+    # sequence expected by a player for the first segment we keep.
+    skipped_discontinuities = sum(
+        line.strip() == "#EXT-X-DISCONTINUITY"
+        for line in lines[first_segment:kept_segment]
+    )
+    if skipped_discontinuities:
+        for index, line in enumerate(header):
+            match = DISCONTINUITY_SEQUENCE_RE.match(line)
+            if match:
+                sequence = int(match.group(2)) + skipped_discontinuities
+                header[index] = f"{match.group(1)}{sequence}{match.group(3)}"
+                break
+
+    previous_segment = segment_starts[skipped_segments - 1]
+    previous_uri = previous_segment
+    for index in range(previous_segment + 1, kept_segment):
+        candidate = lines[index].strip()
+        if candidate and not candidate.startswith("#"):
+            previous_uri = index
+            break
+    prelude = lines[previous_uri + 1 : kept_segment]
+
+    # KEY and MAP carry state across segments. If their most recent update is
+    # in discarded material, reproduce it before the first retained segment.
+    stateful_prefixes = ("#EXT-X-KEY:", "#EXT-X-MAP:")
+    latest_state: dict[str, tuple[int, str]] = {}
+    for index, line in enumerate(lines[:kept_segment]):
+        stripped = line.strip()
+        for prefix in stateful_prefixes:
+            if stripped.startswith(prefix):
+                latest_state[prefix] = (index, line)
+                break
+    carry_state = [
+        line
+        for index, line in sorted(latest_state.values())
+        if first_segment <= index < previous_uri + 1
+    ]
+    return [*header, *carry_state, *prelude, *lines[kept_segment:]]
+
+
 def rewrite_hls_manifest(text: str, manifest_url: str) -> str:
     output: list[str] = []
 
@@ -122,7 +215,7 @@ def rewrite_hls_manifest(text: str, manifest_url: str) -> str:
         token = make_resource_token(absolute)
         return url_for("mytv.hls_resource", token=token, _external=False)
 
-    for line in text.splitlines():
+    for line in _trim_live_playlist(text.splitlines()):
         stripped = line.strip()
         if not stripped:
             output.append(line)

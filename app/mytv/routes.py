@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import math
 import secrets
 import threading
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import click
 import requests
-from flask import Blueprint, abort, current_app, jsonify, render_template, request
+from flask import Blueprint, abort, current_app, jsonify, redirect, render_template, request
 from flask_login import login_required
 from sqlalchemy import case, delete, func, not_, or_, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -45,7 +46,7 @@ from app.mytv.streaming import (
 )
 from app.services.streaming import UnsafeStreamUrl, proxy_stream, read_resource_token
 
-bp = Blueprint("mytv", __name__, url_prefix="/my-tv")
+bp = Blueprint("mytv", __name__, url_prefix="/iptv")
 PLAYBACK_CANDIDATE_LIMIT = 3
 _BULK_UNDO_TTL = timedelta(seconds=20)
 _bulk_undo_lock = threading.Lock()
@@ -82,7 +83,7 @@ def _health_payload() -> dict:
     }
     latest = db.session.scalar(select(func.max(TVChannelHealth.checked_at)))
     if latest is not None and latest.tzinfo is None:
-        latest = latest.replace(tzinfo=UTC)
+        latest = latest.replace(tzinfo=timezone.utc)
     checked = counts.get("online", 0) + counts.get("offline", 0)
     return {
         **health_coordinator.status(),
@@ -92,7 +93,7 @@ def _health_payload() -> dict:
         "last_checked_at": latest.isoformat() if latest else None,
         "needs_check": checked == 0
         or latest is None
-        or latest < datetime.now(UTC) - timedelta(hours=10),
+        or latest < datetime.now(timezone.utc) - timedelta(hours=10),
     }
 
 
@@ -118,7 +119,7 @@ def _last_channel_payload() -> dict | None:
     channel = row[0]
     watched_at = row.last_watched_at
     if watched_at is not None and watched_at.tzinfo is None:
-        watched_at = watched_at.replace(tzinfo=UTC)
+        watched_at = watched_at.replace(tzinfo=timezone.utc)
     return {
         "id": channel.id,
         "name": channel.name,
@@ -533,7 +534,7 @@ def channels():
             channel = row[0]
             watched_at = row.last_watched_at
             if watched_at is not None and watched_at.tzinfo is None:
-                watched_at = watched_at.replace(tzinfo=UTC)
+                watched_at = watched_at.replace(tzinfo=timezone.utc)
             items.append(
                 {
                     "id": channel.id,
@@ -650,12 +651,12 @@ def bulk_group_channels(theme_id: int):
         expired = [
             token
             for token, snapshot in _bulk_undo.items()
-            if snapshot["expires_at"] <= datetime.now(UTC)
+            if snapshot["expires_at"] <= datetime.now(timezone.utc)
         ]
         for token in expired:
             _bulk_undo.pop(token, None)
         _bulk_undo[undo_token] = {
-            "expires_at": datetime.now(UTC) + _BULK_UNDO_TTL,
+            "expires_at": datetime.now(timezone.utc) + _BULK_UNDO_TTL,
             "theme_id": theme.id,
             "channel_policy": theme.channel_policy,
             "overrides": previous_overrides,
@@ -693,7 +694,7 @@ def undo_bulk_group_channels(theme_id: int):
     if (
         snapshot is None
         or snapshot["theme_id"] != theme_id
-        or snapshot["expires_at"] <= datetime.now(UTC)
+        or snapshot["expires_at"] <= datetime.now(timezone.utc)
     ):
         abort(409, "This undo has expired.")
     theme = db.session.get(TVTheme, theme_id)
@@ -764,7 +765,18 @@ def update_channel_favorite(channel_id: int):
     channel = db.session.get(TVChannel, channel_id)
     if channel is None:
         abort(404)
-    _upsert_channel_preference(channel, favorite=payload["favorite"])
+    # A favorite is a promise that the channel is ready from the Watch view.
+    # Keep it playable even when its broader bouquet is intentionally off.
+    # Without this override, a favorite in (for example) the Arabic bouquet
+    # stayed visible but its Play button was disabled.
+    enabled_override = True if payload["favorite"] else "unchanged"
+    if enabled_override is True:
+        channel.enabled_override = True
+    _upsert_channel_preference(
+        channel,
+        favorite=payload["favorite"],
+        enabled_override=enabled_override,
+    )
     db.session.commit()
     query_cache.invalidate()
     if (
@@ -840,32 +852,94 @@ def start_epg_refresh():
     return jsonify({"ok": True, "epg": epg_status_payload()}), 202
 
 
-@bp.get("/api/channels/<int:channel_id>/playback")
-@login_required
-def playback_info(channel_id: int):
-    channel = _playable_channel(channel_id)
-    source_count = len(_playback_candidates(channel))
+def _playback_payload(channel: TVChannel) -> dict:
+    candidates = _playback_candidates(channel)
+    source_count = len(candidates)
+    delivery_kind = candidates[0].stream_kind if candidates else channel.stream_kind
+    direct_favorite = bool(
+        current_app.config.get("DRAGON_MYTV_DIRECT_FAVORITES")
+        and db.session.scalar(
+            select(TVChannelPreference.favorite).where(
+                TVChannelPreference.preference_key == channel.preference_key
+            )
+        )
+    )
     startup_timeout_seconds = min(
         60, max(20, source_count * STREAM_START_TIMEOUT_SECONDS + 4)
     )
-    return jsonify(
-        {
-            "id": channel.id,
-            "name": channel.name,
-            "logo_url": channel.logo_url,
-            "mode": "native" if channel.stream_kind == "file" else "transcode",
-            "url": f"/my-tv/play/{channel.id}",
-            "source_count": source_count,
-            "startup_timeout_seconds": startup_timeout_seconds,
-            "capabilities": {
-                "live": True,
-                "seek": False,
-                "quality_selection": False,
-                "audio_track_selection": False,
-                "subtitle_selection": False,
-            },
-        }
+    return {
+        "id": channel.id,
+        "name": channel.name,
+        "logo_url": channel.logo_url,
+        # HLS normally uses an authenticated, rewritten manifest. Favorite
+        # channels may instead be handed directly to the viewer's device
+        # when the host cannot reach their provider.
+        "mode": (
+            "hls"
+            if delivery_kind == "hls"
+            else "native"
+            if direct_favorite or delivery_kind == "file"
+            else "transcode"
+        ),
+        "url": (
+            f"/iptv/direct/{channel.id}"
+            if direct_favorite
+            else f"/iptv/play/{channel.id}"
+        ),
+        "delivery": "direct" if direct_favorite else "proxy",
+        "source_count": source_count,
+        "startup_timeout_seconds": startup_timeout_seconds,
+        "capabilities": {
+            "live": True,
+            "seek": False,
+            "quality_selection": False,
+            "audio_track_selection": False,
+            "subtitle_selection": False,
+        },
+    }
+
+
+@bp.get("/api/channels/<int:channel_id>/playback")
+@login_required
+def playback_info(channel_id: int):
+    return jsonify(_playback_payload(_playable_channel(channel_id)))
+
+
+@bp.post("/api/channels/<int:channel_id>/playback/failover")
+@login_required
+def playback_failover(channel_id: int):
+    """Quarantine a source that failed after HLS startup and pick the next one."""
+    channel = _playable_channel(channel_id)
+    candidates = _playback_candidates(channel)
+    if len(candidates) < 2:
+        abort(409, "No alternate source is available for this channel.")
+    mark_stream_failure(candidates[0].stream_url)
+    query_cache.invalidate()
+    return jsonify(_playback_payload(channel))
+
+
+@bp.get("/direct/<int:channel_id>")
+@login_required
+def direct(channel_id: int):
+    """Redirect an eligible favorite to its provider without proxying media."""
+    if not current_app.config.get("DRAGON_MYTV_DIRECT_FAVORITES"):
+        abort(404)
+    channel = _playable_channel(channel_id)
+    favorite = db.session.scalar(
+        select(TVChannelPreference.favorite).where(
+            TVChannelPreference.preference_key == channel.preference_key
+        )
     )
+    if not favorite:
+        abort(403, "Direct playback is available for favorite channels only.")
+    candidates = _playback_candidates(channel)
+    if not candidates:
+        abort(502, "No direct source is available for this channel.")
+    destination = candidates[0].stream_url
+    _record_channel_watch(channel, source_url=destination)
+    db.session.commit()
+    query_cache.invalidate()
+    return redirect(destination, code=302)
 
 
 @bp.get("/play/<int:channel_id>")
@@ -880,6 +954,8 @@ def play(channel_id: int):
             response = (
                 proxy_file(candidate.stream_url)
                 if candidate.stream_kind == "file"
+                else proxy_stream(candidate.stream_url, force_manifest=True)
+                if candidate.stream_kind == "hls"
                 else transcode_stream(candidate.stream_url)
             )
         except (StreamUnavailable, requests.RequestException, OSError):
@@ -898,7 +974,7 @@ def play(channel_id: int):
             online=True,
             source_url=candidate.stream_url,
         )
-        _record_channel_watch(channel)
+        _record_channel_watch(channel, source_url=candidate.stream_url)
         db.session.commit()
         query_cache.invalidate()
         response.headers["X-Dragon-TV-Source-Attempt"] = str(attempt)
@@ -941,22 +1017,26 @@ def _playback_candidates(channel: TVChannel) -> list[TVChannel]:
             .limit(50)
         )
     )
-    # A user-managed source is an explicit replacement.  Keep catalogue entries
-    # as fallbacks only when no such replacement exists for the logical channel.
-    rows = [
-        item
-        for item, protected in candidate_rows
-        if protected is False
-    ]
-    if not rows:
-        rows = [item for item, _protected in candidate_rows]
-    unique: dict[str, TVChannel] = {}
-    for item in rows:
-        unique.setdefault(item.stream_url, item)
+    # Prefer user-managed and verified sources, but never discard the catalogue
+    # copies. Live providers fail after startup often enough that a logical
+    # channel needs every distinct source available for late failover.
+    unique: dict[str, tuple[TVChannel, bool | None]] = {}
+    for item, protected in candidate_rows:
+        unique.setdefault(item.stream_url, (item, protected))
+    preference = db.session.get(TVChannelPreference, channel.preference_key)
+    preferred_fingerprint = (
+        preference.preferred_source_fingerprint if preference is not None else ""
+    )
     return sorted(
-        unique.values(),
+        (item for item, _protected in unique.values()),
         key=lambda item: (
             stream_failure_penalty(item.stream_url),
+            0
+            if preferred_fingerprint
+            and hashlib.sha256(item.stream_url.encode("utf-8", "ignore")).hexdigest()
+            == preferred_fingerprint
+            else 1,
+            0 if unique[item.stream_url][1] is False else 1,
             0 if item.id == channel.id else 1,
             -item.id,
         ),
@@ -1024,9 +1104,9 @@ def _upsert_channel_preference(
     )
 
 
-def _record_channel_watch(channel: TVChannel) -> None:
+def _record_channel_watch(channel: TVChannel, *, source_url: str = "") -> None:
     theme = channel.group.theme
-    now = datetime.now(UTC)
+    now = datetime.now(timezone.utc)
     statement = sqlite_insert(TVChannelPreference).values(
         preference_key=channel.preference_key,
         theme_key=theme.key,
@@ -1037,6 +1117,11 @@ def _record_channel_watch(channel: TVChannel) -> None:
         favorite=False,
         last_watched_at=now,
         watch_count=1,
+        preferred_source_fingerprint=(
+            hashlib.sha256(source_url.encode("utf-8", "ignore")).hexdigest()
+            if source_url
+            else ""
+        ),
     )
     db.session.execute(
         statement.on_conflict_do_update(
@@ -1047,6 +1132,13 @@ def _record_channel_watch(channel: TVChannel) -> None:
                 "logo_url": statement.excluded.logo_url,
                 "last_watched_at": now,
                 "watch_count": TVChannelPreference.watch_count + 1,
+                **(
+                    {
+                        "preferred_source_fingerprint": statement.excluded.preferred_source_fingerprint
+                    }
+                    if source_url
+                    else {}
+                ),
             },
         )
     )

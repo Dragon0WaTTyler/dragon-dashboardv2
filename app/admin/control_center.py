@@ -83,7 +83,7 @@ SECTIONS: tuple[SectionDefinition, ...] = (
     ),
     SectionDefinition(
         "mytv",
-        "My TV",
+        "IPTV",
         "Live channel packages and local playback controls.",
         "mytv.index",
         "tv_channels",
@@ -94,6 +94,15 @@ SECTIONS: tuple[SectionDefinition, ...] = (
             ("name", "Channel name"),
             ("recent", "Recently added"),
         ),
+    ),
+    SectionDefinition(
+        "personal_tv",
+        "My TV",
+        "Personal television sessions programmed from your connected media.",
+        "personal_tv.index",
+        "personal_tv_sessions",
+        default_views=(("program", "Program"), ("session", "Current session")),
+        default_sorts=(("recent", "Most recent"),),
     ),
     SectionDefinition(
         "youtube",

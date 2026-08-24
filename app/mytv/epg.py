@@ -6,7 +6,7 @@ import re
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import BinaryIO
 from urllib.parse import urljoin
 
@@ -35,6 +35,8 @@ class EPGSource:
     name: str
     url: str
     countries: frozenset[str] = frozenset()
+    kind: str = "xmltv"
+    match_by_name: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,31 +61,37 @@ DEFAULT_SOURCES = (
         "EPGshare Arabia",
         "https://epgshare01.online/epgshare01/epg_ripper_AE1.xml.gz",
         frozenset({"ae", "qa", "sa"}),
+        match_by_name=False,
     ),
     EPGSource(
-        "EPGshare Morocco",
+        "EPGshare Belgium",
         "https://epgshare01.online/epgshare01/epg_ripper_BE2.xml.gz",
-        frozenset({"ma"}),
+        frozenset({"be"}),
+        match_by_name=False,
     ),
     EPGSource(
         "EPGshare Czechia",
         "https://epgshare01.online/epgshare01/epg_ripper_CZ1.xml.gz",
         frozenset({"cz", "czechia"}),
+        match_by_name=False,
     ),
     EPGSource(
         "EPGshare United Kingdom",
         "https://epgshare01.online/epgshare01/epg_ripper_UK1.xml.gz",
         frozenset({"uk"}),
+        match_by_name=False,
     ),
     EPGSource(
         "EPGshare United States",
         "https://epgshare01.online/epgshare01/epg_ripper_US2.xml.gz",
         frozenset({"us"}),
+        match_by_name=False,
     ),
     EPGSource(
         "EPGshare Germany",
         "https://epgshare01.online/epgshare01/epg_ripper_DE1.xml.gz",
         frozenset({"de", "dach"}),
+        match_by_name=False,
     ),
     EPGSource(
         "Plex guide", "https://i.mjh.nz/Plex/us.xml", frozenset({"plex.us"})
@@ -98,7 +106,39 @@ DEFAULT_SOURCES = (
         "https://i.mjh.nz/SamsungTVPlus/us.xml",
         frozenset({"samsungtvplus.us"}),
     ),
+    EPGSource(
+        "Samsung TV Plus United Kingdom guide",
+        "https://i.mjh.nz/SamsungTVPlus/gb.xml",
+        frozenset({"samsungtvplus.gb"}),
+    ),
+    EPGSource(
+        "Pluto TV United Kingdom guide",
+        "https://i.mjh.nz/PlutoTV/gb.xml",
+        frozenset({"plutotv.gb"}),
+    ),
+    EPGSource(
+        "Pluto TV United States guide",
+        "https://i.mjh.nz/PlutoTV/us.xml",
+        frozenset({"plutotv.us"}),
+    ),
+    # These providers expose an authoritative JSON schedule rather than a
+    # public XMLTV file.  They are intentionally narrow: only IDs that have
+    # been verified against the provider are requested below.
+    EPGSource("Distro TV guide", "", frozenset({"distro.tv"}), "distro"),
+    EPGSource("MTS guide", "", frozenset({"mts.rs"}), "mts"),
 )
+
+DISTRO_CHANNEL_IDS = {
+    "discoveringchina@distro.tv": "143733",
+}
+MTS_CHANNEL_IDS = {
+    "rtdocumentary@mts.rs": "rt_documentary",
+}
+DISTRO_HEADERS = {
+    "User-Agent": "Dragon-EPG/1.0",
+    "Referer": "https://distro.tv/",
+    "Origin": "https://distro.tv",
+}
 
 _QUALITY_TOKENS = {
     "1080p",
@@ -118,12 +158,60 @@ _QUALITY_TOKENS = {
     "blocked",
 }
 _REGION_TOKENS = {"cz", "czech", "czechia", "dach"}
-_COUNTRY_RE = re.compile(r"\.([a-z]{2})(?:@|$)", re.IGNORECASE)
+# Some aggregators use a provider suffix such as ``.us2``. It still denotes
+# the country source family and should select the US guide.
+_COUNTRY_RE = re.compile(r"\.([a-z]{2})(?:\d+)?(?:@|$)", re.IGNORECASE)
 _SPACE_RE = re.compile(r"\s+")
 
 
 class EPGSyncError(RuntimeError):
     pass
+
+
+def _coverage_for_channels(
+    programmes: Iterable[ParsedProgramme | TVProgramme],
+    channels: Iterable[FavoriteChannel],
+    *,
+    now: datetime,
+) -> dict[str, dict[str, object]]:
+    """Describe whether each channel has a usable present and future guide."""
+
+    by_channel: dict[str, list[ParsedProgramme | TVProgramme]] = {}
+    for programme in programmes:
+        by_channel.setdefault(programme.tvg_id, []).append(programme)
+
+    result: dict[str, dict[str, object]] = {}
+    for channel in channels:
+        rows = by_channel.get(channel.tvg_id, [])
+        if not rows:
+            result[channel.tvg_id] = {
+                "state": "missing",
+                "programme_count": 0,
+                "coverage_hours": 0,
+                "first_program_start": None,
+                "last_program_stop": None,
+                "downloaded_at": None,
+                "source": "",
+            }
+            continue
+
+        starts = [_aware(row.starts_at) for row in rows]
+        stops = [_aware(row.ends_at) for row in rows]
+        fetched = [_aware(row.fetched_at) for row in rows if hasattr(row, "fetched_at")]
+        active = any(start <= now < stop for start, stop in zip(starts, stops, strict=True))
+        last_stop = max(stops)
+        coverage_hours = max(0, round((last_stop - now).total_seconds() / 3600, 1))
+        state = "healthy" if active and coverage_hours >= 24 else "degraded" if active else "stale"
+        result[channel.tvg_id] = {
+            "state": state,
+            "programme_count": len(rows),
+            "coverage_hours": coverage_hours,
+            "first_program_start": min(starts),
+            "last_program_stop": last_stop,
+            "downloaded_at": max(fetched) if fetched else None,
+            "source": str(rows[0].source),
+        }
+    return result
 
 
 def _ambiguous_schedule_ids(
@@ -161,7 +249,7 @@ def _ambiguous_schedule_ids(
 
 def _aware(value: datetime | None) -> datetime | None:
     if value is not None and value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
+        return value.replace(tzinfo=timezone.utc)
     return value
 
 
@@ -208,12 +296,12 @@ def _xmltv_datetime(value: str) -> datetime:
     digits, offset = match.groups()
     if len(digits) == 12:
         digits += "00"
-    parsed = datetime.strptime(digits, "%Y%m%d%H%M%S").replace(tzinfo=UTC)
+    parsed = datetime.strptime(digits, "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
     if not offset or offset == "Z":
         return parsed
     sign = 1 if offset[0] == "+" else -1
     delta = timedelta(hours=int(offset[1:3]), minutes=int(offset[3:5]))
-    return (parsed - sign * delta).astimezone(UTC)
+    return (parsed - sign * delta).astimezone(timezone.utc)
 
 
 def _local_tag(tag: str) -> str:
@@ -234,6 +322,7 @@ def parse_xmltv(
     *,
     source: str,
     now: datetime | None = None,
+    match_by_name: bool = True,
 ) -> tuple[list[ParsedProgramme], set[str]]:
     """Stream an XMLTV document and retain only a favorite channel's useful window."""
 
@@ -251,7 +340,7 @@ def parse_xmltv(
         if tag == "channel":
             source_id = str(element.attrib.get("id") or "").strip()
             favorite = exact_ids.get(source_id.casefold()) or base_ids.get(source_id.casefold())
-            if favorite is None:
+            if favorite is None and match_by_name:
                 labels = [source_id]
                 labels.extend(
                     _SPACE_RE.sub(" ", "".join(child.itertext())).strip()
@@ -293,6 +382,190 @@ def parse_xmltv(
     return programmes, {favorite.tvg_id for favorite in channel_map.values()}
 
 
+def _parse_iso_datetime(value: object) -> datetime:
+    """Parse the ISO-8601 timestamps returned by a live guide provider."""
+
+    parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    return _aware(parsed) or parsed.replace(tzinfo=timezone.utc)
+
+
+def _provider_json(
+    session: requests.Session,
+    url: str,
+    *,
+    timeout: int,
+    params: dict[str, object] | None = None,
+    headers: dict[str, str] | None = None,
+) -> dict[str, object]:
+    """Fetch a fixed, public provider endpoint without accepting redirects."""
+
+    validate_stream_url(url)
+    response = session.get(
+        url,
+        params=params,
+        headers=headers,
+        allow_redirects=False,
+        timeout=(timeout, max(60, timeout * 6)),
+    )
+    try:
+        if response.status_code != 200:
+            raise EPGSyncError(f"Live guide returned HTTP {response.status_code}.")
+        payload = response.json()
+    finally:
+        response.close()
+    if not isinstance(payload, dict):
+        raise EPGSyncError("Live guide returned an invalid response.")
+    return payload
+
+
+def _distro_programmes(
+    session: requests.Session,
+    favorites: list[FavoriteChannel],
+    *,
+    source: str,
+    now: datetime,
+    timeout: int,
+) -> tuple[list[ParsedProgramme], set[str]]:
+    programmes: list[ParsedProgramme] = []
+    matched: set[str] = set()
+    for favorite in favorites:
+        channel_id = DISTRO_CHANNEL_IDS.get(favorite.tvg_id.casefold())
+        if not channel_id:
+            continue
+        matched.add(favorite.tvg_id)
+        payload = _provider_json(
+            session,
+            "https://tv.jsrdn.com/epg/query.php",
+            timeout=timeout,
+            params={"range": "now,48h", "id": f"{channel_id},"},
+            headers=DISTRO_HEADERS,
+        )
+        epg = payload.get("epg")
+        slots = epg.get(channel_id, {}).get("slots", []) if isinstance(epg, dict) else []
+        if not isinstance(slots, list):
+            continue
+        for item in slots:
+            if not isinstance(item, dict):
+                continue
+            try:
+                starts_at = datetime.strptime(
+                    str(item.get("start") or ""), "%Y-%m-%d %H:%M:%S"
+                ).replace(tzinfo=timezone.utc)
+                ends_at = datetime.strptime(
+                    str(item.get("end") or ""), "%Y-%m-%d %H:%M:%S"
+                ).replace(tzinfo=timezone.utc)
+            except ValueError:
+                continue
+            if (
+                ends_at < now - timedelta(hours=6)
+                or starts_at > now + timedelta(hours=EPG_WINDOW_HOURS)
+            ):
+                continue
+            title = str(item.get("title") or "").strip()
+            if title:
+                programmes.append(
+                    ParsedProgramme(
+                        tvg_id=favorite.tvg_id,
+                        title=title[:600],
+                        subtitle="",
+                        description=str(item.get("description") or "")[:4000],
+                        starts_at=starts_at,
+                        ends_at=ends_at,
+                        source=source,
+                    )
+                )
+    return programmes, matched
+
+
+def _mts_programmes(
+    session: requests.Session,
+    favorites: list[FavoriteChannel],
+    *,
+    source: str,
+    now: datetime,
+    timeout: int,
+) -> tuple[list[ParsedProgramme], set[str]]:
+    programmes: list[ParsedProgramme] = []
+    matched: set[str] = set()
+    endpoint = "https://mts.rs/hybris/ecommerce/b2c/v1/products/search"
+    for favorite in favorites:
+        channel_id = MTS_CHANNEL_IDS.get(favorite.tvg_id.casefold())
+        if not channel_id:
+            continue
+        matched.add(favorite.tvg_id)
+        # MTS's guide begins at 02:00 UTC. Include yesterday so the current
+        # slot is not falsely marked stale during the early-morning gap.
+        for offset in (-1, 0, 1):
+            day = (now + timedelta(days=offset)).date().isoformat()
+            payload = _provider_json(
+                session,
+                endpoint,
+                timeout=timeout,
+                params={
+                    "sort": "pozicija-rastuce",
+                    "searchQueryContext": "CHANNEL_PROGRAM",
+                    "query": (
+                        ":pozicija-rastuce:tip-kanala-radio:TV kanali:"
+                        f"channelProgramDates:{day}:code:{channel_id}"
+                    ),
+                    "pageSize": 50,
+                },
+            )
+            products = payload.get("products")
+            if not isinstance(products, list):
+                continue
+            for product in products:
+                if not isinstance(product, dict) or product.get("code") != channel_id:
+                    continue
+                entries = product.get("programs")
+                if not isinstance(entries, list):
+                    continue
+                for item in entries:
+                    if not isinstance(item, dict):
+                        continue
+                    try:
+                        starts_at = _parse_iso_datetime(item.get("start"))
+                        ends_at = _parse_iso_datetime(item.get("end"))
+                    except (TypeError, ValueError):
+                        continue
+                    if (
+                        ends_at < now - timedelta(hours=6)
+                        or starts_at > now + timedelta(hours=EPG_WINDOW_HOURS)
+                    ):
+                        continue
+                    title = str(item.get("title") or "").strip()
+                    if title:
+                        programmes.append(
+                            ParsedProgramme(
+                                tvg_id=favorite.tvg_id,
+                                title=title[:600],
+                                subtitle="",
+                                description=str(item.get("description") or "")[:4000],
+                                starts_at=starts_at,
+                                ends_at=ends_at,
+                                source=source,
+                            )
+                        )
+    return programmes, matched
+
+
+def _provider_programmes(
+    session: requests.Session,
+    source: EPGSource,
+    favorites: list[FavoriteChannel],
+    *,
+    now: datetime,
+    timeout: int,
+) -> tuple[list[ParsedProgramme], set[str]]:
+    if source.kind == "distro":
+        return _distro_programmes(
+            session, favorites, source=source.name, now=now, timeout=timeout
+        )
+    if source.kind == "mts":
+        return _mts_programmes(session, favorites, source=source.name, now=now, timeout=timeout)
+    raise EPGSyncError(f"Unknown live guide provider: {source.name}.")
+
+
 def _selected_sources(favorites: list[FavoriteChannel]) -> tuple[EPGSource, ...]:
     configured = str(current_app.config.get("DRAGON_TV_EPG_URLS") or "").strip()
     if configured:
@@ -315,10 +588,31 @@ def _selected_sources(favorites: list[FavoriteChannel]) -> tuple[EPGSource, ...]
         for source in DEFAULT_SOURCES
         if source.countries.intersection(countries | feeds)
         or (source.name == "Plex guide" and "plex" in favorite_ids)
-        or (source.name == "Pluto TV Germany guide" and "plutotv" in favorite_ids)
-        or (source.name == "Samsung TV Plus guide" and "samsungtvplus" in favorite_ids)
+        or (source.name.startswith("Pluto TV") and "plutotv" in favorite_ids)
+        or (source.name.startswith("Samsung TV Plus") and "samsungtvplus" in favorite_ids)
     ]
     return tuple(selected)
+
+
+def _favorites_for_source(
+    source: EPGSource, favorites: list[FavoriteChannel]
+) -> list[FavoriteChannel]:
+    """Keep same-named Pluto regional feeds from competing for one alias."""
+
+    pluto_regions = {
+        "Pluto TV Germany guide": {"dach", "de"},
+        "Pluto TV United Kingdom guide": {"gb", "uk"},
+        "Pluto TV United States guide": {"us"},
+    }
+    regions = pluto_regions.get(source.name)
+    if regions is None:
+        return favorites
+    return [
+        favorite
+        for favorite in favorites
+        if "plutotv" in favorite.tvg_id.casefold()
+        and any(favorite.tvg_id.casefold().endswith(f"@{region}") for region in regions)
+    ]
 
 
 def _public_response(session: requests.Session, url: str, *, timeout: int):
@@ -393,6 +687,7 @@ class EPGSyncService:
     def sync(self, *, tvg_ids: set[str] | None = None) -> dict[str, int | str]:
         favorites = self.favorites(tvg_ids)
         targeted = tvg_ids is not None
+        now = utc_now()
         state = db.session.get(TVEPGState, 1) or TVEPGState(id=1)
         db.session.add(state)
         state.status = "running"
@@ -424,32 +719,71 @@ class EPGSyncService:
 
         for source in sources:
             source_error: Exception | None = None
+            source_favorites = _favorites_for_source(source, favorites)
+            if not source_favorites:
+                continue
             for _attempt in range(2):
                 response = None
                 try:
-                    response = _public_response(
-                        self.session, source.url, timeout=self.timeout_seconds
-                    )
-                    if response.status_code != 200:
-                        raise EPGSyncError(
-                            f"{source.name} returned HTTP {response.status_code}."
+                    if source.kind == "xmltv":
+                        response = _public_response(
+                            self.session, source.url, timeout=self.timeout_seconds
                         )
-                    length = int(response.headers.get("Content-Length") or 0)
-                    if length > MAX_SOURCE_BYTES:
-                        raise EPGSyncError(f"{source.name} exceeds the guide size limit.")
-                    raw = response.raw
-                    raw.decode_content = False
-                    stream = (
-                        gzip.GzipFile(fileobj=raw)
-                        if source.url.endswith(".gz")
-                        else raw
-                    )
-                    parsed, source_matches = parse_xmltv(
-                        stream, favorites, source=source.name
-                    )
+                        if response.status_code != 200:
+                            raise EPGSyncError(
+                                f"{source.name} returned HTTP {response.status_code}."
+                            )
+                        length = int(response.headers.get("Content-Length") or 0)
+                        if length > MAX_SOURCE_BYTES:
+                            raise EPGSyncError(f"{source.name} exceeds the guide size limit.")
+                        raw = response.raw
+                        raw.decode_content = False
+                        stream = (
+                            gzip.GzipFile(fileobj=raw)
+                            if source.url.endswith(".gz")
+                            else raw
+                        )
+                        parsed, source_matches = parse_xmltv(
+                            stream,
+                            source_favorites,
+                            source=source.name,
+                            now=now,
+                            match_by_name=source.match_by_name,
+                        )
+                    else:
+                        parsed, source_matches = _provider_programmes(
+                            self.session,
+                            source,
+                            source_favorites,
+                            now=now,
+                            timeout=self.timeout_seconds,
+                        )
                     successful_sources += 1
-                    matched.update(source_matches)
+                    coverage = _coverage_for_channels(
+                        parsed,
+                        [
+                            favorite
+                            for favorite in source_favorites
+                            if favorite.tvg_id in source_matches
+                        ],
+                        now=now,
+                    )
+                    stale_ids = {
+                        tvg_id
+                        for tvg_id, details in coverage.items()
+                        # A recognised channel without a current programme is
+                        # just as unsafe as one whose last programme expired.
+                        if details["state"] in {"stale", "missing"}
+                    }
+                    if stale_ids:
+                        errors.append(
+                            f"{source.name}: rejected stale schedules for "
+                            f"{len(stale_ids)} channel(s)."
+                        )
+                    matched.update(source_matches - stale_ids)
                     for programme in parsed:
+                        if programme.tvg_id in stale_ids:
+                            continue
                         key = (
                             programme.tvg_id,
                             programme.starts_at,
@@ -486,7 +820,6 @@ class EPGSyncService:
                 f"{len(rejected_ids)} channels."
             )
 
-        now = utc_now()
         favorite_ids = {favorite.tvg_id for favorite in favorites}
         updated_ids = {programme.tvg_id for programme in unique_programmes.values()}
         if targeted:
@@ -575,8 +908,39 @@ def status_payload() -> dict[str, object]:
             "matched_channels": 0,
             "programme_count": 0,
             "source_count": 0,
+            "audit": {"summary": {}, "channels": []},
         }
     last_success = _aware(state.last_success_at)
+    favorites = EPGSyncService.favorites()
+    rows = list(
+        db.session.scalars(
+            select(TVProgramme).where(
+                TVProgramme.tvg_id.in_([favorite.tvg_id for favorite in favorites])
+            )
+        )
+    ) if favorites else []
+    coverage = _coverage_for_channels(rows, favorites, now=utc_now())
+    channels = [
+        {
+            "channel_id": favorite.tvg_id,
+            "name": favorite.name,
+            "state": details["state"],
+            "source": details["source"],
+            "downloaded_at": details["downloaded_at"].isoformat()
+            if details["downloaded_at"] else None,
+            "first_program_start": details["first_program_start"].isoformat()
+            if details["first_program_start"] else None,
+            "last_program_stop": details["last_program_stop"].isoformat()
+            if details["last_program_stop"] else None,
+            "programme_count": details["programme_count"],
+            "coverage_hours": details["coverage_hours"],
+        }
+        for favorite, details in ((favorite, coverage[favorite.tvg_id]) for favorite in favorites)
+    ]
+    summary = {
+        state_name: sum(channel["state"] == state_name for channel in channels)
+        for state_name in ("healthy", "degraded", "stale", "missing")
+    }
     return {
         "state": "running" if running else state.status,
         "message": state.message,
@@ -589,6 +953,7 @@ def status_payload() -> dict[str, object]:
         "matched_channels": state.matched_channels,
         "programme_count": state.programme_count,
         "source_count": state.source_count,
+        "audit": {"summary": summary, "channels": channels},
     }
 
 
