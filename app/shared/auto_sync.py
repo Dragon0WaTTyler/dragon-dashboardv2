@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import UTC, timedelta
+from datetime import timedelta, timezone
 from time import sleep
 
 from flask import Flask
@@ -116,5 +116,5 @@ def _snapshot_sync_due(domain: str, *, seconds: int) -> bool:
         return True
     last_success_at = snapshot.last_success_at
     if last_success_at.tzinfo is None:
-        last_success_at = last_success_at.replace(tzinfo=UTC)
+        last_success_at = last_success_at.replace(tzinfo=timezone.utc)
     return utc_now() - last_success_at >= timedelta(seconds=seconds)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime, time, timedelta
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
 
 from flask import current_app
@@ -710,7 +710,7 @@ class PersonalTVService:
         """Prepare today's configurable channel without starting playback."""
         current = now or utc_now()
         if current.tzinfo is None:
-            current = current.replace(tzinfo=UTC)
+            current = current.replace(tzinfo=timezone.utc)
         profiles = PersonalTVService.preferences().daypart_profiles or DEFAULT_DAYPART_PROFILES
         created: list[PreparedTVProgram] = []
         for key, profile in profiles.items():
@@ -718,7 +718,7 @@ class PersonalTVService:
                 continue
             try:
                 hour, minute = (int(value) for value in str(profile.get("start", "")).split(":", 1))
-                starts_at = datetime.combine(current.date(), time(hour, minute), tzinfo=UTC)
+                starts_at = datetime.combine(current.date(), time(hour, minute), tzinfo=timezone.utc)
                 duration = int(profile.get("duration_minutes", 60))
             except (TypeError, ValueError):
                 continue

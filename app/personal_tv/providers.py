@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Protocol
 
 from sqlalchemy import func, select
@@ -183,7 +183,7 @@ class IPTVCandidateProvider:
             )
         )
         guide = now_next_for_ids({channel.tvg_id for channel, _, _ in rows if channel.tvg_id})
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
         candidates: list[ProgrammingCandidate] = []
         for channel, preference, theme_name in rows:
             current = guide.get(channel.tvg_id, {}).get("now")
