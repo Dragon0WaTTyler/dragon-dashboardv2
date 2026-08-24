@@ -1,0 +1,300 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge %}
+{% block title %}{{ movie.title }} · Season {{ workspace.season.season_number }} · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=subtitle-panel-2">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=tv-season-pack-picker-rollback-1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=subtitle-status-3" defer></script>{% endblock %}
+{% block content %}
+<a class="back-link" href="{{ url_for('movies.detail', movie_id=movie.id) }}">← Back to series</a>
+<article class="movie-detail">
+  <div class="movie-detail__poster" data-media-frame>
+    {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+  </div>
+  <div class="movie-detail__content movie-detail__content--hero">
+    <header>
+      <span class="eyebrow">Season {{ workspace.season.season_number }}</span>
+      <h1>{{ movie.title }}</h1>
+      {% if movie.original_title and movie.original_title != movie.title %}<p class="muted">{{ movie.original_title }}</p>{% endif %}
+      {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
+    </header>
+    <section class="detail-section tv-season-summary">
+      <div>
+        <span class="eyebrow">Season progress</span>
+        <h2>{{ workspace.season.episode_count }} episodes</h2>
+        <p>{{ workspace.season.watched_episode_count }} watched so far.</p>
+      </div>
+      <div class="tv-progress-inline">
+        <progress class="progress-track" value="{{ workspace.season.completion_percent }}" max="100">{{ workspace.season.completion_percent }}%</progress>
+        <div class="tv-season-summary__meta">
+          <span>{{ workspace.season.completion_percent }}% complete</span>
+          {% if selected_episode %}<span data-player-selected-episode>Player episode selected: S{{ workspace.season.season_number }}E{{ '%02d'|format(selected_episode.episode_number) }}</span>{% else %}<span>Pick an episode to open the player route.</span>{% endif %}
+        </div>
+      </div>
+      {% if workspace.resume_target %}
+      <div class="tv-season-summary__actions">
+        <a class="button button--primary" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.resume_target.season, episode_number=workspace.resume_target.episode) }}">
+          {{ 'Continue where you stopped' if workspace.resume_target.mode in ['resume', 'current'] else 'Open next episode' }}
+        </a>
+      </div>
+      {% endif %}
+    </section>
+  </div>
+  {% if selected_episode and (embed_player_sources or player_sources) %}
+  {% set has_selected_player_source = last_selected_provider == 'local' %}
+  {% set initial_embed = embed_player_sources|first %}
+  <section id="episode-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-media-id="{{ movie.id }}" data-media-type="tv" data-tmdb-id="{{ movie.external_ids.tmdb_id or '' }}" data-runtime-seconds="{{ (selected_episode.runtime_minutes * 60) if selected_episode.runtime_minutes else '' }}" data-selected-season="{{ workspace.season.season_number }}" data-selected-episode="{{ selected_episode.episode_number }}" data-selected-episode-title="{{ selected_episode.name }}" data-next-episode-url="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.season.season_number, episode_number=workspace.next_episode.episode_number) if workspace.next_episode else '' }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if movie.external_ids.tmdb_id else '' }}" data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-source-selected-template="{{ url_for('playback.mark_source_selected', movie_id=movie.id, source_id='source-id') }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}" data-progress-endpoint="{{ url_for('api_v1.update_movie_progress', movie_id=movie.id) }}">
+    <div class="movie-player__heading">
+      <div><span class="eyebrow">Episode player</span><h2 id="movie-player-title">Watch S{{ workspace.season.season_number }}E{{ '%02d'|format(selected_episode.episode_number) }} · {{ selected_episode.name }}</h2></div>
+      <span class="badge badge--accent" data-player-badge>{{ 'Local' if has_selected_player_source else (initial_embed.label if initial_embed else 'Local') }}</span>
+    </div>
+    <div class="movie-player__source-rail">
+      <label class="field movie-player__source">
+        <span>Player source</span>
+        <select data-player-source>
+          {% for embed_source in embed_player_sources %}<option value="{{ embed_source.id }}" data-kind="embed" data-provider="{{ embed_source.provider }}" data-provider-label="{{ embed_source.label }}" data-embed-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if embed_source.provider == 'vidsrc' else url_for('playback.id_catalog_source', movie_id=movie.id, provider_key=embed_source.provider) if embed_source.id_catalog else url_for('playback.indexed_embed_source', movie_id=movie.id, source_id=embed_source.id) }}"{% if embed_source.id == last_selected_source_id or embed_source.provider == last_selected_provider or (not last_selected_source_id and not has_selected_player_source and loop.first) %} selected{% endif %}>{{ 'Player 1 · ' if embed_source.provider == 'vidsrc' else '' }}{{ embed_source.label }}{% if embed_source.quality %} · {{ embed_source.quality }}{% endif %}</option>{% endfor %}
+          {% for source in player_sources %}<option value="{{ source.id }}" data-kind="local" data-source-season-pack="{{ 'true' if source.season_pack else 'false' }}" data-source-season="{{ source.season or '' }}" data-source-episode="{{ source.episode or '' }}" data-source-release-mode="{{ source.release_mode }}" data-source-quality="{{ source.player_metadata.quality }}" data-source-codec="{{ source.player_metadata.codec }}" data-source-playback="{{ source.player_metadata.playback }}" data-source-size="{{ source.player_metadata.size }}" data-source-hdr="{{ 'true' if source.player_metadata.hdr else 'false' }}"{% if source.id == last_selected_source_id %} selected{% endif %}>Local · {{ source.label }}</option>{% endfor %}
+        </select>
+      </label>
+      <div class="movie-player__source-choices" data-player-source-choices role="group" aria-label="Quick selection">
+        {% for embed_source in embed_player_sources %}{% set is_selected = embed_source.id == last_selected_source_id or embed_source.provider == last_selected_provider or (not last_selected_source_id and not has_selected_player_source and loop.first) %}<button class="movie-player__source-choice{% if is_selected %} is-active{% endif %}" type="button" data-player-source-choice data-source-id="{{ embed_source.id }}" aria-pressed="{{ 'true' if is_selected else 'false' }}"><span>{{ embed_source.label }}{% if embed_source.quality %} · {{ embed_source.quality }}{% endif %}</span><small>Embed</small></button>{% endfor %}
+        {% for source in player_sources %}{% set is_selected = source.id == last_selected_source_id %}<button class="movie-player__source-choice{% if is_selected %} is-active{% endif %}" type="button" data-player-source-choice data-source-id="{{ source.id }}" aria-pressed="{{ 'true' if is_selected else 'false' }}"><span>Local · {{ source.label }}</span><small>Local</small></button>{% endfor %}
+      </div>
+      {% if movie.external_ids.tmdb_id %}
+      <div class="movie-player__pack-browser" data-player-pack-browser hidden>
+        <label class="field movie-player__pack-field">
+          <span data-player-pack-heading>Episode</span>
+          <select data-player-pack-episode disabled aria-label="Episode in season pack">
+            <option value="">Choose an episode</option>
+          </select>
+        </label>
+        <p class="movie-player__pack-status" data-player-pack-status aria-live="polite" hidden></p>
+      </div>
+      {% endif %}
+      {% if subtitles_enabled %}
+      <p class="movie-player__subtitle-status" data-subtitle-status aria-live="polite" hidden></p>
+      {% else %}
+      <p>Nothing starts before you press play.</p>
+      {% endif %}
+    </div>
+    <div class="movie-player__viewport">
+      <button class="movie-player__launch" type="button" data-player-launch aria-describedby="movie-player-status">
+        <span class="movie-player__play" aria-hidden="true">▶</span>
+        <strong data-player-launch-title>{{ 'Play with ' ~ initial_embed.label if initial_embed and not has_selected_player_source else 'Start local player' }}</strong>
+        <span data-player-launch-hint>Episode route stays stable while the player changes source.</span>
+      </button>
+      <section class="movie-player__recovery" data-player-recovery hidden aria-labelledby="player-recovery-title">
+        <span class="eyebrow">Local source unavailable</span>
+        <h3 id="player-recovery-title">This magnet cannot stream right now.</h3>
+        <p data-player-recovery-message role="status"></p>
+        <div>
+          <button class="button button--primary" type="button" data-player-retry-inline>Retry this source</button>
+          <button class="button button--secondary" type="button" data-player-fallback-inline hidden>Switch source</button>
+          <button class="button button--quiet" type="button" data-player-find-release>Find another release</button>
+        </div>
+      </section>
+      <iframe class="movie-player__frame" data-player-frame title="Embedded player for {{ movie.title }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen referrerpolicy="no-referrer" hidden></iframe>
+      <div class="movie-player__external-toolbar" data-player-external-toolbar hidden aria-label="Embedded player options">
+        <button type="button" data-player-external-back>← Change source</button>
+        <span data-player-external-caption>Embedded players use their own controls. Dragon timeline works with Local.</span>
+        <button type="button" data-player-external-reload>Reload</button>
+        <a data-player-external-open target="_blank" rel="noopener noreferrer">Open separately</a>
+      </div>
+      <div class="movie-player__media-shell" data-player-shell data-paused="true" data-controls-visible="true" hidden>
+        <video class="movie-player__video" data-player-video playsinline preload="metadata" hidden></video>
+        <div class="movie-player__volume-feedback" data-player-volume-feedback aria-hidden="true"><span class="movie-player__volume-feedback-icon">◖))</span><strong data-player-volume-value>100%</strong></div>
+        <div class="movie-player__dragon-controls" data-player-dragon-controls>
+          <div class="movie-player__dragon-top">
+            <button class="movie-player__back-button" type="button" data-player-back aria-label="Exit player and show source controls">←</button>
+            <span class="movie-player__dragon-title">{{ movie.title }}</span>
+            <span data-player-dragon-episode></span>
+          </div>
+          <button class="movie-player__dragon-center" type="button" data-player-quick-toggle aria-label="Play">
+            <span data-player-center-icon>▶</span>
+            <span class="movie-player__spinner" aria-hidden="true"></span>
+          </button>
+          <div class="movie-player__dragon-bottom">
+            <label class="movie-player__timeline">
+              <span class="visually-hidden">Playback position</span>
+              <input type="range" min="0" max="1000" value="0" step="1" data-player-timeline>
+            </label>
+            <div class="movie-player__dragon-bar">
+              <div class="movie-player__dragon-left">
+                <button class="movie-player__icon-button" type="button" data-player-quick-toggle aria-label="Play"><span data-player-play-icon>▶</span></button>
+                <button class="movie-player__seek-button" type="button" data-player-quick-back aria-label="Seek back 10 seconds">10</button>
+                <button class="movie-player__seek-button movie-player__seek-button--forward" type="button" data-player-quick-forward aria-label="Seek forward 10 seconds">10</button>
+                <button class="movie-player__skip-button" type="button" data-player-skip-intro hidden>Skip intro</button>
+                <button class="movie-player__skip-button" type="button" data-player-skip-recap hidden>Skip recap</button>
+                <button class="movie-player__icon-button" type="button" data-player-bookmark aria-label="Save a bookmark at this moment">+</button>
+                <button class="movie-player__icon-button" type="button" data-player-quick-mute aria-label="Mute or unmute"><span data-player-mute-icon>🔊</span></button>
+                <input class="movie-player__volume" type="range" min="0" max="1" step="0.05" value="1" aria-label="Volume" data-player-volume>
+                <span class="movie-player__time" data-player-time>0:00 / 0:00</span>
+              </div>
+              <div class="movie-player__dragon-right">
+                <button class="movie-player__caption-button" type="button" data-player-caption-toggle aria-label="Subtitle settings">CC</button>
+                <label class="movie-player__rate" data-player-audio-wrap hidden><span class="visually-hidden">Audio track</span><select data-player-audio aria-label="Audio track"></select></label>
+                <label class="movie-player__rate"><span class="visually-hidden">Playback speed</span><select data-player-quick-rate aria-label="Playback speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="2">2×</option></select></label>
+                <button class="movie-player__icon-button" type="button" data-player-quick-pip aria-label="Picture in Picture">PiP</button>
+                <button class="movie-player__icon-button" type="button" data-player-shortcuts aria-label="Show keyboard shortcuts">?</button>
+                <button class="movie-player__icon-button" type="button" data-player-source-return aria-label="Show source controls">☁</button>
+                <button class="movie-player__icon-button" type="button" data-player-quick-fullscreen aria-label="Fullscreen">⛶</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="movie-player__captions" data-player-captions hidden>
+          <div class="movie-player__caption-chip" data-player-caption-chip hidden>
+            <span data-player-caption-text></span>
+          </div>
+        </div>
+        {% if workspace.next_episode %}<div class="movie-player__next" data-player-next hidden><strong>Up next: S{{ workspace.season.season_number }}E{{ '%02d'|format(workspace.next_episode.episode_number) }} · {{ workspace.next_episode.name }}</strong><span data-player-next-countdown>10</span><button type="button" data-player-next-cancel>Stay here</button></div>{% endif %}
+        <aside class="movie-player__subtitle-panel" data-player-subtitle-panel hidden aria-hidden="true">
+          <div class="movie-player__subtitle-head">
+            <div><span class="eyebrow">Player settings</span><h3>Subtitles</h3><p>Choose the subtitle track and tune how it feels.</p></div>
+            <button class="movie-player__subtitle-close" type="button" data-player-subtitle-close aria-label="Close subtitle settings">×</button>
+          </div>
+          <div class="movie-player__subtitle-screen" data-player-subtitle-screen="list">
+            <div class="movie-player__subtitle-group">
+              <div class="movie-player__subtitle-group-head"><span>Tracks</span><span>Choose one</span></div>
+              <div class="movie-player__subtitle-list" data-player-subtitle-list>
+                <button class="movie-player__subtitle-option is-active" type="button" data-player-subtitle-off>
+                  <span>Off</span>
+                  <small>No subtitles</small>
+                </button>
+              </div>
+            </div>
+            <button class="movie-player__subtitle-link" type="button" data-player-subtitle-open-appearance><span>Appearance</span><small>Font, size, color &amp; timing</small><b aria-hidden="true">→</b></button>
+          </div>
+          <div class="movie-player__subtitle-screen" data-player-subtitle-screen="appearance" hidden>
+            <button class="movie-player__subtitle-back" type="button" data-player-subtitle-back>Back to subtitles</button>
+            <div class="movie-player__subtitle-preview" aria-hidden="true"><span>Subtitles look like this</span></div>
+            <label class="movie-player__subtitle-select"><span>Preset</span><select data-player-subtitle-preset><option value="netflix">Netflix</option><option value="youtube">YouTube</option><option value="arabic-clear">Arabic Clear</option><option value="high-contrast">High Contrast</option><option value="minimal">Minimal</option><option value="custom">Custom</option></select></label>
+            <label class="movie-player__subtitle-control"><span><strong>Font size</strong><b data-player-subtitle-size-label>30px</b></span><input type="range" min="20" max="96" step="1" value="30" data-player-subtitle-size></label>
+            <label class="movie-player__subtitle-control"><span><strong>Position</strong><b data-player-subtitle-position-label>12%</b></span><input type="range" min="8" max="62" step="1" value="12" data-player-subtitle-position></label>
+            <label class="movie-player__subtitle-select"><span>Background</span><select data-player-subtitle-background><option value="shadow">Soft Shadow</option><option value="off">Off</option><option value="box">Box</option><option value="blur">Blur Box</option></select></label>
+            <label class="movie-player__subtitle-control"><span><strong>Background opacity</strong><b data-player-subtitle-opacity-label>35%</b></span><input type="range" min="0" max="90" step="5" value="35" data-player-subtitle-opacity></label>
+            <label class="movie-player__subtitle-control"><span><strong>Background blur</strong><b data-player-subtitle-blur-label>0%</b></span><input type="range" min="0" max="24" step="1" value="0" data-player-subtitle-blur></label>
+            <label class="movie-player__subtitle-control"><span><strong>Text shadow</strong><b data-player-subtitle-shadow-label>80%</b></span><input type="range" min="0" max="100" step="5" value="80" data-player-subtitle-shadow></label>
+            <label class="movie-player__subtitle-control"><span><strong>Latency</strong><b data-player-subtitle-offset-label>0.0s</b></span><input type="range" min="-5" max="5" step="0.1" value="0" data-player-subtitle-offset></label>
+            <label class="movie-player__subtitle-select"><span>Font</span><select data-player-subtitle-font><option value="noto-arabic">Noto Sans Arabic</option><option value="cairo">Cairo</option><option value="tajawal">Tajawal</option><option value="plex">IBM Plex Sans</option><option value="inter">Inter</option><option value="mono">IBM Plex Mono</option></select></label>
+            <div class="movie-player__subtitle-swatches"><span>Color</span><div class="movie-player__subtitle-colors" data-player-subtitle-colors><button type="button" data-color="#ffffff" style="--swatch:#ffffff" aria-label="White"></button><button type="button" data-color="#ffd54a" style="--swatch:#ffd54a" aria-label="Yellow"></button><button type="button" data-color="#ff6b8a" style="--swatch:#ff6b8a" aria-label="Pink"></button><button type="button" data-color="#95f3de" style="--swatch:#95f3de" aria-label="Mint"></button><button type="button" data-color="#8bb8ff" style="--swatch:#8bb8ff" aria-label="Blue"></button></div></div>
+            <button class="movie-player__subtitle-reset" type="button" data-player-subtitle-reset>Reset</button>
+          </div>
+        </aside>
+      </div>
+    </div>
+    <div class="movie-player__footer">
+      <p id="movie-player-status" class="muted" data-player-status aria-live="polite">Ready. No external connection has been made.</p>
+      <div class="movie-player__controls" data-player-controls hidden>
+        <button class="button button--quiet" type="button" data-player-mark-intro>Mark intro here</button>
+        <button class="button button--quiet" type="button" data-player-mark-recap>Mark recap here</button>
+        <button class="button button--primary" type="button" data-player-retry hidden>Retry local player</button>
+        <button class="button button--secondary" type="button" data-player-fallback hidden>Switch source</button>
+        <button class="button button--quiet" type="button" data-player-reload>Reload player</button>
+        <a class="button button--secondary" data-player-open target="_blank" rel="noopener noreferrer" hidden>Open separately</a>
+        <button class="button button--secondary" type="button" data-player-stop hidden>Stop local stream</button>
+      </div>
+      <div class="movie-player__bookmarks" data-player-bookmarks hidden aria-label="Saved bookmarks"></div>
+    </div>
+  </section>
+  {% endif %}
+  <div class="movie-detail__content movie-detail__content--secondary">
+    {% if selected_episode and indexed_provider_options %}
+    <details class="movie-release-browser detail-section">
+      <summary>Add an authorized embed mapping for this episode</summary>
+      <form method="post" action="{{ url_for('playback.add_indexed_embed_source', movie_id=movie.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="season" value="{{ workspace.season.season_number }}">
+        <input type="hidden" name="episode" value="{{ selected_episode.episode_number }}">
+        <p class="movie-release-browser__summary">Store a provider-native asset ID for this exact episode. Dragon builds the allowlisted embed URL.</p>
+        <div class="definition-grid">
+          <label class="field"><span>Provider</span><select name="provider">{% for provider in indexed_provider_options %}<option value="{{ provider.key }}">{{ provider.label }}</option>{% endfor %}</select></label>
+          <label class="field"><span>Provider asset ID</span><input name="provider_asset_id" required maxlength="300" pattern="[A-Za-z0-9_-]+" autocomplete="off"></label>
+          <label class="field"><span>Display label</span><input name="label" maxlength="300" placeholder="Arabic subtitles"></label>
+          <label class="field"><span>Audio language</span><input name="language" maxlength="24" placeholder="ar"></label>
+          <label class="field"><span>Subtitle languages</span><input name="subtitle_languages" maxlength="120" placeholder="ar,en"></label>
+          <label class="field"><span>Quality</span><input name="quality" maxlength="80" placeholder="1080p"></label>
+        </div>
+        <p><button class="button button--primary" type="submit">Save authorized mapping</button></p>
+      </form>
+    </details>
+    {% endif %}
+    {% if jackett_search_available %}
+    {% set first_episode = workspace.episodes|first %}
+    <section
+      id="release-browser"
+      class="movie-release-browser detail-section"
+      data-inline-release-browser
+      data-media-type="tv"
+      data-tmdb-id="{{ movie.external_ids.tmdb_id }}"
+      data-fixed-season="{{ workspace.season.season_number }}"
+      data-import-redirect-url="{% if first_episode %}{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.season.season_number, episode_number=first_episode.episode_number) }}#episode-player{% endif %}"
+      data-import-endpoint="{{ url_for('movies.api_import') }}"
+      data-releases-endpoint="{{ url_for('movies.api_releases') }}"
+      data-seasons-template="{{ url_for('movies.api_tv_seasons', tmdb_id=999999999) }}"
+      data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}"
+    >
+      <div class="movie-release-browser__header">
+        <div><span class="eyebrow">Manual quality comparison</span><h2>Search Jackett for Season {{ workspace.season.season_number }}</h2></div>
+      </div>
+      <p class="movie-release-browser__summary" data-release-summary>Compare releases whenever you want. Choose an episode for Jackett, or browse full-season packs.</p>
+      <div class="movie-release-browser__controls release-dialog__episode-picker">
+        <label class="field"><span>Season</span><select data-season-select aria-label="Season"><option value="{{ workspace.season.season_number }}" selected>Season {{ workspace.season.season_number }}</option></select></label>
+        <label class="field"><span>Episode</span><select data-episode-select disabled aria-label="Episode"><option value="">Choose an episode</option></select></label>
+        <button class="button button--secondary" type="button" data-season-pack-load>Find full-season packs</button>
+      </div>
+      <p class="movie-release-browser__status" data-release-status role="status" aria-live="polite"></p>
+      <div class="release-list" data-release-list></div>
+    </section>
+    {% endif %}
+    {% if selected_episode %}
+    <section class="movie-release-browser detail-section" aria-labelledby="selected-episode-title">
+      <div class="movie-release-browser__header">
+        <div><span class="eyebrow">Selected episode</span><h2 id="selected-episode-title">S{{ workspace.season.season_number }}E{{ '%02d'|format(selected_episode.episode_number) }} · {{ selected_episode.name }}</h2></div>
+        {% if jackett_eligible and not selected_episode.has_local_source %}
+        <form method="post" action="{{ url_for('movies.resolve_tv_episode_source', movie_id=movie.id, season_number=workspace.season.season_number, episode_number=selected_episode.episode_number) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="button button--primary" type="submit">Find Best Source</button>
+        </form>
+        {% endif %}
+      </div>
+      <p class="movie-release-browser__summary">
+        {% if selected_episode.has_exact_source %}An exact episode magnet is already saved for this page.{% elif selected_episode.has_fallback_source %}A season-pack fallback is already saved for this page.{% elif jackett_search_available %}Use the Jackett search above to compare a different release for this episode.{% else %}A TMDb identity is needed before Jackett can search this title.{% endif %}
+      </p>
+      <div class="tv-season-summary__meta">
+        {% if selected_episode.runtime_minutes %}<span>{{ selected_episode.runtime_minutes }} min</span>{% endif %}
+        {% if selected_episode.progress %}<span>{{ selected_episode.progress.percent }}% watched</span>{% endif %}
+        <span>{% if selected_episode.has_local_source %}Local source ready{% else %}No local source yet{% endif %}</span>
+      </div>
+      {% if selected_episode.overview %}<p class="movie-detail__overview">{{ selected_episode.overview }}</p>{% endif %}
+    </section>
+    {% endif %}
+    <section class="detail-section" aria-labelledby="episode-list-title">
+      <div class="movie-release-browser__header">
+        <div><span class="eyebrow">Episode browser</span><h2 id="episode-list-title">Season {{ workspace.season.season_number }}</h2></div>
+      </div>
+      <div class="movie-grid tv-episode-grid">
+        {% for episode in workspace.episodes %}
+        <a class="movie-tile tv-episode-tile{% if selected_episode and episode.episode_number == selected_episode.episode_number %} is-active{% endif %}" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.season.season_number, episode_number=episode.episode_number) }}">
+          <span class="movie-tile__poster tv-episode-tile__poster" data-media-frame>
+            {% if episode.still_url %}<img src="{{ episode.still_url }}" alt="{{ episode.name }}" loading="lazy" width="480" height="270">{% else %}<span class="media-fallback" aria-hidden="true">E{{ episode.episode_number }}</span>{% endif %}
+          </span>
+          <div class="movie-tile__body tv-episode-tile__body">
+            <span class="eyebrow">Episode {{ '%02d'|format(episode.episode_number) }}</span>
+            <h3>S{{ workspace.season.season_number }}E{{ '%02d'|format(episode.episode_number) }} · {{ episode.name }}</h3>
+            <p class="tv-episode-tile__overview">{{ episode.overview or 'Open this episode route to show the player and source controls.' }}</p>
+            {% if episode.progress %}<progress class="progress-track" value="{{ episode.progress.percent }}" max="100" aria-label="{{ episode.progress.percent }} percent watched">{{ episode.progress.percent }}%</progress>{% endif %}
+            <div class="tv-episode-tile__meta">
+              {% if episode.runtime_minutes %}<span>{{ episode.runtime_minutes }} min</span>{% endif %}
+              <span>{% if episode.progress %}{{ episode.progress.percent }}% watched{% else %}Not started{% endif %}</span>
+            </div>
+            <div class="tv-episode-tile__badges">
+              <span>{% if episode.has_exact_source %}Exact source{% elif episode.has_fallback_source %}Season-pack fallback{% else %}No source{% endif %}</span>
+              {% if selected_episode and episode.episode_number == selected_episode.episode_number %}<span>Open now</span>{% endif %}
+            </div>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+  </div>
+</article>
+{% endblock %}
