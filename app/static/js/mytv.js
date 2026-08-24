@@ -525,7 +525,13 @@
     elements.videoPlayer.hidden = true;
   }
 
-  function startHlsPlayback(url, session, failureMessage, onExhausted) {
+  function startHlsPlayback(
+    url,
+    session,
+    failureMessage,
+    onExhausted,
+    recoveries = { media: 0, playlist: 0 },
+  ) {
     if (!window.Hls?.isSupported()) return false;
     const hls = new window.Hls({
       enableWorker: true,
@@ -571,7 +577,6 @@
       liveSyncOnStallIncrease: 2,
       liveMaxLatencyDurationCount: 12,
     });
-    const recoveries = { media: 0 };
     state.hls = hls;
     hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
       if (isCurrentPlayback(session)) elements.videoPlayer.play().catch(() => {});
@@ -583,6 +588,15 @@
     });
     hls.on(window.Hls.Events.ERROR, (_event, detail) => {
       if (!isCurrentPlayback(session) || !detail.fatal) return;
+      // Keep the browser console useful when an upstream playlist returns 200
+      // but hls.js rejects or cannot append a fragment. URLs are intentionally
+      // omitted because they can contain provider credentials.
+      console.error("[Dragon IPTV] fatal HLS error", {
+        type: detail.type,
+        details: detail.details,
+        reason: detail.reason || "",
+        responseCode: detail.response?.code || null,
+      });
       if (
         detail.type === window.Hls.ErrorTypes.MEDIA_ERROR
         && recoveries.media < 2
@@ -592,10 +606,29 @@
         hls.recoverMediaError();
         return;
       }
+      // Some live providers briefly publish an inconsistent media sequence
+      // while rotating their origin. hls.js correctly rejects that playlist,
+      // but a fresh HLS session can resume from the current valid window.
+      // Treat it as a bounded reconnect, not as a permanently dead channel.
+      const sequenceMismatch =
+        detail.type === window.Hls.ErrorTypes.NETWORK_ERROR
+        && detail.details === "levelParsingError"
+        && /media sequence mismatch/i.test(detail.reason || "");
+      if (sequenceMismatch && recoveries.playlist < 2) {
+        recoveries.playlist += 1;
+        setPlayerState("reconnecting", "Refreshing the live stream…");
+        hls.destroy();
+        if (state.hls === hls) state.hls = null;
+        window.setTimeout(() => {
+          if (!isCurrentPlayback(session)) return;
+          startHlsPlayback(url, session, failureMessage, onExhausted, recoveries);
+        }, 750);
+        return;
+      }
       // A fatal network error means the configured request retries are already
       // exhausted. Restarting the same Hls instance here creates a reconnect
       // loop; move to a different source instead.
-      if (onExhausted) onExhausted();
+      if (onExhausted) onExhausted(sequenceMismatch ? "transcode" : "failover");
       else playbackFailed(failureMessage, session);
     });
     hls.loadSource(url);
@@ -842,6 +875,19 @@
         playChannel(id, { failover: true, failoverAttempt: failoverAttempt + 1 })
           .catch(() => playbackFailed(failureMessage, session));
       };
+      const startLocalPlayerFallback = () => {
+        if (!isCurrentPlayback(session)) return;
+        clearPlaybackTimer();
+        state.hls?.destroy();
+        state.hls = null;
+        setPlayerState("reconnecting", "Opening with the local player…");
+        elements.videoPlayer.onerror = () => {
+          switchToBackup("The local player could not open this live source.");
+        };
+        elements.videoPlayer.src = `/iptv/transcode/${id}`;
+        elements.videoPlayer.load();
+        elements.videoPlayer.play().catch(() => {});
+      };
       const scheduleStallFailover = () => {
         if (!isCurrentPlayback(session) || elements.videoPlayer.paused || state.stallTimer) return;
         const stalledAt = elements.videoPlayer.currentTime;
@@ -868,8 +914,9 @@
         elements.videoPlayer.onerror = null;
         const canUseNativeHls = elements.videoPlayer.canPlayType("application/vnd.apple.mpegurl");
         const hlsFailure = isDirect ? directFailure : "This live HLS stream could not be opened.";
-        if (startHlsPlayback(playback.url, session, hlsFailure, () => {
-          switchToBackup(hlsFailure);
+        if (startHlsPlayback(playback.url, session, hlsFailure, (recoveryKind) => {
+          if (recoveryKind === "transcode") startLocalPlayerFallback();
+          else switchToBackup(hlsFailure);
         })) {
           // hls.js owns the media source and begins playback once the manifest
           // has been parsed.

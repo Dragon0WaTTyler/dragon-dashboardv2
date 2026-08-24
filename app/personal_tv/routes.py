@@ -15,6 +15,7 @@ from app.personal_tv.programming import (
 )
 from app.personal_tv.providers import YouTubeCandidateProvider
 from app.personal_tv.services import PersonalTVService
+from app.youtube.grouping import selected_theme
 
 bp = Blueprint("personal_tv", __name__, url_prefix="/my-tv")
 _DURATIONS = {30, 60, 90, 120}
@@ -25,6 +26,11 @@ def _list(payload: dict, key: str) -> tuple[str, ...]:
     if not isinstance(value, list) or not all(isinstance(entry, str) for entry in value):
         raise ValueError(f"{key.replace('_', ' ').capitalize()} must be a list.")
     return normalise_terms(value)
+
+
+def _groups(payload: dict) -> tuple[str, ...]:
+    value = _list(payload, "groups")
+    return normalise_terms([theme for item in value if (theme := selected_theme(item))])
 
 
 def _request_from_payload(payload: dict) -> ProgrammingRequest:
@@ -39,7 +45,7 @@ def _request_from_payload(payload: dict) -> ProgrammingRequest:
         raise ValueError("Discovery must be low, balanced, or high.")
     return ProgrammingRequest(
         duration_minutes=duration,
-        groups=_list(payload, "groups"),
+        groups=_groups(payload),
         avoid_watched=bool(payload.get("avoid_watched", True)),
         no_shorts=bool(payload.get("no_shorts", True)),
         topics=_list(payload, "topics"),
@@ -68,7 +74,6 @@ def index():
 @bp.get("/api/bootstrap")
 @login_required
 def bootstrap():
-    prepared = PersonalTVService.generate_daypart_programs()
     return jsonify(
         {
             "ok": True,
@@ -76,7 +81,22 @@ def bootstrap():
             "groups": YouTubeCandidateProvider.groups(),
             "active_session": PersonalTVService.session_payload(PersonalTVService.active_session()),
             "profile": PersonalTVService.viewer_profile_payload(),
-            "prepared_programs": prepared,
+        }
+    )
+
+
+@bp.post("/api/catalogue/deepen")
+@login_required
+def deepen_catalogue():
+    groups = _groups(request.get_json(silent=True) or {})
+    if not groups:
+        return jsonify({"ok": False, "error": "Choose at least one collection first."}), 400
+    result = PersonalTVService.deepen_collections(groups)
+    return jsonify(
+        {
+            "ok": True,
+            "result": result,
+            "groups": YouTubeCandidateProvider.groups(),
         }
     )
 
@@ -138,7 +158,6 @@ def create_session():
     payload = PersonalTVService.session_payload(session)
     if not payload or not payload["items"]:
         return jsonify({"ok": False, "error": "No eligible programmes match these choices."}), 422
-    session = PersonalTVService.transition(session, "play")
     return jsonify({"ok": True, "session": PersonalTVService.session_payload(session)}), 201
 
 
@@ -167,13 +186,41 @@ def transition_session(session_id: str, action: str):
             session = PersonalTVService.regenerate_remainder(session)
         elif action == "progress":
             session = PersonalTVService.record_progress(
-                session, int(payload.get("completion_ratio", 0))
+                session,
+                playhead_seconds=(
+                    int(payload["playhead_seconds"])
+                    if payload.get("playhead_seconds") is not None
+                    else None
+                ),
+                completion_ratio=(
+                    int(payload["completion_ratio"])
+                    if payload.get("completion_ratio") is not None
+                    else None
+                ),
             )
         else:
             session = PersonalTVService.transition(
                 session, action, str(payload.get("skip_reason", ""))
             )
     except (TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "session": PersonalTVService.session_payload(session)})
+
+
+@bp.post("/api/sessions/<session_id>/items/<int:item_id>/<action>")
+@login_required
+def edit_session_item(session_id: str, item_id: int, action: str):
+    session, error = _session_or_404(session_id)
+    if error:
+        return error
+    try:
+        if action == "replace":
+            session = PersonalTVService.replace_item(session, item_id)
+        elif action == "remove":
+            session = PersonalTVService.remove_item(session, item_id)
+        else:
+            raise ValueError("Unsupported programme edit.")
+    except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True, "session": PersonalTVService.session_payload(session)})
 

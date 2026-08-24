@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from math import ceil
+
+from app.youtube.grouping import selected_theme
 
 PROGRAMMING_VERSION = "v1"
 SHORT_MAX_SECONDS = 75
@@ -124,9 +126,12 @@ def parse_intent(text: str, *, default_duration: int = 60) -> ProgrammingRequest
     )
     mood = "calm" if any(marker in lowered for marker in ("calm", "quiet", "هادئ", "نرتاح")) else ""
     goal = "learn" if any(marker in lowered for marker in ("learn", "study", "تعلم")) else ""
+    scoped_groups = tuple(
+        dict.fromkeys(filter(None, (selected_theme(topic) for topic in topics)))
+    )
     return ProgrammingRequest(
         duration_minutes=duration if duration in {30, 60, 90, 120} else default_duration,
-        groups=topics,
+        groups=scoped_groups,
         topics=topics,
         formats=formats,
         languages=languages,
@@ -139,8 +144,8 @@ def parse_intent(text: str, *, default_duration: int = 60) -> ProgrammingRequest
 def _age_days(value: datetime | None) -> int:
     if value is None:
         return 90
-    instant = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
-    return max(0, (datetime.now(timezone.utc) - instant).days)
+    instant = value if value.tzinfo else value.replace(tzinfo=UTC)
+    return max(0, (datetime.now(UTC) - instant).days)
 
 
 def _terms(candidate: ProgrammingCandidate) -> set[str]:
@@ -151,12 +156,26 @@ def _terms(candidate: ProgrammingCandidate) -> set[str]:
     }
 
 
+def _group_terms(values: tuple[str, ...] | list[str]) -> set[str]:
+    """Match current and legacy labels while keeping a selected collection a hard scope."""
+    terms: set[str] = set()
+    for value in values:
+        clean = str(value).strip()
+        if not clean:
+            continue
+        terms.add(clean.casefold())
+        resolved = selected_theme(clean)
+        if resolved:
+            terms.add(resolved.casefold())
+    return terms
+
+
 def _base_score(
     candidate: ProgrammingCandidate, request: ProgrammingRequest
 ) -> tuple[int, list[str]]:
     score = candidate.quality_score
     reasons: list[str] = []
-    requested = {term.casefold() for term in (*request.groups, *request.topics)}
+    requested = _group_terms(request.groups) | {term.casefold() for term in request.topics}
     matched = _terms(candidate) & requested
     if matched:
         score += 48
@@ -170,14 +189,17 @@ def _base_score(
         reasons.append(f"is a {candidate.content_type}")
     if candidate.favorite:
         score += 12
-        reasons.append("saved in your library")
+        reasons.append("comes from your Favo channels")
     if candidate.source == "youtube_watch_later":
         score += 8
         reasons.append("in Watch Later")
     if candidate.is_live:
         score += 10
         reasons.append("live now")
-    score += max(0, 12 - min(_age_days(candidate.published_at), 36) // 3)
+    age_days = _age_days(candidate.published_at)
+    score += max(0, 12 - min(age_days, 36) // 3)
+    if age_days <= 7:
+        reasons.append("is a recent release")
     return score, reasons
 
 
@@ -186,6 +208,7 @@ def eligible_candidates(
 ) -> list[ProgrammingCandidate]:
     language_set = {language.casefold() for language in request.languages}
     format_set = {content_type.casefold() for content_type in request.formats}
+    requested_groups = _group_terms(request.groups)
     return [
         candidate
         for candidate in candidates
@@ -194,6 +217,7 @@ def eligible_candidates(
         and (request.allow_live or not candidate.is_live)
         and (not request.avoid_watched or not candidate.watched)
         and (not request.no_shorts or not candidate.is_short)
+        and (not requested_groups or bool(_group_terms(candidate.groups) & requested_groups))
         and (
             not language_set
             or not candidate.language
@@ -251,6 +275,8 @@ def build_lineup(
             score, reasons = _base_score(candidate, request)
             remaining_after = max(0, target - (total + candidate.duration_seconds))
             score += max(0, 16 - abs(remaining_after - candidate.duration_seconds) // 90)
+            if abs(remaining_after - candidate.duration_seconds) <= 5 * 60:
+                reasons.append("fits the remaining session time")
             score -= creator_counts.get(creator_key, 0) * 18 if creator_key else 0
             ranked.append((score, candidate, reasons))
         if not ranked:

@@ -29,12 +29,25 @@ def seed_video(index, duration=1200, group="Science"):
 def test_personal_tv_builds_resumable_youtube_session(authenticated_client, app):
     with app.app_context():
         db.session.add_all(
-            [seed_video(1, 1800), seed_video(2, 1500), seed_video(3, 1200, "History")]
+            [
+                seed_video(1, 1800),
+                seed_video(2, 1500),
+                seed_video(3, 1200, "History"),
+                YouTubeVideo(
+                    external_id="video-2::pt:favo",
+                    source="pockettube",
+                    group_name="my favoret",
+                    channel_title="Creator 2",
+                    title="Video 2",
+                    duration_seconds=1500,
+                    published_at=datetime(2026, 8, 20, tzinfo=UTC),
+                ),
+            ]
         )
         db.session.commit()
     page = authenticated_client.get("/my-tv")
     assert page.status_code == 200
-    assert "Start My TV" in page.get_data(as_text=True)
+    assert "Build My TV" in page.get_data(as_text=True)
     response = authenticated_client.post(
         "/my-tv/api/sessions",
         json={
@@ -47,14 +60,27 @@ def test_personal_tv_builds_resumable_youtube_session(authenticated_client, app)
     )
     assert response.status_code == 201
     session = response.get_json()["session"]
-    assert session["state"] == "playing"
+    assert session["state"] == "planned"
     assert session["items"] and all(item["source"] == "youtube" for item in session["items"])
+    session = authenticated_client.post(
+        f"/my-tv/api/sessions/{session['id']}/play",
+        json={},
+        headers=csrf_header(authenticated_client),
+    ).get_json()["session"]
+    assert session["state"] == "playing"
+    progressed = authenticated_client.post(
+        f"/my-tv/api/sessions/{session['id']}/progress",
+        json={"playhead_seconds": 300},
+        headers=csrf_header(authenticated_client),
+    ).get_json()["session"]
+    assert progressed["items"][0]["playhead_seconds"] == 300
     skipped = authenticated_client.post(
         f"/my-tv/api/sessions/{session['id']}/skip",
         json={},
         headers=csrf_header(authenticated_client),
     ).get_json()["session"]
     assert skipped["items"][0]["state"] == "skipped"
+    assert skipped["elapsed_seconds"] == 300
     active = authenticated_client.get("/my-tv/api/bootstrap").get_json()["active_session"]
     assert active["id"] == session["id"]
     finished = authenticated_client.post(
@@ -62,9 +88,41 @@ def test_personal_tv_builds_resumable_youtube_session(authenticated_client, app)
         json={},
         headers=csrf_header(authenticated_client),
     ).get_json()["session"]
-    completed_id = finished["items"][finished["current_item_index"]]["candidate_id"]
+    completed_item = finished["items"][finished["current_item_index"]]
+    completed_id = completed_item["candidate_id"]
     with app.app_context():
         assert db.session.get(YouTubeVideo, completed_id).watched is True
+        duplicates = list(db.session.scalars(db.select(YouTubeVideo)))
+        assert all(
+            video.watched
+            for video in duplicates
+            if video.external_id.split("::pt:", 1)[0] == completed_item["content_id"]
+        )
+
+
+def test_personal_tv_deepens_only_the_selected_collection(authenticated_client, monkeypatch):
+    captured = {}
+
+    def deepen(groups):
+        captured["groups"] = groups
+        return {"channels": 8, "videos": 96, "created": 12, "updated": 84}
+
+    monkeypatch.setattr(PersonalTVService, "deepen_collections", staticmethod(deepen))
+    response = authenticated_client.post(
+        "/my-tv/api/catalogue/deepen",
+        json={"groups": ["Science"]},
+        headers=csrf_header(authenticated_client),
+    )
+    assert response.status_code == 200
+    assert captured["groups"] == ("Science & Knowledge",)
+    assert response.get_json()["result"]["channels"] == 8
+
+    missing_scope = authenticated_client.post(
+        "/my-tv/api/catalogue/deepen",
+        json={"groups": ["my favoret"]},
+        headers=csrf_header(authenticated_client),
+    )
+    assert missing_scope.status_code == 400
 
 
 def test_personal_tv_recovers_and_keeps_explicit_feedback(authenticated_client, app):
@@ -76,6 +134,7 @@ def test_personal_tv_recovers_and_keeps_explicit_feedback(authenticated_client, 
                 seed_video(12, 1260, "History"),
                 seed_video(13, 1200, "Science"),
                 seed_video(14, 1140, "History"),
+                seed_video(15, 1080, "Science"),
             ]
         )
         db.session.commit()
@@ -86,14 +145,21 @@ def test_personal_tv_recovers_and_keeps_explicit_feedback(authenticated_client, 
         headers=headers,
     ).get_json()["session"]
     replaced = authenticated_client.post(
-        f"/my-tv/api/sessions/{created['id']}/replace",
-        json={"reason": "unavailable"},
+        f"/my-tv/api/sessions/{created['id']}/items/{created['items'][0]['id']}/replace",
+        json={},
         headers=headers,
     )
     assert replaced.status_code == 200
     replacement = replaced.get_json()["session"]
-    assert replacement["state"] == "playing"
+    assert replacement["state"] == "planned"
     assert replacement["items"][0]["candidate_id"] != created["items"][0]["candidate_id"]
+
+    removed = authenticated_client.post(
+        f"/my-tv/api/sessions/{created['id']}/items/{replacement['items'][-1]['id']}/remove",
+        json={},
+        headers=headers,
+    ).get_json()["session"]
+    assert len(removed["items"]) == len(replacement["items"]) - 1
 
     feedback = authenticated_client.post(
         f"/my-tv/api/sessions/{created['id']}/feedback",

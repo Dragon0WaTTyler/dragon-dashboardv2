@@ -121,7 +121,7 @@ def test_mytv_renders_inside_dragon_and_lists_enabled_channels(
     assert 'data-channel-view="favorites"' in html
     assert 'id="refreshEpg"' in html
     assert 'id="loadMoreChannels"' in html
-    assert 'hls.js@1.6.16' in html
+    assert 'hls.js@1.6.17' in html
 
     bootstrap = authenticated_client.get("/iptv/api/bootstrap").get_json()
     assert bootstrap["stats"]["total_channels"] == 2
@@ -850,6 +850,33 @@ def test_mytv_hls_playback_uses_an_adaptive_manifest(authenticated_client, app, 
     assert response.status_code == 200
     assert response.content_type.startswith("application/vnd.apple.mpegurl")
     assert calls == [("https://stream.example/live.m3u8", True)]
+
+
+def test_mytv_can_transcode_hls_when_browser_playlist_parsing_fails(
+    authenticated_client, app, monkeypatch
+):
+    with app.app_context():
+        seed_tv()
+        channel = db.session.scalar(select(TVChannel).where(TVChannel.name == "News One"))
+        assert channel is not None
+        channel.stream_url = "https://stream.example/live.m3u8"
+        channel.stream_kind = "hls"
+        channel.enabled_override = True
+        db.session.commit()
+        channel_id = channel.id
+
+    calls: list[str] = []
+
+    def local_player(url: str):
+        calls.append(url)
+        return Response(b"fragmented-mp4", content_type="video/mp4")
+
+    monkeypatch.setattr("app.mytv.routes.transcode_stream", local_player)
+    response = authenticated_client.get(f"/iptv/transcode/{channel_id}")
+
+    assert response.status_code == 200
+    assert response.content_type.startswith("video/mp4")
+    assert calls == ["https://stream.example/live.m3u8"]
 
 
 def test_mytv_late_hls_failure_can_switch_to_an_alternate_source(

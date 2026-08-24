@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
+from pathlib import Path
 
+from flask import current_app
 from sqlalchemy import select
 
 from app.extensions import db
@@ -28,7 +30,10 @@ from app.personal_tv.providers import (
     candidates_from,
 )
 from app.shared.time import utc_iso, utc_now
+from app.youtube.grouping import selected_theme
 from app.youtube.models import YouTubeVideo
+from app.youtube.providers import YouTubePlaylistClient, YouTubeProviderError
+from app.youtube.services import YouTubeService
 
 ACTIVE_STATES = ("planned", "playing", "paused")
 SESSION_TTL = timedelta(hours=12)
@@ -61,6 +66,7 @@ class PersonalTVService:
             "preferred_formats": preferences.preferred_formats,
             "preferred_languages": preferences.preferred_languages,
             "preferred_creators": preferences.preferred_creators,
+            "deprioritized_creators": preferences.deprioritized_creators,
             "blocked_creators": preferences.blocked_creators,
             "avoided_keywords": preferences.avoided_keywords,
             "discovery_level": preferences.discovery_level,
@@ -77,6 +83,7 @@ class PersonalTVService:
             "preferred_formats",
             "preferred_languages",
             "preferred_creators",
+            "deprioritized_creators",
             "blocked_creators",
             "avoided_keywords",
             "selected_groups",
@@ -158,6 +165,11 @@ class PersonalTVService:
         preferences = PersonalTVService.preferences()
         return replace(
             request,
+            groups=normalise_terms(
+                theme
+                for value in request.groups
+                if (theme := selected_theme(value))
+            ),
             topics=normalise_terms((*preferences.preferred_topics, *request.topics)),
             formats=normalise_terms((*preferences.preferred_formats, *request.formats)),
             languages=normalise_terms((*preferences.preferred_languages, *request.languages)),
@@ -176,6 +188,7 @@ class PersonalTVService:
         preferences = PersonalTVService.preferences()
         blocked = {value.casefold() for value in preferences.blocked_creators}
         preferred = {value.casefold() for value in preferences.preferred_creators}
+        deprioritized = {value.casefold() for value in preferences.deprioritized_creators}
         avoided = {value.casefold() for value in preferences.avoided_keywords}
         candidates: list[ProgrammingCandidate] = []
         for candidate in candidates_from(providers):
@@ -185,9 +198,40 @@ class PersonalTVService:
             ):
                 continue
             boost = 20 if candidate.creator.casefold() in preferred else 0
+            if candidate.creator.casefold() in deprioritized:
+                boost -= 16
             boost += int(preferences.source_quality.get(candidate.source, 0))
             candidates.append(replace(candidate, quality_score=candidate.quality_score + boost))
         return candidates
+
+    @staticmethod
+    def _hydrate_selected_collections(
+        request: ProgrammingRequest, *, deepen: bool = False
+    ) -> dict[str, int]:
+        """Use the selected PocketTube scope on demand; never turn My TV into a global crawl."""
+        if not request.groups or not current_app.config.get("DRAGON_YOUTUBE_SYNC_ENABLED"):
+            return {"channels": 0, "videos": 0, "created": 0, "updated": 0}
+        client = current_app.extensions.get("dragon_youtube_playlist_client")
+        if client is None:
+            client = YouTubePlaylistClient(
+                current_app.config["DRAGON_YOUTUBE_API_KEY"],
+                oauth_token_path=Path(current_app.instance_path) / "secrets" / "youtube_token.json",
+            )
+        try:
+            return YouTubeService.hydrate_pockettube_groups(
+                client,
+                request.groups,
+                max_channels=8 if deepen else 24,
+                items_per_channel=96 if deepen else 12,
+            )
+        except YouTubeProviderError:
+            # The local catalogue remains usable when YouTube is unavailable or quota-limited.
+            return {"channels": 0, "videos": 0, "created": 0, "updated": 0}
+
+    @staticmethod
+    def deepen_collections(groups: tuple[str, ...]) -> dict[str, int]:
+        request = ProgrammingRequest(duration_minutes=60, groups=groups)
+        return PersonalTVService._hydrate_selected_collections(request, deepen=True)
 
     @staticmethod
     def _append_programmed_item(
@@ -228,6 +272,7 @@ class PersonalTVService:
             active.ending_reason = "replaced_by_new_session"
             active.completed_at = utc_now()
 
+        PersonalTVService._hydrate_selected_collections(request)
         lineup = build_lineup(PersonalTVService._candidate_pool(request), request)
         now = utc_now()
         session = TVSession(
@@ -291,6 +336,7 @@ class PersonalTVService:
                     "creator": item.creator,
                     "thumbnail_url": item.thumbnail_url,
                     "duration_seconds": item.duration_seconds,
+                    "playhead_seconds": item.playhead_seconds,
                     "state": item.state,
                     "completion_ratio": item.completion_ratio,
                     "reason_selected": item.reason_selected,
@@ -317,19 +363,27 @@ class PersonalTVService:
         )
 
     @staticmethod
+    def _refresh_elapsed(session: TVSession) -> None:
+        session.elapsed_seconds = sum(
+            min(max(0, item.playhead_seconds), item.duration_seconds)
+            for item in session.items
+            if item.state not in {"queued", "replaced", "unavailable"}
+        )
+
+    @staticmethod
     def _mark_watched(item: TVSessionItem) -> None:
         if item.source != "youtube":
             return
-        _, separator, video_id = item.candidate_id.partition(":")
-        if not separator:
-            video_id = item.candidate_id
-        video = db.session.get(YouTubeVideo, video_id)
-        if video is not None:
+        video_id = item.content_id
+        for video in db.session.scalars(db.select(YouTubeVideo)):
+            canonical = video.external_id.split("::pt:", 1)[0]
+            if canonical != video_id:
+                continue
             video.watched = True
             video.local_history = [
-                *video.local_history,
+                *(video.local_history or []),
                 {"event": "completed_in_personal_tv", "at": utc_iso()},
-            ]
+            ][-20:]
 
     @staticmethod
     def transition(session: TVSession, action: str, skip_reason: str = "") -> TVSession:
@@ -346,16 +400,16 @@ class PersonalTVService:
         elif action in {"skip", "complete_item"} and current:
             current.state = "skipped" if action == "skip" else "completed"
             current.skip_reason = skip_reason[:100] if action == "skip" else ""
-            current.completion_ratio = (
-                100 if action == "complete_item" else current.completion_ratio
-            )
+            if action == "complete_item":
+                current.playhead_seconds = current.duration_seconds
+                current.completion_ratio = 100
             current.completed_at = now
             if action == "complete_item":
                 PersonalTVService._mark_watched(current)
                 PersonalTVService._feedback(session, current, "completed")
             else:
                 PersonalTVService._feedback(session, current, "skipped", skip_reason)
-            session.elapsed_seconds += current.duration_seconds
+            PersonalTVService._refresh_elapsed(session)
             visible = PersonalTVService._visible_items(session)
             if session.current_item_index + 1 >= len(visible):
                 session.state = "completed"
@@ -378,11 +432,24 @@ class PersonalTVService:
         return session
 
     @staticmethod
-    def record_progress(session: TVSession, completion_ratio: int) -> TVSession:
+    def record_progress(
+        session: TVSession,
+        *,
+        playhead_seconds: int | None = None,
+        completion_ratio: int | None = None,
+    ) -> TVSession:
         item = PersonalTVService._current_item(session)
         if item is None:
             return session
-        item.completion_ratio = max(0, min(99, completion_ratio))
+        if playhead_seconds is None:
+            ratio = max(0, min(99, int(completion_ratio or 0)))
+            playhead_seconds = round(item.duration_seconds * ratio / 100)
+        item.playhead_seconds = max(0, min(item.duration_seconds, int(playhead_seconds)))
+        item.completion_ratio = min(
+            99,
+            round(item.playhead_seconds / max(1, item.duration_seconds) * 100),
+        )
+        PersonalTVService._refresh_elapsed(session)
         db.session.commit()
         return session
 
@@ -438,6 +505,54 @@ class PersonalTVService:
         return session
 
     @staticmethod
+    def replace_item(session: TVSession, item_id: int) -> TVSession:
+        """Replace one reviewable programme without rewriting the rest of the lineup."""
+        item = db.session.get(TVSessionItem, item_id)
+        if (
+            item is None
+            or item.session_id != session.id
+            or item.state in {"completed", "skipped"}
+            or session.state != "planned"
+        ):
+            raise ValueError("That programme can no longer be replaced.")
+        request = PersonalTVService._request_from_session(session)
+        known = {entry.candidate_id for entry in session.items if entry.id != item.id}
+        duration_minutes = max(30, min(120, round(item.duration_seconds / 60 / 30) * 30 or 30))
+        lineup = build_lineup(
+            [
+                candidate
+                for candidate in PersonalTVService._candidate_pool(request)
+                if candidate.candidate_id not in known and candidate.content_id != item.content_id
+            ],
+            replace(request, duration_minutes=duration_minutes),
+        )
+        if not lineup:
+            raise ValueError("No equivalent replacement is available right now.")
+        old_position = item.position
+        item.state = "replaced"
+        item.skip_reason = "viewer_replaced"
+        item.position = max(entry.position for entry in session.items) + 1
+        PersonalTVService._append_programmed_item(session, lineup[0], old_position)
+        db.session.commit()
+        return session
+
+    @staticmethod
+    def remove_item(session: TVSession, item_id: int) -> TVSession:
+        """Remove a queued review item; playback items use Skip to retain honest history."""
+        item = db.session.get(TVSessionItem, item_id)
+        if (
+            item is None
+            or item.session_id != session.id
+            or item.state in {"completed", "skipped", "replaced"}
+            or session.state != "planned"
+        ):
+            raise ValueError("Only queued programmes in the review can be removed.")
+        item.state = "replaced"
+        item.skip_reason = "removed_in_review"
+        db.session.commit()
+        return session
+
+    @staticmethod
     def regenerate_remainder(session: TVSession) -> TVSession:
         current = PersonalTVService._current_item(session)
         if current is None:
@@ -487,13 +602,17 @@ class PersonalTVService:
             preferences.preferred_creators = list(
                 normalise_terms([*preferences.preferred_creators, creator])
             )
+        elif kind == "less_like_this" and creator:
+            preferences.deprioritized_creators = list(
+                normalise_terms([*preferences.deprioritized_creators, creator])
+            )
         elif kind == "hide_channel" and creator:
             preferences.blocked_creators = list(
                 normalise_terms([*preferences.blocked_creators, creator])
             )
-        elif kind == "not_interested" and item.content_type:
+        elif kind == "not_interested" and item.title:
             preferences.avoided_keywords = list(
-                normalise_terms([*preferences.avoided_keywords, item.content_type])
+                normalise_terms([*preferences.avoided_keywords, item.title])
             )
         db.session.commit()
         return session
@@ -591,7 +710,7 @@ class PersonalTVService:
         """Prepare today's configurable channel without starting playback."""
         current = now or utc_now()
         if current.tzinfo is None:
-            current = current.replace(tzinfo=timezone.utc)
+            current = current.replace(tzinfo=UTC)
         profiles = PersonalTVService.preferences().daypart_profiles or DEFAULT_DAYPART_PROFILES
         created: list[PreparedTVProgram] = []
         for key, profile in profiles.items():
@@ -599,7 +718,7 @@ class PersonalTVService:
                 continue
             try:
                 hour, minute = (int(value) for value in str(profile.get("start", "")).split(":", 1))
-                starts_at = datetime.combine(current.date(), time(hour, minute), tzinfo=timezone.utc)
+                starts_at = datetime.combine(current.date(), time(hour, minute), tzinfo=UTC)
                 duration = int(profile.get("duration_minutes", 60))
             except (TypeError, ValueError):
                 continue

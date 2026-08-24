@@ -78,3 +78,15 @@ def test_programming_accepts_live_only_when_requested_and_deduplicates_stories()
         ProgrammingRequest(60, ("Science",)),
     )
     assert len(deduped) == 1
+
+
+def test_selected_collection_is_a_hard_scope_and_favorite_is_only_an_overlay():
+    result = build_lineup(
+        [
+            candidate("science", 30, "Science creator", "Science & Knowledge"),
+            candidate("history", 30, "History creator", "Documentary & History"),
+            candidate("favo-history", 30, "Trusted history", "my favoret"),
+        ],
+        ProgrammingRequest(60, ("Science & Knowledge",)),
+    )
+    assert [item.candidate.candidate_id for item in result] == ["science"]

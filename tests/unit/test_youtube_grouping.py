@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 from app.extensions import db
 from app.personal_tv.providers import YouTubeCandidateProvider
 from app.youtube.cli import build_pockettube_payload
-from app.youtube.models import YouTubeVideo
+from app.youtube.models import PocketTubeChannelMembership, YouTubeVideo
 from app.youtube.services import YouTubeService
 
 
@@ -112,3 +112,44 @@ def test_group_map_relabels_cached_pockettube_videos_without_network(app, tmp_pa
         )
         assert counts["videos"] == 2
         assert {video.group_name for video in active} == {"Science & Knowledge", "my favoret"}
+        memberships = list(db.session.scalars(db.select(PocketTubeChannelMembership)))
+        assert {(item.group_name, item.channel_id) for item in memberships} == {
+            ("Science & Knowledge", "UCtrusted"),
+            ("my favoret", "UCtrusted"),
+        }
+
+        class FakeYouTubeClient:
+            def fetch_channel_uploads(self, channel_limits, *, maximum):
+                assert channel_limits == {"UCtrusted": 12}
+                assert maximum == 288
+                return {
+                    "UCtrusted": [
+                        {
+                            "id": "playlist-item",
+                            "snippet": {
+                                "resourceId": {"videoId": "fresh-video"},
+                                "title": "Fresh science programme",
+                                "description": "A useful long-form programme.",
+                                "publishedAt": "2026-08-24T12:00:00Z",
+                                "channelTitle": "Trusted channel",
+                            },
+                        }
+                    ]
+                }
+
+            def fetch_durations(self, video_ids, *, maximum):
+                assert video_ids == ["fresh-video"]
+                assert maximum == 1
+                return {"fresh-video": 1200}
+
+        hydrated = YouTubeService.hydrate_pockettube_groups(
+            FakeYouTubeClient(), ("Science & Knowledge",)
+        )
+        assert hydrated["channels"] == 1
+        fresh = list(
+            db.session.scalars(
+                db.select(YouTubeVideo).where(YouTubeVideo.external_id.like("fresh-video%"))
+            )
+        )
+        assert {video.group_name for video in fresh} == {"Science & Knowledge", "my favoret"}
+        assert all(item.last_hydrated_at is not None for item in memberships)

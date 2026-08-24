@@ -62,6 +62,34 @@ _LEGACY_GROUPS = {
     "archive review later": ARCHIVE_GROUP,
 }
 
+_INTENT_GROUPS = {
+    "book": "Books & Literature",
+    "books": "Books & Literature",
+    "literature": "Books & Literature",
+    "science": "Science & Knowledge",
+    "knowledge": "Science & Knowledge",
+    "education": "Science & Knowledge",
+    "history": "Documentary & History",
+    "documentary": "Documentary & History",
+    "documentaries": "Documentary & History",
+    "tech": "Tech & AI",
+    "technology": "Tech & AI",
+    "ai": "Tech & AI",
+    "islam": "Faith & Islamic Thought",
+    "faith": "Faith & Islamic Thought",
+    "geopolitics": "News & Geopolitics",
+    "news": "News & Geopolitics",
+    "podcast": "Podcasts & Long-form",
+    "podcasts": "Podcasts & Long-form",
+    "film": "Film, TV & Animation",
+    "movies": "Film, TV & Animation",
+    "music": "Music",
+    "sport": "Sports",
+    "sports": "Sports",
+    "language": "Language Learning",
+    "travel": "Travel & Lifestyle",
+}
+
 
 def group_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
@@ -79,6 +107,14 @@ def canonical_group(value: str) -> str:
         if group_key(group) == key:
             return group
     return _LEGACY_GROUPS.get(key, clean)
+
+
+def selected_theme(value: str) -> str:
+    """Resolve an intentional My TV theme without letting Favo or Archive become scopes."""
+    group = canonical_group(value)
+    if group in MY_TV_GROUP_ORDER and group != FAVORITE_GROUP:
+        return group
+    return _INTENT_GROUPS.get(group_key(value), "")
 
 
 def is_favorite_group(value: str) -> bool:

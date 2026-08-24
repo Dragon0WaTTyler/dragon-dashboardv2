@@ -5,7 +5,7 @@ import json
 import math
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +15,8 @@ from app.shared.models import SnapshotRecord
 from app.shared.text import text_direction
 from app.shared.time import utc_iso, utc_now
 from app.youtube.constants import POCKETTUBE_GROUP_VIDEO_LIMIT, POCKETTUBE_SHORT_MAX_SECONDS
-from app.youtube.models import YouTubeVideo
+from app.youtube.grouping import is_archive_group, selected_theme
+from app.youtube.models import PocketTubeChannelMembership, YouTubeVideo
 from app.youtube.providers import YouTubePlaylistClient
 from app.youtube.repositories import YouTubeRepository
 
@@ -38,7 +39,7 @@ def _published_at(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
-    return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc)
+    return parsed.replace(tzinfo=parsed.tzinfo or UTC)
 
 
 def _thumbnail(snippet: dict[str, Any], video_id: str) -> str:
@@ -83,6 +84,38 @@ def _cached_video_is_short(video: YouTubeVideo) -> bool:
     if 0 < video.duration_seconds <= POCKETTUBE_SHORT_MAX_SECONDS:
         return True
     return "#short" in f"{video.title}\n{video.description}".casefold()
+
+
+def _channel_groups_from_payload(payload: dict[str, object]) -> dict[str, list[str]]:
+    """Read PocketTube's durable channel scope without conflating it with cached uploads."""
+    channel_groups: dict[str, list[str]] = {}
+    for group_name, value in payload.items():
+        if str(group_name).startswith("ysc_") or not isinstance(value, list):
+            continue
+        group = selected_theme(str(group_name)) or str(group_name).strip()[:160]
+        if not group:
+            continue
+        for channel_id in value:
+            channel = str(channel_id or "").strip()
+            if not channel.startswith("UC"):
+                continue
+            memberships = channel_groups.setdefault(channel, [])
+            if group not in memberships:
+                memberships.append(group)
+    return channel_groups
+
+
+def _replace_channel_memberships(channel_groups: dict[str, list[str]]) -> None:
+    desired = {(group, channel) for channel, groups in channel_groups.items() for group in groups}
+    existing = {
+        (membership.group_name, membership.channel_id): membership
+        for membership in db.session.scalars(db.select(PocketTubeChannelMembership))
+    }
+    for group, channel in desired - existing.keys():
+        db.session.add(PocketTubeChannelMembership(group_name=group, channel_id=channel))
+    for key, membership in existing.items():
+        if key not in desired:
+            db.session.delete(membership)
 
 
 def clean_video_title(value: object) -> str:
@@ -479,19 +512,7 @@ class YouTubeService:
         if not isinstance(payload, dict):
             raise ValueError("PocketTube group export is not valid.")
 
-        channel_groups: dict[str, list[str]] = {}
-        for group_name, value in payload.items():
-            if str(group_name).startswith("ysc_") or not isinstance(value, list):
-                continue
-            group = str(group_name).strip()[:160]
-            if not group:
-                continue
-            for channel_id in value:
-                channel = str(channel_id or "").strip()
-                if channel.startswith("UC"):
-                    memberships = channel_groups.setdefault(channel, [])
-                    if group not in memberships:
-                        memberships.append(group)
+        channel_groups = _channel_groups_from_payload(payload)
 
         existing_rows = list(
             db.session.scalars(
@@ -519,6 +540,7 @@ class YouTubeService:
         }
         active_memberships: set[str] = set()
         try:
+            _replace_channel_memberships(channel_groups)
             for canonical_id, representative in representatives.items():
                 groups = channel_groups.get(representative.channel_id, [])
                 for group in groups:
@@ -594,6 +616,145 @@ class YouTubeService:
         return counts
 
     @staticmethod
+    def hydrate_pockettube_groups(
+        client: YouTubePlaylistClient,
+        groups: tuple[str, ...] | list[str],
+        *,
+        max_channels: int = 24,
+        items_per_channel: int = 12,
+    ) -> dict[str, int]:
+        """Refresh a bounded, rotating collection slice only when My TV needs it.
+
+        PocketTube owns the channel memberships.  This method only enriches a selected
+        collection's local video cache; it never performs a daily all-channel crawl.
+        """
+        scope = tuple(
+            dict.fromkeys(
+                theme for value in groups if (theme := selected_theme(str(value)))
+            )
+        )
+        if not scope:
+            return {"channels": 0, "videos": 0, "created": 0, "updated": 0}
+        memberships = list(
+            db.session.scalars(
+                db.select(PocketTubeChannelMembership)
+                .where(PocketTubeChannelMembership.group_name.in_(scope))
+                .order_by(
+                    PocketTubeChannelMembership.last_hydrated_at.is_not(None),
+                    PocketTubeChannelMembership.last_hydrated_at,
+                    PocketTubeChannelMembership.catalogue_depth,
+                    PocketTubeChannelMembership.channel_id,
+                )
+            )
+        )
+        selected_by_channel: dict[str, PocketTubeChannelMembership] = {}
+        for membership in memberships:
+            selected_by_channel.setdefault(membership.channel_id, membership)
+            if len(selected_by_channel) >= max(1, max_channels):
+                break
+        if not selected_by_channel:
+            return {"channels": 0, "videos": 0, "created": 0, "updated": 0}
+
+        channel_ids = tuple(selected_by_channel)
+        all_memberships = list(
+            db.session.scalars(
+                db.select(PocketTubeChannelMembership).where(
+                    PocketTubeChannelMembership.channel_id.in_(channel_ids)
+                )
+            )
+        )
+        groups_by_channel: dict[str, list[str]] = {}
+        for membership in all_memberships:
+            if not is_archive_group(membership.group_name):
+                groups_by_channel.setdefault(membership.channel_id, []).append(
+                    membership.group_name
+                )
+
+        uploads = client.fetch_channel_uploads(
+            {channel_id: max(1, min(items_per_channel, 120)) for channel_id in channel_ids},
+            maximum=max(1, min(max_channels * items_per_channel, 2400)),
+        )
+        video_ids = [
+            str(((record.get("snippet") or {}).get("resourceId") or {}).get("videoId") or "")
+            for records in uploads.values()
+            for record in records
+            if isinstance(record, dict)
+        ]
+        durations = client.fetch_durations(video_ids, maximum=len(video_ids))
+        existing_rows = list(
+            db.session.scalars(
+                db.select(YouTubeVideo).where(YouTubeVideo.source == "pockettube")
+            )
+        )
+        existing = {video.external_id: video for video in existing_rows}
+        watched_by_canonical: dict[str, bool] = {}
+        for video in existing_rows:
+            canonical = _canonical_external_id(video.external_id)
+            watched_by_canonical[canonical] = (
+                watched_by_canonical.get(canonical, False) or video.watched
+            )
+
+        now = utc_now()
+        counts = {"channels": len(channel_ids), "videos": 0, "created": 0, "updated": 0}
+        position = max((video.position for video in existing_rows), default=-1) + 1
+        for channel_id, records in uploads.items():
+            valid_records = [record for record in records if isinstance(record, dict)]
+            for record in valid_records:
+                snippet = record.get("snippet") or {}
+                resource = snippet.get("resourceId") or {}
+                video_id = str(resource.get("videoId") or "").strip()
+                title = str(snippet.get("title") or "").strip()
+                if not video_id or not title or _is_pockettube_short(snippet, video_id, durations):
+                    continue
+                for group in groups_by_channel.get(channel_id, []):
+                    membership_id = _pockettube_external_id(video_id, group)
+                    video = existing.get(membership_id)
+                    if video is None:
+                        video = YouTubeVideo(
+                            external_id=membership_id,
+                            source="pockettube",
+                            title=title[:500],
+                        )
+                        db.session.add(video)
+                        existing[membership_id] = video
+                        counts["created"] += 1
+                    else:
+                        counts["updated"] += 1
+                    video.playlist_item_id = str(record.get("id") or "")[:100]
+                    video.group_name = group
+                    video.channel_id = channel_id[:100]
+                    video.channel_title = str(
+                        snippet.get("videoOwnerChannelTitle") or snippet.get("channelTitle") or ""
+                    )[:240]
+                    video.title = title[:500]
+                    video.description = str(snippet.get("description") or "")
+                    video.thumbnail_url = _thumbnail(snippet, video_id)[:1000]
+                    video.published_at = _published_at(snippet.get("publishedAt"))
+                    video.duration_seconds = durations.get(video_id, video.duration_seconds)
+                    video.position = position
+                    video.watched = watched_by_canonical.get(video_id, video.watched)
+                    video.removed_from_source = False
+                    video.local_history = [
+                        *(video.local_history or []),
+                        {
+                            "event": "my_tv_collection_hydrated",
+                            "at": utc_iso(),
+                            "channel_id": channel_id,
+                        },
+                    ][-20:]
+                    position += 1
+                    counts["videos"] += 1
+        for membership in all_memberships:
+            if membership.channel_id in selected_by_channel:
+                membership.last_hydrated_at = now
+                membership.catalogue_depth = max(
+                    membership.catalogue_depth,
+                    len(uploads.get(membership.channel_id, [])),
+                )
+        db.session.commit()
+        return counts
+
+    @staticmethod
     def sync_pockettube(
         client: YouTubePlaylistClient,
         export_path: str | Path,
@@ -608,23 +769,18 @@ class YouTubeService:
         if not isinstance(payload, dict):
             raise ValueError("PocketTube export is not valid.")
 
-        channel_groups: dict[str, list[str]] = {}
+        channel_groups = _channel_groups_from_payload(payload)
         group_channels: dict[str, list[str]] = {}
-        for group_name, value in payload.items():
-            if str(group_name).startswith("ysc_") or group_name in {"archive"}:
-                continue
-            if not isinstance(value, list):
-                continue
-            group = str(group_name).strip()[:160]
-            if not group:
-                continue
-            for channel_id in value:
-                channel = str(channel_id or "").strip()
-                if channel.startswith("UC"):
-                    channel_groups.setdefault(channel, []).append(group)
+        for channel, groups in channel_groups.items():
+            for group in groups:
+                if not is_archive_group(group):
                     group_channels.setdefault(group, []).append(channel)
 
-        channels = list(channel_groups)[: max(1, min(maximum, 5000))]
+        channels = [
+            channel
+            for channel, groups in channel_groups.items()
+            if any(not is_archive_group(group) for group in groups)
+        ][: max(1, min(maximum, 5000))]
         channel_limits = {channel_id: 1 for channel_id in channels}
         for _group, group_channel_ids in group_channels.items():
             if not group_channel_ids:
@@ -675,7 +831,7 @@ class YouTubeService:
             key=lambda video: (
                 video.group_name,
                 video.position,
-                video.published_at or datetime.min.replace(tzinfo=timezone.utc),
+                video.published_at or datetime.min.replace(tzinfo=UTC),
             ),
         ):
             group_key = _pockettube_external_id(
@@ -696,6 +852,7 @@ class YouTubeService:
         }
 
         try:
+            _replace_channel_memberships(channel_groups)
             rows: list[tuple[datetime, str, str, list[str], dict]] = []
             candidates_seen: set[str] = set()
             for channel_id, records in uploads.items():
@@ -709,7 +866,11 @@ class YouTubeService:
                     if _is_pockettube_short(snippet, external_id, durations):
                         counts["shorts_skipped"] += 1
                         continue
-                    groups = channel_groups.get(channel_id) or [""]
+                    groups = [
+                        group
+                        for group in channel_groups.get(channel_id, [""])
+                        if not is_archive_group(group)
+                    ]
                     for group in groups:
                         primary_group = group[:160]
                         membership_id = _pockettube_external_id(external_id, primary_group)
@@ -719,7 +880,7 @@ class YouTubeService:
                         rows.append(
                             (
                                 _published_at(snippet.get("publishedAt"))
-                                or datetime.min.replace(tzinfo=timezone.utc),
+                                or datetime.min.replace(tzinfo=UTC),
                                 channel_id,
                                 primary_group,
                                 groups,

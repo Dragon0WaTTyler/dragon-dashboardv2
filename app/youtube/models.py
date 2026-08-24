@@ -38,3 +38,23 @@ class YouTubeVideo(db.Model):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
+
+
+class PocketTubeChannelMembership(db.Model):
+    """Durable channel scope imported from PocketTube, independent of cached uploads."""
+
+    __tablename__ = "youtube_pockettube_channel_memberships"
+    __table_args__ = (
+        UniqueConstraint("group_name", "channel_id", name="uq_pockettube_group_channel"),
+        Index("ix_pockettube_channel_group_hydrated", "group_name", "last_hydrated_at"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    group_name: Mapped[str] = mapped_column(String(160), nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(100), nullable=False)
+    last_hydrated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    catalogue_depth: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )

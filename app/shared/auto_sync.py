@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from datetime import timedelta, timezone
+from datetime import UTC, timedelta
 from time import sleep
 
 from flask import Flask
@@ -12,9 +12,8 @@ from app.shared.models import SnapshotRecord
 from app.shared.time import utc_now
 
 LOGGER = logging.getLogger(__name__)
-# A PocketTube refresh queries each subscribed channel.  Keeping it daily stays
-# comfortably within the standard YouTube Data API daily quota for large libraries.
-POCKETTUBE_AUTO_SYNC_INTERVAL_SECONDS = 24 * 60 * 60
+# PocketTube membership is refreshed explicitly.  My TV hydrates only the collections
+# the viewer selects, so Dragon never performs a daily all-channel crawl.
 READING_AUTO_SYNC_INTERVAL_SECONDS = 5 * 60
 _CHECK_INTERVAL_SECONDS = 60
 _sync_lock = threading.Lock()
@@ -39,40 +38,10 @@ def start_auto_sync(app: Flask) -> None:
 def _auto_sync_loop(app: Flask) -> None:
     sleep(_CHECK_INTERVAL_SECONDS)
     while True:
-        _sync_pockettube_if_due(app)
         _sync_reading_if_due(app)
         _sync_tv_sources_if_due(app)
         _sync_epg_if_due(app)
         sleep(_CHECK_INTERVAL_SECONDS)
-
-
-def _sync_pockettube_if_due(app: Flask) -> None:
-    if not _sync_lock.acquire(blocking=False):
-        return
-    try:
-        with app.app_context():
-            if not app.config.get("DRAGON_YOUTUBE_SYNC_ENABLED"):
-                return
-            if not _pockettube_sync_due():
-                return
-            from app.shared.refresh import OperationCoordinator
-
-            operation = OperationCoordinator.run(kind="sync", domain="youtube_pockettube")
-            if operation.status == "failed":
-                LOGGER.warning("PocketTube auto sync failed: %s", operation.safe_error)
-            else:
-                LOGGER.info("PocketTube auto sync completed: %s", operation.counts)
-    except Exception:
-        LOGGER.exception("PocketTube auto sync crashed.")
-    finally:
-        _sync_lock.release()
-
-
-def _pockettube_sync_due() -> bool:
-    return _snapshot_sync_due(
-        "youtube_pockettube",
-        seconds=POCKETTUBE_AUTO_SYNC_INTERVAL_SECONDS,
-    )
 
 
 def _sync_reading_if_due(app: Flask) -> None:
@@ -147,5 +116,5 @@ def _snapshot_sync_due(domain: str, *, seconds: int) -> bool:
         return True
     last_success_at = snapshot.last_success_at
     if last_success_at.tzinfo is None:
-        last_success_at = last_success_at.replace(tzinfo=timezone.utc)
+        last_success_at = last_success_at.replace(tzinfo=UTC)
     return utc_now() - last_success_at >= timedelta(seconds=seconds)

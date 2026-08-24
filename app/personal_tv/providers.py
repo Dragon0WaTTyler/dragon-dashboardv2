@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 from sqlalchemy import func, select
@@ -17,7 +17,7 @@ from app.mytv.models import (
 )
 from app.personal_tv.programming import SHORT_MAX_SECONDS, ProgrammingCandidate
 from app.youtube.grouping import is_archive_group, is_favorite_group, ordered_groups
-from app.youtube.models import YouTubeVideo
+from app.youtube.models import PocketTubeChannelMembership, YouTubeVideo
 
 
 class CandidateProvider(Protocol):
@@ -55,10 +55,12 @@ class YouTubeCandidateProvider:
         # A PocketTube membership and Watch Later can point at the same source video.
         chosen: dict[str, YouTubeVideo] = {}
         groups_by_video: dict[str, set[str]] = {}
+        watched_by_video: dict[str, bool] = {}
         for video in videos:
             canonical = video.external_id.split("::pt:", 1)[0]
             if video.source == "pockettube" and video.group_name:
                 groups_by_video.setdefault(canonical, set()).add(video.group_name)
+            watched_by_video[canonical] = watched_by_video.get(canonical, False) or video.watched
             previous = chosen.get(canonical)
             prioritize_watch_later = (
                 previous is not None
@@ -82,7 +84,7 @@ class YouTubeCandidateProvider:
                     if group and not is_archive_group(group)
                 ),
                 thumbnail_url=video.thumbnail_url,
-                watched=video.watched,
+                watched=watched_by_video.get(canonical, video.watched),
                 favorite=any(
                     is_favorite_group(group)
                     for group in groups_by_video.get(canonical, {video.group_name})
@@ -114,7 +116,7 @@ class YouTubeCandidateProvider:
 
     @staticmethod
     def groups() -> list[dict[str, object]]:
-        rows = db.session.execute(
+        video_rows = db.session.execute(
             db.select(YouTubeVideo.group_name, func.count())
             .where(
                 YouTubeVideo.source == "pockettube",
@@ -124,13 +126,31 @@ class YouTubeCandidateProvider:
             .group_by(YouTubeVideo.group_name)
             .order_by(YouTubeVideo.group_name)
         )
+        membership_rows = db.session.execute(
+            db.select(
+                PocketTubeChannelMembership.group_name,
+                func.count(),
+                func.max(PocketTubeChannelMembership.last_hydrated_at),
+            )
+            .group_by(PocketTubeChannelMembership.group_name)
+        )
+        cached_counts = {str(name): int(count) for name, count in video_rows}
+        coverage = {
+            str(name): (int(count), refreshed_at)
+            for name, count, refreshed_at in membership_rows
+        }
         groups = [
             {
                 "name": name,
-                "count": int(count),
+                "count": cached_counts.get(name, 0),
+                "cached_video_count": cached_counts.get(name, 0),
+                "channel_count": coverage.get(name, (0, None))[0],
+                "last_hydrated_at": (
+                    coverage[name][1].isoformat() if coverage.get(name, (0, None))[1] else None
+                ),
                 "favorite": is_favorite_group(name),
             }
-            for name, count in rows
+            for name in sorted(set(cached_counts) | set(coverage))
             if not is_archive_group(name)
         ]
         return ordered_groups(groups)
@@ -163,7 +183,7 @@ class IPTVCandidateProvider:
             )
         )
         guide = now_next_for_ids({channel.tvg_id for channel, _, _ in rows if channel.tvg_id})
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         candidates: list[ProgrammingCandidate] = []
         for channel, preference, theme_name in rows:
             current = guide.get(channel.tvg_id, {}).get("now")

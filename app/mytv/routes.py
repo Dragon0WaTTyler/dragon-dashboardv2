@@ -1002,6 +1002,41 @@ def hls_resource(token: str):
         return str(error), 502
 
 
+@bp.get("/transcode/<int:channel_id>")
+@login_required
+def transcode_live(channel_id: int):
+    """Use FFmpeg when a browser cannot tolerate a provider's HLS manifest."""
+    channel = _playable_channel(channel_id)
+    candidates = _playback_candidates(channel)
+    last_error_response = None
+    for attempt, candidate in enumerate(candidates, start=1):
+        try:
+            response = transcode_stream(candidate.stream_url)
+        except (StreamUnavailable, requests.RequestException, OSError):
+            mark_stream_failure(candidate.stream_url)
+            continue
+        if response.status_code >= 400:
+            last_error_response = response
+            if response.status_code != 429:
+                mark_stream_failure(candidate.stream_url)
+            continue
+        mark_stream_success(candidate.stream_url)
+        record_channel_health(
+            channel.preference_key,
+            online=True,
+            source_url=candidate.stream_url,
+        )
+        _record_channel_watch(channel, source_url=candidate.stream_url)
+        db.session.commit()
+        query_cache.invalidate()
+        response.headers["X-Dragon-TV-Source-Attempt"] = str(attempt)
+        response.headers["X-Dragon-TV-Source-Candidates"] = str(len(candidates))
+        return response
+    if last_error_response is not None:
+        return last_error_response
+    return "No live source could be opened by the local player.", 502
+
+
 def _playback_candidates(channel: TVChannel) -> list[TVChannel]:
     candidate_rows = list(
         db.session.execute(
