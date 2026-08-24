@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from math import ceil
 
 PROGRAMMING_VERSION = "v1"
@@ -139,8 +139,8 @@ def parse_intent(text: str, *, default_duration: int = 60) -> ProgrammingRequest
 def _age_days(value: datetime | None) -> int:
     if value is None:
         return 90
-    instant = value if value.tzinfo else value.replace(tzinfo=UTC)
-    return max(0, (datetime.now(UTC) - instant).days)
+    instant = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    return max(0, (datetime.now(timezone.utc) - instant).days)
 
 
 def _terms(candidate: ProgrammingCandidate) -> set[str]:

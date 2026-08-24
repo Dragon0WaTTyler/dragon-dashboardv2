@@ -5,7 +5,7 @@ import json
 import math
 import re
 import secrets
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +38,7 @@ def _published_at(value: object) -> datetime | None:
         parsed = datetime.fromisoformat(text)
     except ValueError:
         return None
-    return parsed.replace(tzinfo=parsed.tzinfo or UTC)
+    return parsed.replace(tzinfo=parsed.tzinfo or timezone.utc)
 
 
 def _thumbnail(snippet: dict[str, Any], video_id: str) -> str:
@@ -675,7 +675,7 @@ class YouTubeService:
             key=lambda video: (
                 video.group_name,
                 video.position,
-                video.published_at or datetime.min.replace(tzinfo=UTC),
+                video.published_at or datetime.min.replace(tzinfo=timezone.utc),
             ),
         ):
             group_key = _pockettube_external_id(
@@ -719,7 +719,7 @@ class YouTubeService:
                         rows.append(
                             (
                                 _published_at(snippet.get("publishedAt"))
-                                or datetime.min.replace(tzinfo=UTC),
+                                or datetime.min.replace(tzinfo=timezone.utc),
                                 channel_id,
                                 primary_group,
                                 groups,
