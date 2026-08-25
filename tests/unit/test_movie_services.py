@@ -1,15 +1,17 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.extensions import db
-from app.movies.models import Movie
+from app.movies.models import Movie, MovieProgress
 from app.movies.services import (
     MovieService,
     ProgressConflictError,
+    completion_threshold,
     parse_movie_filters,
-    tv_show_workspace,
     tv_season_workspace,
+    tv_show_workspace,
 )
 from app.playback.models import PlaybackSource
 
@@ -99,6 +101,121 @@ def test_status_and_score_validation(app):
         assert "personal_score_label" not in movie.metadata_state
         with pytest.raises(ValueError):
             MovieService.set_score(movie, 7)
+
+
+def test_v2_identity_and_library_entry_keep_movie_and_tv_separate(app):
+    with app.app_context():
+        movie = Movie(
+            title="Twin",
+            normalized_title="twin movie",
+            media_type="movie",
+            external_ids={"tmdb_id": "42", "tmdb_type": "movie"},
+        )
+        show = Movie(
+            title="Twin",
+            normalized_title="twin show",
+            media_type="tv",
+            external_ids={"tmdb_id": "42", "tmdb_type": "tv"},
+        )
+        local = Movie(title="Local", normalized_title="local", media_type="movie")
+        db.session.add_all([movie, show, local])
+        db.session.commit()
+
+        assert movie.media_key == "movie:42"
+        assert show.media_key == "tv:42"
+        assert local.media_key == f"local:movie:{local.id}"
+
+        MovieService.set_status(movie, "watched")
+        MovieService.set_score(movie, 4.5, label="Favorite Movie")
+        assert movie.library_entry is not None
+        assert movie.library_entry.lifecycle_status == "watched"
+        assert movie.library_entry.personal_rating == 4.5
+        assert movie.library_entry.personal_label == "Favorite Movie"
+        assert movie.library_entry.is_favorite is False
+
+
+def test_progress_completion_thresholds_and_manual_unwatched_are_centralized(app):
+    with app.app_context():
+        film = Movie(title="Film", normalized_title="film")
+        show = Movie(title="Show", normalized_title="show", media_type="tv")
+        ended = Movie(title="Ended", normalized_title="ended")
+        db.session.add_all([film, show, ended])
+        db.session.commit()
+
+        assert completion_threshold() == 0.95
+        assert completion_threshold(season=1, episode=1) == 0.90
+        below = MovieService.save_progress(
+            film,
+            current_seconds=94,
+            duration_seconds=100,
+            completed=False,
+        )
+        assert below.completed is False
+        assert film.library_entry.lifecycle_status == "watching"
+
+        complete = MovieService.save_progress(
+            film,
+            current_seconds=95,
+            duration_seconds=100,
+            completed=False,
+        )
+        assert complete.completed is True
+        assert film.library_entry.lifecycle_status == "watched"
+
+        MovieService.set_status(film, "want_to_watch")
+        assert film.library_entry.completed_at is None
+        assert film.library_entry.lifecycle_status == "want_to_watch"
+
+        episode = MovieService.save_progress(
+            show,
+            season=1,
+            episode=1,
+            current_seconds=90,
+            duration_seconds=100,
+            completed=False,
+        )
+        special = MovieService.save_progress(
+            show,
+            season=0,
+            episode=1,
+            current_seconds=1,
+            duration_seconds=100,
+            completed=False,
+        )
+        ended_progress = MovieService.save_progress(
+            ended,
+            current_seconds=0,
+            duration_seconds=0,
+            completed=False,
+            ended=True,
+        )
+        assert episode.completed is True
+        assert special.completed is False
+        assert ended_progress.completed is True
+        assert ended.library_entry.lifecycle_status == "watched"
+
+
+def test_progress_scope_is_unique_and_watch_selection_is_personal_only(app):
+    with app.app_context():
+        available = Movie(title="Available", normalized_title="available")
+        watched = Movie(title="Watched", normalized_title="watched")
+        db.session.add_all([available, watched])
+        db.session.commit()
+        MovieService.set_status(available, "want_to_watch")
+        MovieService.set_status(watched, "watched")
+
+        first = MovieProgress(movie_id=available.id, current_seconds=10)
+        db.session.add(first)
+        db.session.commit()
+        db.session.add(MovieProgress(movie_id=available.id, current_seconds=20))
+        with pytest.raises(IntegrityError):
+            db.session.commit()
+        db.session.rollback()
+
+        selection = MovieService.what_should_i_watch()
+        assert selection is not None
+        assert selection["id"] == available.id
+        assert selection["eligibility_reason"] == "From your personal unwatched library."
 
 
 def test_recommendation_pool_uses_profile_and_excludes_watched(app):

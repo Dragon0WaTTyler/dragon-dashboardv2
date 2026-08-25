@@ -285,6 +285,12 @@ def api_search():
     return jsonify({"ok": True, **results})
 
 
+@bp.get("/api/what-should-i-watch")
+@login_required
+def api_what_should_i_watch():
+    return jsonify({"ok": True, "item": MovieService.what_should_i_watch()})
+
+
 @bp.get("/api/tv/<int:tmdb_id>/seasons")
 @login_required
 def api_tv_seasons(tmdb_id: int):

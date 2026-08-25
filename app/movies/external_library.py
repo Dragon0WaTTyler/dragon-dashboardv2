@@ -15,6 +15,7 @@ from app.movies.integrations import (
 )
 from app.movies.models import Movie
 from app.movies.repositories import MovieRepository
+from app.movies.services import MovieService
 from app.playback.models import PlaybackSource
 
 
@@ -444,6 +445,7 @@ def _upsert_notion_item(item: dict) -> Movie:
             None,
         )
     normalized = _normalized(item.get("title"))
+    created = movie is None
     if movie is None:
         movie = next(
             (
@@ -496,6 +498,9 @@ def _upsert_notion_item(item: dict) -> Movie:
         "release_title": item.get("release_title"),
         **_tv_metadata_state(item),
     }
+    if created:
+        MovieService.assign_canonical_identity(movie, allow_tmdb_reconciliation=True)
+    MovieService.ensure_library_entry(movie)
     _upsert_playback_sources(movie, item.get("playback_sources") or [], media_type=movie.media_type)
     _upsert_tv_episode_sources(movie, item.get("episode_items") or [])
     return movie

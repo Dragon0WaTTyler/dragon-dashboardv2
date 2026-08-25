@@ -2,19 +2,39 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import String, cast, func, not_, or_
+from sqlalchemy import String, case, cast, func, or_
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
-from app.movies.models import Movie, MovieProgress
+from app.movies.models import Movie, MovieLibraryEntry, MovieProgress
 
 SORTS = {
     "title_asc": Movie.normalized_title.asc(),
     "title_desc": Movie.normalized_title.desc(),
-    "score_desc": Movie.personal_score.desc().nullslast(),
+    "score_desc": func.coalesce(
+        MovieLibraryEntry.personal_rating,
+        Movie.personal_score,
+    ).desc().nullslast(),
     "year_desc": Movie.year.desc().nullslast(),
     "recently_updated": Movie.updated_at.desc(),
 }
+
+
+def _lifecycle_status_column():
+    return case(
+        (MovieLibraryEntry.lifecycle_status.is_not(None), MovieLibraryEntry.lifecycle_status),
+        (Movie.status.in_(("finished", "watched")), "watched"),
+        (Movie.status == "watching", "watching"),
+        else_="want_to_watch",
+    )
+
+
+def _library_options():
+    return (
+        selectinload(Movie.library_entry),
+        selectinload(Movie.progress),
+        selectinload(Movie.progress_entries),
+    )
 
 
 class MovieRepository:
@@ -22,7 +42,7 @@ class MovieRepository:
     def get(movie_id: str) -> Movie | None:
         return db.session.scalar(
             db.select(Movie)
-            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
+            .options(*_library_options())
             .where(Movie.id == movie_id)
         )
 
@@ -34,11 +54,17 @@ class MovieRepository:
         offset: int,
         library_ids: list[str] | None = None,
     ) -> tuple[list[Movie], int]:
-        query = db.select(Movie).options(
-            selectinload(Movie.progress),
-            selectinload(Movie.progress_entries),
+        lifecycle_status = _lifecycle_status_column()
+        query = (
+            db.select(Movie)
+            .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
+            .options(*_library_options())
         )
-        count_query = db.select(func.count()).select_from(Movie)
+        count_query = (
+            db.select(func.count())
+            .select_from(Movie)
+            .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
+        )
         conditions = []
         if library_ids is not None:
             conditions.append(Movie.id.in_(library_ids))
@@ -51,14 +77,13 @@ class MovieRepository:
                     func.lower(Movie.original_title).like(pattern),
                 )
             )
-        for key, column in (
-            ("status", Movie.status),
-            ("category", Movie.category),
-            ("source", Movie.source),
-        ):
+        for key, column in (("category", Movie.category), ("source", Movie.source)):
             value = str(filters.get(key) or "").strip()
             if value:
                 conditions.append(column == value)
+        status = str(filters.get("status") or "").strip()
+        if status:
+            conditions.append(lifecycle_status == ("watched" if status == "finished" else status))
         genre = str(filters.get("genre") or "").strip().lower()
         if genre:
             conditions.append(func.lower(cast(Movie.genres, String)).like(f'%"{genre}"%'))
@@ -67,11 +92,17 @@ class MovieRepository:
         if filters.get("year_max") is not None:
             conditions.append(Movie.year <= filters["year_max"])
         if filters.get("score_min") is not None:
-            conditions.append(Movie.personal_score >= filters["score_min"])
+            conditions.append(
+                func.coalesce(MovieLibraryEntry.personal_rating, Movie.personal_score)
+                >= filters["score_min"]
+            )
         if filters.get("score_max") is not None:
-            conditions.append(Movie.personal_score <= filters["score_max"])
+            conditions.append(
+                func.coalesce(MovieLibraryEntry.personal_rating, Movie.personal_score)
+                <= filters["score_max"]
+            )
         if filters.get("hide_completed"):
-            conditions.append(not_(Movie.status.in_(("finished", "watched"))))
+            conditions.append(lifecycle_status != "watched")
         if conditions:
             query = query.where(*conditions)
             count_query = count_query.where(*conditions)
@@ -82,14 +113,16 @@ class MovieRepository:
 
     @staticmethod
     def continue_watching(*, limit: int = 6, library_ids: list[str] | None = None) -> list[Movie]:
+        lifecycle_status = _lifecycle_status_column()
         query = (
             db.select(Movie)
             .join(MovieProgress, MovieProgress.movie_id == Movie.id)
-            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
+            .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
+            .options(*_library_options())
             .where(
                 MovieProgress.current_seconds > 0,
                 MovieProgress.completed.is_(False),
-                not_(Movie.status.in_(("finished", "watched"))),
+                lifecycle_status != "watched",
             )
             .order_by(MovieProgress.updated_at.desc())
             .limit(limit)
@@ -100,12 +133,17 @@ class MovieRepository:
 
     @staticmethod
     def watch_next(*, limit: int = 24, library_ids: list[str] | None = None) -> list[Movie]:
+        lifecycle_status = _lifecycle_status_column()
         query = (
             db.select(Movie)
-            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
-            .where(Movie.status == "want_to_watch")
+            .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
+            .options(*_library_options())
+            .where(lifecycle_status == "want_to_watch")
             .order_by(
-                Movie.personal_score.desc().nullslast(),
+                func.coalesce(
+                    MovieLibraryEntry.personal_rating,
+                    Movie.personal_score,
+                ).desc().nullslast(),
                 Movie.runtime_minutes.asc().nullslast(),
                 Movie.updated_at.desc(),
             )
@@ -143,7 +181,7 @@ class MovieRepository:
                 if name:
                     genres.add(str(name))
         return {
-            "statuses": values(Movie.status),
+            "statuses": ["want_to_watch", "watching", "watched"],
             "categories": values(Movie.category),
             "sources": values(Movie.source),
             "genres": sorted(genres, key=str.casefold),

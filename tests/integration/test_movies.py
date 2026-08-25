@@ -1,6 +1,7 @@
 from app.extensions import db
 from app.movies import routes as movie_routes
 from app.movies.models import Movie, MovieProgress
+from app.movies.services import MovieService
 from app.playback.models import PlaybackSource
 from app.playback.services import PlaybackService
 from tests.conftest import csrf_from
@@ -728,3 +729,21 @@ def test_tv_episode_hides_local_player_when_playback_flags_are_disabled(authenti
     assert 'id="episode-player"' not in html
     assert "Play selected episode from pack" not in html
     assert 'data-local-endpoint=""' not in html
+
+
+def test_what_should_i_watch_api_uses_only_personal_unwatched_entries(authenticated_client, app):
+    with app.app_context():
+        available = Movie(title="Available", normalized_title="available")
+        watched = Movie(title="Watched", normalized_title="watched")
+        db.session.add_all([available, watched])
+        db.session.commit()
+        MovieService.set_status(available, "want_to_watch")
+        MovieService.set_status(watched, "watched")
+        available_id = available.id
+
+    response = authenticated_client.get("/movies/api/what-should-i-watch")
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["item"]["id"] == available_id
+    assert payload["item"]["eligibility_reason"] == "From your personal unwatched library."

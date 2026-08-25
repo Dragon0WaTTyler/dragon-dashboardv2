@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from random import SystemRandom
 from typing import Any
 
-from sqlalchemy import not_
+from sqlalchemy import case
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.history.services import HistoryService
-from app.movies.models import Movie, MovieProgress
+from app.movies.models import Movie, MovieLibraryEntry, MovieProgress, canonical_media_key
 from app.movies.scoring import score_option_for_input
 from app.playback.models import PlaybackSource
 from app.shared.time import utc_now
 
 MOVIE_STATUSES = {"want_to_watch", "watching", "finished", "watched", "unknown"}
+MOVIE_COMPLETION_THRESHOLD = 0.95
+EPISODE_COMPLETION_THRESHOLD = 0.90
 SORT_VALUES = {"title_asc", "title_desc", "score_desc", "year_desc", "recently_updated"}
 VALID_MOVIE_CATEGORIES = {
     "movie",
@@ -46,6 +49,64 @@ class ProgressConflictError(ValueError):
         self.progress = progress
 
 
+def lifecycle_status_for(value: str | None) -> str:
+    """Map legacy Movie status strings to the V2 lifecycle contract."""
+
+    value = str(value or "").strip().lower()
+    if value in {"finished", "watched"}:
+        return "watched"
+    if value == "watching":
+        return "watching"
+    return "want_to_watch"
+
+
+def effective_lifecycle_status(movie: Movie) -> str:
+    if movie.library_entry:
+        return movie.library_entry.lifecycle_status
+    return lifecycle_status_for(movie.status)
+
+
+def effective_personal_rating(movie: Movie) -> float | None:
+    return movie.library_entry.personal_rating if movie.library_entry else movie.personal_score
+
+
+def effective_personal_label(movie: Movie) -> str:
+    if movie.library_entry:
+        return movie.library_entry.personal_label
+    return str(dict(movie.metadata_state or {}).get("personal_score_label") or "")
+
+
+def lifecycle_status_sql():
+    return case(
+        (MovieLibraryEntry.lifecycle_status.is_not(None), MovieLibraryEntry.lifecycle_status),
+        (Movie.status.in_(("finished", "watched")), "watched"),
+        (Movie.status == "watching", "watching"),
+        else_="want_to_watch",
+    )
+
+
+def completion_threshold(*, season: int | None = None, episode: int | None = None) -> float:
+    if season is not None or episode is not None:
+        return EPISODE_COMPLETION_THRESHOLD
+    return MOVIE_COMPLETION_THRESHOLD
+
+
+def progress_is_completed(
+    *,
+    current_seconds: int,
+    duration_seconds: int,
+    ended: bool = False,
+    season: int | None = None,
+    episode: int | None = None,
+) -> bool:
+    if ended:
+        return True
+    if duration_seconds <= 0:
+        return False
+    threshold = completion_threshold(season=season, episode=episode)
+    return current_seconds / duration_seconds >= threshold
+
+
 def _optional_int(value: Any) -> int | None:
     try:
         return int(value) if value not in {None, ""} else None
@@ -57,8 +118,8 @@ def _utc_json(value: datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
 def progress_dict(progress: MovieProgress | None) -> dict[str, Any] | None:
@@ -89,10 +150,15 @@ def _display_progress(movie: Movie) -> MovieProgress | None:
 def _watch_target(progress: MovieProgress | None) -> dict[str, Any] | None:
     if progress is None or not progress.season or not progress.episode:
         return None
-    percent = 0
-    if progress.duration_seconds > 0:
-        percent = min(100, round(progress.current_seconds / progress.duration_seconds * 100))
-    completed = bool(progress.completed or percent >= 92)
+    completed = bool(
+        progress.completed
+        or progress_is_completed(
+            current_seconds=progress.current_seconds,
+            duration_seconds=progress.duration_seconds,
+            season=progress.season,
+            episode=progress.episode,
+        )
+    )
     episode = int(progress.episode) + 1 if completed else int(progress.episode)
     return {
         "season": int(progress.season),
@@ -104,18 +170,20 @@ def _watch_target(progress: MovieProgress | None) -> dict[str, Any] | None:
 def movie_item(movie: Movie) -> dict[str, Any]:
     progress = _display_progress(movie)
     score_option = score_option_for_input(
-        movie.personal_score,
-        stored_label=dict(movie.metadata_state or {}).get("personal_score_label"),
+        effective_personal_rating(movie),
+        stored_label=effective_personal_label(movie),
     )
     return {
         "id": movie.id,
+        "media_key": movie.media_key,
         "title": movie.title,
         "media_type": movie.media_type,
         "year": movie.year,
         "runtime_minutes": movie.runtime_minutes,
-        "status": movie.status,
-        "personal_score": movie.personal_score,
+        "status": effective_lifecycle_status(movie),
+        "personal_score": effective_personal_rating(movie),
         "personal_score_label": score_option.label if score_option else None,
+        "is_favorite": bool(movie.library_entry and movie.library_entry.is_favorite),
         "poster_url": movie.poster_url,
         "progress": progress_dict(progress),
         "watch_target": _watch_target(progress),
@@ -760,10 +828,61 @@ def parse_movie_filters(values) -> tuple[dict[str, Any], dict[str, str]]:
 
 class MovieService:
     @staticmethod
+    def ensure_library_entry(movie: Movie) -> MovieLibraryEntry:
+        """Create V2 personal state without discarding legacy Movie fields."""
+
+        if not movie.id or not movie.media_key:
+            db.session.flush()
+        if movie.library_entry:
+            return movie.library_entry
+        entry = db.session.get(MovieLibraryEntry, movie.media_key)
+        if entry is None:
+            label = str(dict(movie.metadata_state or {}).get("personal_score_label") or "").strip()
+            entry = MovieLibraryEntry(
+                media_key=movie.media_key,
+                movie_id=movie.id,
+                lifecycle_status=lifecycle_status_for(movie.status),
+                is_favorite=False,
+                personal_rating=movie.personal_score,
+                personal_label=label,
+                added_at=movie.created_at or utc_now(),
+            )
+            db.session.add(entry)
+        return entry
+
+    @staticmethod
+    def assign_canonical_identity(
+        movie: Movie,
+        *,
+        allow_tmdb_reconciliation: bool = False,
+    ) -> str:
+        """Assign a key for a new title; never silently rebind personal state."""
+
+        if not movie.id:
+            db.session.flush()
+        candidate = canonical_media_key(
+            movie_id=movie.id,
+            media_type=movie.media_type,
+            external_ids=movie.external_ids,
+        )
+        if not movie.media_key or allow_tmdb_reconciliation:
+            movie.media_key = candidate
+        return movie.media_key
+
+    @staticmethod
     def set_status(movie: Movie, status: str) -> Movie:
         if status not in MOVIE_STATUSES:
             raise ValueError("Unknown movie status.")
         movie.status = status
+        entry = MovieService.ensure_library_entry(movie)
+        now = utc_now()
+        entry.lifecycle_status = lifecycle_status_for(status)
+        entry.manual_lifecycle_at = now
+        if entry.lifecycle_status == "watched":
+            entry.completed_at = entry.completed_at or now
+            entry.last_watched_at = entry.last_watched_at or now
+        elif status in {"want_to_watch", "unknown"}:
+            entry.completed_at = None
         HistoryService.record(
             domain="movies",
             entity_type="movie",
@@ -779,6 +898,8 @@ class MovieService:
         if score is not None and not 0 <= score <= 5:
             raise ValueError("Score must be between 0 and 5.")
         movie.personal_score = score
+        entry = MovieService.ensure_library_entry(movie)
+        entry.personal_rating = score
         if label is not None or score is None:
             metadata_state = dict(movie.metadata_state or {})
             if label:
@@ -786,6 +907,7 @@ class MovieService:
             else:
                 metadata_state.pop("personal_score_label", None)
             movie.metadata_state = metadata_state
+            entry.personal_label = label or ""
         HistoryService.record(
             domain="movies",
             entity_type="movie",
@@ -803,6 +925,7 @@ class MovieService:
         current_seconds: int,
         duration_seconds: int,
         completed: bool,
+        ended: bool = False,
         client_updated_at: datetime | None = None,
         season: int | None = None,
         episode: int | None = None,
@@ -818,17 +941,41 @@ class MovieService:
         if progress.id and client_updated_at and progress.client_updated_at:
             stored = progress.client_updated_at
             if stored.tzinfo is None:
-                stored = stored.replace(tzinfo=timezone.utc)
+                stored = stored.replace(tzinfo=UTC)
             candidate = client_updated_at
             if candidate.tzinfo is None:
-                candidate = candidate.replace(tzinfo=timezone.utc)
+                candidate = candidate.replace(tzinfo=UTC)
             if candidate < stored:
                 raise ProgressConflictError(progress_dict(progress) or {})
         progress.current_seconds = current_seconds
         progress.duration_seconds = duration_seconds
-        progress.completed = completed
+        progress.completed = progress_is_completed(
+            current_seconds=current_seconds,
+            duration_seconds=duration_seconds,
+            ended=bool(completed or ended),
+            season=season,
+            episode=episode,
+        )
         progress.client_updated_at = client_updated_at or utc_now()
         db.session.add(progress)
+        entry = MovieService.ensure_library_entry(movie)
+        entry.last_watched_at = progress.client_updated_at
+        manual_transition_is_newer = bool(
+            entry.manual_lifecycle_at
+            and progress.client_updated_at < entry.manual_lifecycle_at
+        )
+        if not manual_transition_is_newer:
+            if season is None:
+                if progress.completed:
+                    entry.lifecycle_status = "watched"
+                    entry.completed_at = entry.completed_at or progress.client_updated_at
+                    movie.status = "watched"
+                elif entry.lifecycle_status == "want_to_watch":
+                    entry.lifecycle_status = "watching"
+                    movie.status = "watching"
+            elif not progress.completed and entry.lifecycle_status == "want_to_watch":
+                entry.lifecycle_status = "watching"
+                movie.status = "watching"
         HistoryService.record(
             domain="movies",
             entity_type="movie",
@@ -836,7 +983,7 @@ class MovieService:
             event_type="playback_progress",
             label=(
                 f"Playback progress saved for {movie.title}"
-                if not season or not episode
+                if season is None and episode is None
                 else f"Playback progress saved for {movie.title} S{season:02d}E{episode:02d}"
             ),
             metadata={
@@ -857,10 +1004,10 @@ class MovieService:
     ) -> tuple[int | None, int | None]:
         if season is None and episode is None:
             return None, None
-        if not season or not episode:
+        if season is None or episode is None:
             raise ValueError("Choose a season and episode for episode progress.")
-        if season < 1 or episode < 1:
-            raise ValueError("Season and episode must be positive.")
+        if season < 0 or episode < 1:
+            raise ValueError("Choose a valid season and episode for episode progress.")
         return int(season), int(episode)
 
     @staticmethod
@@ -880,15 +1027,21 @@ class MovieService:
 
     @staticmethod
     def continue_watching(limit: int = 6) -> list[Movie]:
+        lifecycle_status = lifecycle_status_sql()
         query = (
             db.select(Movie)
             .join(MovieProgress)
+            .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
             .where(
                 MovieProgress.completed.is_(False),
                 MovieProgress.current_seconds > 0,
-                not_(Movie.status.in_(("finished", "watched"))),
+                lifecycle_status != "watched",
             )
-            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
+            .options(
+                selectinload(Movie.library_entry),
+                selectinload(Movie.progress),
+                selectinload(Movie.progress_entries),
+            )
             .distinct()
             .order_by(MovieProgress.updated_at.desc())
             .limit(limit)
@@ -897,15 +1050,21 @@ class MovieService:
 
     @staticmethod
     def watching_now() -> Movie | None:
+        lifecycle_status = lifecycle_status_sql()
         active_progress = db.session.scalar(
             db.select(Movie)
             .join(MovieProgress)
+            .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
             .where(
                 MovieProgress.completed.is_(False),
                 MovieProgress.current_seconds > 0,
-                not_(Movie.status.in_(("finished", "watched"))),
+                lifecycle_status != "watched",
             )
-            .options(selectinload(Movie.progress), selectinload(Movie.progress_entries))
+            .options(
+                selectinload(Movie.library_entry),
+                selectinload(Movie.progress),
+                selectinload(Movie.progress_entries),
+            )
             .order_by(MovieProgress.updated_at.desc())
             .limit(1)
         )
@@ -913,18 +1072,31 @@ class MovieService:
             return active_progress
         return db.session.scalar(
             db.select(Movie)
-            .where(Movie.status == "watching")
-            .options(selectinload(Movie.progress))
+            .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
+            .where(lifecycle_status == "watching")
+            .options(selectinload(Movie.library_entry), selectinload(Movie.progress))
             .order_by(Movie.updated_at.desc())
             .limit(1)
         )
 
     @staticmethod
     def recommended() -> dict[str, Any] | None:
+        lifecycle_status = lifecycle_status_sql()
         movie = db.session.scalar(
             db.select(Movie)
-            .where(Movie.status == "want_to_watch")
-            .order_by(Movie.personal_score.desc().nullslast(), Movie.updated_at.desc())
+            .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
+            .where(lifecycle_status == "want_to_watch")
+            .options(selectinload(Movie.library_entry))
+            .order_by(
+                case(
+                    (
+                        MovieLibraryEntry.personal_rating.is_not(None),
+                        MovieLibraryEntry.personal_rating,
+                    ),
+                    else_=Movie.personal_score,
+                ).desc().nullslast(),
+                Movie.updated_at.desc(),
+            )
             .limit(1)
         )
         return movie_item(movie) if movie else None
@@ -937,11 +1109,34 @@ class MovieService:
         movies = list(
             db.session.scalars(
                 db.select(Movie)
-                .where(Movie.status == "want_to_watch")
+                .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
+                .where(lifecycle_status_sql() == "want_to_watch")
+                .options(selectinload(Movie.library_entry))
                 .order_by(Movie.personal_score.desc().nullslast(), Movie.updated_at.desc())
             )
         )
         return movie_item(movies[position % len(movies)]) if movies else None
+
+    @staticmethod
+    def what_should_i_watch() -> dict[str, Any] | None:
+        """Randomly select only an unwatched title from Dragon's own library."""
+
+        entries = list(
+            db.session.scalars(
+                db.select(MovieLibraryEntry)
+                .join(Movie, MovieLibraryEntry.movie_id == Movie.id)
+                .where(MovieLibraryEntry.lifecycle_status != "watched")
+                .options(selectinload(MovieLibraryEntry.movie))
+                .order_by(MovieLibraryEntry.media_key)
+            )
+        )
+        if not entries:
+            return None
+        selected = SystemRandom().choice(entries).movie
+        return {
+            **movie_item(selected),
+            "eligibility_reason": "From your personal unwatched library.",
+        }
 
     @staticmethod
     def recommendation_pool(*, category: str = "", source: str = "") -> dict[str, Any]:
@@ -955,10 +1150,11 @@ class MovieService:
         excluded_weak = 0
 
         for movie in movies:
-            if movie.status in {"finished", "watched"}:
+            lifecycle_status = effective_lifecycle_status(movie)
+            if lifecycle_status == "watched":
                 excluded_watched += 1
                 continue
-            if movie.status != "want_to_watch":
+            if lifecycle_status != "want_to_watch":
                 continue
             if category_key and _normalized_key(movie.category) != category_key:
                 excluded_filters += 1

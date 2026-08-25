@@ -137,6 +137,37 @@ def test_tv_playback_progress_is_scoped_by_episode(authenticated_client, app):
     assert episode_six.get_json()["item"]["progress"]["percent"] == 20
 
 
+def test_playback_progress_supports_specials_and_a_trusted_ended_event(authenticated_client, app):
+    movie_id = add_movie(app)
+    token = csrf_from(authenticated_client.get(f"/movies/{movie_id}"))
+    ended = authenticated_client.put(
+        f"/api/v1/playback-progress/movie/{movie_id}",
+        json={"current_seconds": 0, "duration_seconds": 0, "completed": False, "ended": True},
+        headers={"X-CSRFToken": token},
+    )
+    assert ended.status_code == 200
+    assert ended.get_json()["item"]["progress"]["completed"] is True
+
+    with app.app_context():
+        show = Movie(title="Specials", normalized_title="specials", media_type="tv")
+        db.session.add(show)
+        db.session.commit()
+        show_id = show.id
+    special = authenticated_client.put(
+        f"/api/v1/playback-progress/movie/{show_id}",
+        json={
+            "season": 0,
+            "episode": 1,
+            "current_seconds": 10,
+            "duration_seconds": 100,
+            "completed": False,
+        },
+        headers={"X-CSRFToken": token},
+    )
+    assert special.status_code == 200
+    assert special.get_json()["item"]["season"] == 0
+
+
 def test_playback_progress_rejects_bad_json(authenticated_client, app):
     movie_id = add_movie(app)
     token = csrf_from(authenticated_client.get(f"/movies/{movie_id}"))

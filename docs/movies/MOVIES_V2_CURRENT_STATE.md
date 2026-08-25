@@ -1,8 +1,9 @@
 # Dragon Movies V2 — Current-State Audit
 
-Status: Phase 0 baseline frozen on 2026-08-25. This is an evidence record, not
-an implementation plan and not a statement that the current runtime will be
-changed.
+Status: Phase 0 baseline frozen on 2026-08-25; Phase 1 foundation applied on
+2026-08-25 at Alembic revision `a9c4e1f7b2d6`. Sections explicitly labelled
+“current” below describe the pre-Phase-1 baseline unless superseded by the
+verified Phase 1 delta. This remains an evidence record, not a UI plan.
 
 ## Scope and evidence
 
@@ -16,6 +17,27 @@ changed.
 - “Confirmed working” below means implemented in the current code and covered by
   this focused baseline or a directly relevant existing browser test. It does not
   claim that every optional external integration is configured on every machine.
+
+## Verified Phase 1 delta
+
+The active database was migrated only after a SQLite backup and a representative
+copy both verified preservation of Movies and Playback state. See
+`MOVIES_V2_PHASE1_MIGRATION_AUDIT.md` for the exact counts.
+
+| Contract area | Current Phase 1 state |
+| --- | --- |
+| Canonical title identity | `Movie.media_key` is typed as `movie:<tmdb_id>` / `tv:<tmdb_id>` when a reliable TMDB ID exists, otherwise Dragon-owned `local:movie:<movie_id>` / `local:tv:<movie_id>`. |
+| Personal ownership | `MovieLibraryEntry` now owns V2 lifecycle, favorite, rating and label state, while legacy Movie fields are retained and mirrored for compatibility. |
+| Progress invariant | `MovieProgress.scope_key` makes one movie slot (`movie`) or episode slot (`sNNeNN`) unique per Movie. A safe archive table exists for any discarded duplicate during migration. |
+| Completion | Centralized rules are movie >=95%, normal/special episode >=90%, or an explicit trusted `ended` signal. Manual lifecycle timestamps prevent stale timestamped playback from immediately overriding a manual transition. |
+| What Should I Watch | `GET /movies/api/what-should-i-watch` selects only an unwatched `MovieLibraryEntry`; it makes no TMDB or source-provider request. |
+| Snapshot timing | No new Movies snapshot exporter/importer was added in Phase 1. |
+
+SQLite cannot alter a referenced `movies` table without rebuilding it, which
+would cascade-delete child source/progress rows. The migration therefore uses an
+additive `media_key` column plus a unique index and non-empty SQLite triggers;
+the ORM model also requires a media key. This is a deliberate safety boundary,
+not an omission.
 
 ## Ownership map
 
@@ -51,7 +73,7 @@ state; Playback owns source/runtime concerns.
 
 ## Persisted Movies data
 
-### `Movie` — confirmed working
+### `Movie` — Phase 0 baseline, superseded in Phase 1
 
 `app/movies/models.py` owns the current `movies` table. Its application-generated
 primary key is `mov…`; it is **not** the target canonical media identity.
@@ -69,12 +91,11 @@ Current status values validated by `MovieService` are
 personal score is 0–5. The optional legacy-style score label is currently stored
 inside `metadata_state.personal_score_label`, rather than as a first-class field.
 
-`external_ids` carries TMDB and legacy/Notion identifiers. There is no persisted
-`media_key`, no normalized alternate-title collection, no independent favorites
-model, and no custom-list model. Those are target-contract gaps, not defects to
-fix in this pass.
+`external_ids` carries TMDB and legacy/Notion identifiers. Phase 1 adds the
+persisted `media_key` and a separate personal-state record; alternate-title
+search and custom lists remain target-contract gaps.
 
-### `MovieProgress` — confirmed working with a material integrity risk
+### `MovieProgress` — Phase 0 baseline risk, resolved in Phase 1
 
 `movie_progress` currently stores `movie_id`, nullable `season` and `episode`,
 `current_seconds`, `duration_seconds`, `completed`, `client_updated_at`, and
@@ -88,7 +109,7 @@ already selected row, and records an event. TV workspaces derive watched counts,
 completion percentage, resume target, and exact/fallback local-source state from
 the episode rows plus TMDB episode metadata.
 
-**Integrity risk — confirmed by migration and model review:** migration
+**Historical integrity risk — confirmed by migration and model review:** migration
 `1c7f96e2a4b8` initially made `movie_id` unique. Migration `e8b6c2a9f4d1`
 removed that constraint, added nullable `season`/`episode`, and created only the
 non-unique index `ix_movie_progress_scope(movie_id, season, episode)`. The model
@@ -96,9 +117,10 @@ declares the same non-unique index. Therefore the database currently permits
 multiple rows for the same movie-level scope and for the same `(movie_id, season,
 episode)` scope. `MovieService.get_progress()` masks this by selecting the most
 recent row; equal timestamps and the view-only `uselist=False` relationship leave
-duplicate state unsafe/ambiguous. This Phase 0 document does **not** add a
-constraint or repair any rows. Phase 1 must inspect existing duplicates before
-choosing a safe uniqueness migration.
+duplicate state unsafe/ambiguous. Phase 1 audited the actual rows (zero duplicate
+groups), then added `scope_key` and `UNIQUE(movie_id, scope_key)`. The migration
+archives recoverable discarded duplicates and stops on the unsafe completed vs
+newer-incomplete conflict. See the Phase 1 audit for the applied result.
 
 ### TV seasons and episodes — partial but substantial
 
@@ -121,7 +143,7 @@ All Movies routes are login-protected. The main current routes are:
 | --- | --- |
 | Library/index | `GET /movies`, `GET /movies/watch-next`, `GET /movies/<movie_id>` |
 | Discovery | `GET /movies/discover/<media_type>/<tmdb_id>`, `GET /movies/api/search`, `GET /movies/api/tv/<tmdb_id>/seasons`, `GET /movies/api/tv/<tmdb_id>/seasons/<season>/episodes`, `GET /movies/api/releases` |
-| Library mutations | `POST /movies/api/library`, `POST /movies/api/import`, `POST /movies/<movie_id>/watch`, `POST /movies/<movie_id>/status`, `POST /movies/<movie_id>/score` |
+| Library mutations | `POST /movies/api/library`, `POST /movies/api/import`, `POST /movies/<movie_id>/watch`, `POST /movies/<movie_id>/status`, `POST /movies/<movie_id>/score`, `GET /movies/api/what-should-i-watch` |
 | TV workspace | `GET /movies/<movie_id>/seasons/<season>`, `GET /movies/<movie_id>/seasons/<season>/episodes/<episode>`, `GET /movies/api/library/<movie_id>/seasons/<season>`, `POST /movies/<movie_id>/seasons/<season>/episodes/<episode>/resolve-source` |
 | API v1 projection | `GET /api/v1/movies`, `GET /api/v1/movies/recommendations`, `GET /api/v1/movies/<movie_id>`, `GET|PUT /api/v1/playback-progress/movie/<movie_id>` |
 

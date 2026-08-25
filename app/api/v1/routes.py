@@ -92,6 +92,16 @@ def _optional_positive_int(value) -> int | None:
     return parsed if parsed > 0 else None
 
 
+def _optional_nonnegative_int(value) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
 @bp.get("/movies")
 @login_required
 def movies_collection():
@@ -135,7 +145,7 @@ def movie_progress_detail(movie_id: str):
         return error_response("not_found", "Movie not found.", 404)
     try:
         season, episode = MovieService.progress_scope(
-            season=_optional_positive_int(request.args.get("season")),
+            season=_optional_nonnegative_int(request.args.get("season")),
             episode=_optional_positive_int(request.args.get("episode")),
         )
     except ValueError as exc:
@@ -169,7 +179,10 @@ def update_movie_progress(movie_id: str):
     completed = payload.get("completed", False)
     if not isinstance(completed, bool):
         errors["completed"] = "Must be a boolean."
-    season = _optional_positive_int(payload.get("season"))
+    ended = payload.get("ended", False)
+    if not isinstance(ended, bool):
+        errors["ended"] = "Must be a boolean."
+    season = _optional_nonnegative_int(payload.get("season"))
     episode = _optional_positive_int(payload.get("episode"))
     try:
         season, episode = MovieService.progress_scope(season=season, episode=episode)
@@ -191,6 +204,7 @@ def update_movie_progress(movie_id: str):
             current_seconds=values["current_seconds"],
             duration_seconds=values["duration_seconds"],
             completed=completed,
+            ended=ended,
             client_updated_at=client_updated_at,
             season=season,
             episode=episode,

@@ -45,14 +45,19 @@ The canonical serialized form uses zero-padded two-digit season/episode numbers
 where that remains representable (for example `tv:1399:s01:e05`); the parsed
 identity is numeric and must not depend on display padding.
 
-### Identity edge cases — OPEN — approval required
+### Identity edge cases — FROZEN
 
-1. The policy for a legacy/local title with no trustworthy TMDB ID: provisional
-   `legacy:` key, a user-selected manual identity, or ineligible until matched.
-2. Whether specials (`season 0`) are canonical first-class episodes or are
-   excluded from normal completion/auto-next by default.
-3. Whether non-TMDB catalog authorities may ever issue canonical keys. Phase 1
-   assumes no unless explicitly approved.
+1. A title without a trustworthy TMDB ID uses Dragon-owned stable identity:
+   `local:movie:<movie_id>` or `local:tv:<movie_id>`. It does not receive a
+   fabricated TMDB ID. Later TMDB reconciliation must be explicit and preserve
+   the title's library state, progress, rating, labels, favorites, lists and
+   history.
+2. Specials (`season 0`) are canonical first-class episodes and may carry
+   progress/manual watched state. They are excluded from default auto-next and
+   normal series-completion calculations unless a later focused contract says
+   otherwise.
+3. TMDB is the only current external authority allowed to issue typed catalog
+   identities. Other external IDs remain metadata, not canonical identity.
 
 ## 2. Canonical media metadata — FROZEN
 
@@ -167,10 +172,7 @@ migration must:
 No migration, duplicate cleanup or data modification is authorized by this
 document.
 
-### Completion rules — OPEN — approval required
-
-The following are frozen behavioral constraints, while the exact thresholds need
-approval:
+### Completion rules — FROZEN
 
 - Completion is either an explicit user action or a configured threshold/end
   event, never “recently opened.”
@@ -178,10 +180,12 @@ approval:
   the last position for replay.
 - Trailer playback never changes title progress.
 - Completion rules are configured separately for films and episodes.
-
-Candidate default thresholds from the roadmap are movie 90–95% and episode 90%.
-The current code has display logic around 92%; it is not the approved V2 policy.
-Choose exact values before implementation.
+- Movies complete at **>=95%**; normal episodes complete at **>=90%**; a trusted
+  explicit `ended` event completes either scope even when duration is unknown.
+- Season 0 uses the episode threshold for its own record but remains excluded
+  from default auto-next/series completion.
+- A stale timestamped playback update cannot immediately overwrite a newer
+  manual lifecycle transition.
 
 ### Continue Watching — FROZEN
 
@@ -318,18 +322,9 @@ Before any V2 data change:
 7. make migration idempotent, transactional where possible, and test with a copy
    of real-shape data before applying to a personal database.
 
-## Approval gates before Phase 1
+## Phase 1 implementation boundary
 
-The owner must approve these open decisions before the smallest stable
-implementation begins:
-
-1. no-TMDB legacy/local identity policy;
-2. treatment of TV specials/season zero;
-3. exact movie and episode automatic-completion thresholds; and
-4. whether the first Phase 1 scope includes only schema/contract migration and
-   What Should I Watch eligibility, or also a snapshot exporter.
-
-Phase 1 must remain foundation-only: audit/backup, canonical identity, library and
-progress migration path, duplicate-progress handling, What Should I Watch against
-canonical unwatched entries, playback smoke proof, and a clean checkpoint. It
-does not include Cinejoy-like UI implementation.
+Phase 1 is foundation-only: audit/backup, canonical identity, library and
+progress migration path, duplicate-progress handling, centralized completion,
+and What Should I Watch against canonical unwatched entries. It deliberately
+does not include Cinejoy-like UI implementation or a snapshot exporter.
