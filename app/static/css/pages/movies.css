@@ -1140,6 +1140,7 @@
   display: none;
 }
 .movie-player.is-watch-mode .movie-player__source-rail {
+  display: grid;
   padding-block: var(--space-3);
 }
 .movie-player.is-embed-fullscreen .movie-player__source-rail { display: none; }
