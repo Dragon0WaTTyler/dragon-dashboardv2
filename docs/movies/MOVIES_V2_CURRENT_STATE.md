@@ -39,6 +39,19 @@ additive `media_key` column plus a unique index and non-empty SQLite triggers;
 the ORM model also requires a media key. This is a deliberate safety boundary,
 not an omission.
 
+## Verified Phase 2 visual-shell delta
+
+The Movies home and detail templates now use a Dragon-native cinematic shell:
+an ink-and-ember atmosphere, internal Movies navigation, a poster-led personal
+hero, horizontal Continue Watching rail, adaptive 2:3 library cards, and a
+more editorial detail hierarchy. This is CSS/template composition only:
+
+- all existing URLs, form names, player IDs, data attributes, source controls,
+  subtitle controls and Movies JavaScript hooks are preserved;
+- ordinary Movies page load still makes no new provider/source request;
+- the player remains a functional Playback-owned component; and
+- the visual layer respects keyboard focus and `prefers-reduced-motion`.
+
 ## Ownership map
 
 ```text

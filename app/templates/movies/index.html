@@ -1,17 +1,25 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge, empty_state %}
 {% block title %}Movies · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-index-3">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-shell-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-recommendation-rotation-4" defer></script>{% endblock %}
 {% block content %}
-<header class="page-header">
+<div class="movies-v2">
+<div class="movies-v2__atmosphere" aria-hidden="true"></div>
+<header class="page-header movie-v2-masthead">
   <div>
-    <span class="eyebrow">Notion library</span>
-    <h1>Movies</h1>
-    <p>Your Notion movies and series, ready to play from one place.</p>
+    <span class="eyebrow">Dragon cinema · local-first</span>
+    <h1>Your film room</h1>
+    <p>Movies and series you chose, with every resume and source kept in Dragon.</p>
   </div>
-  {{ badge(total ~ ' titles', 'accent') }}
+  <div class="movie-v2-masthead__meta">{{ badge(total ~ ' titles', 'accent') }}<span>Private library</span></div>
 </header>
+<nav class="movie-v2-nav" aria-label="Movies navigation">
+  <a href="{{ url_for('movies.index') }}" aria-current="page">Home</a>
+  <a href="#movie-library">Library</a>
+  <a href="{{ url_for('movies.watch_next') }}">Watch next</a>
+  <a href="#movie-discovery">Search</a>
+</nav>
 {% if recommendation and dragon_feature('movies', 'recommendation') %}
 <section id="movie-recommendation" class="movie-recommendation" data-recommendation-card data-recommendation-items="{{ recommendations|tojson|forceescape }}" data-recommendation-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}" aria-labelledby="movie-recommendation-title" hidden>
   <article class="movie-recommendation__card">
@@ -40,7 +48,7 @@
     <a class="button button--quiet" href="{{ url_for('movies.watch_next') }}">See watch next</a>
   </div>
   {% if continue_watching %}
-  <div class="movie-now__grid">
+  <div class="movie-now__grid movie-rail">
     {% for movie in continue_watching %}
     <article class="movie-now__item">
       <a class="movie-now__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">
@@ -60,7 +68,7 @@
   <p class="movie-now__empty">Nothing is paused right now. Pick something deliberate from Watch next.</p>
   {% endif %}
 </section>
-<div class="movie-actions">
+<div id="movie-library" class="movie-actions">
   <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.watch_next') }}">Watch next</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a></nav>
   <div class="movie-actions__controls">
     {% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary movie-actions__recommend" type="button" data-recommendation-open aria-controls="movie-recommendation">What should I watch?</button>{% endif %}
@@ -153,4 +161,5 @@
 {% else %}
 {{ empty_state('No Notion titles match this view', 'Use the search above to find a movie or series and add it to Notion.') }}
 {% endif %}
+</div>
 {% endblock %}

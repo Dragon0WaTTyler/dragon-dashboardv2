@@ -1,9 +1,11 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-player-fit-5">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-shell-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=release-browser-1" defer></script><script type="module" src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-7"></script>{% endblock %}
 {% block content %}
+<div class="movies-v2 movies-v2--detail">
+<div class="movies-v2__atmosphere" aria-hidden="true"></div>
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
   <div class="movie-detail__poster" data-media-frame>
@@ -340,4 +342,5 @@
     </div>
   </div>
 </article>
+</div>
 {% endblock %}
