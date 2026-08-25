@@ -592,6 +592,41 @@ def test_direct_embed_keeps_manual_jackett_search_available(authenticated_client
     assert "Search Jackett for Season 1" in html
 
 
+def test_release_api_exposes_safe_query_diagnostics(authenticated_client, monkeypatch):
+    monkeypatch.setattr(
+        movie_routes,
+        "release_lookup",
+        lambda **_kwargs: {
+            "media": {"tmdb_id": 49964},
+            "queries": ["خانه‌ی دوست کجاست؟ 1987"],
+            "queries_tried": [
+                {
+                    "kind": "native",
+                    "label": "Original title",
+                    "query": "خانه‌ی دوست کجاست؟ 1987",
+                    "status": "completed",
+                    "result_count": 1,
+                }
+            ],
+            "match_context": {"tmdb_id": "49964"},
+            "items": [],
+        },
+    )
+
+    response = authenticated_client.get("/movies/api/releases?type=movie&tmdb_id=49964")
+
+    assert response.status_code == 200
+    assert response.get_json()["queries_tried"] == [
+        {
+            "kind": "native",
+            "label": "Original title",
+            "query": "خانه‌ی دوست کجاست؟ 1987",
+            "status": "completed",
+            "result_count": 1,
+        }
+    ]
+
+
 def test_tv_season_exposes_jackett_season_pack_chooser(authenticated_client, app):
     with app.app_context():
         movie = Movie(

@@ -385,21 +385,22 @@ def release_lookup(
     if mode not in {"auto", "exact_episode", "season_pack"}:
         mode = "auto"
     query_episode = None if mode == "season_pack" else episode
-    details, queries, match_context = tmdb_catalog_provider().release_queries(
+    details, search_plan, match_context = tmdb_catalog_provider().release_search_plan(
         media_type,
         tmdb_id,
         season=season,
         episode=query_episode,
     )
-    releases = jackett_release_provider().search_many(
-        queries,
+    releases, queries_tried = jackett_release_provider().search_plan(
+        search_plan,
         media_type,
         match_context=match_context,
         mode=mode,
     )
     return {
         "media": details,
-        "queries": queries,
+        "queries": [str(attempt.get("query") or "") for attempt in search_plan],
+        "queries_tried": queries_tried,
         "match_context": match_context,
         "items": releases,
     }

@@ -313,6 +313,10 @@
       </div>
       {% endif %}
       <p class="movie-release-browser__status" data-release-status role="status" aria-live="polite"></p>
+      <details class="movie-release-browser__diagnostics" data-release-diagnostics hidden>
+        <summary>Queries tried</summary>
+        <ul data-release-diagnostics-list></ul>
+      </details>
       <div class="release-list" data-release-list></div>
     </details>
     {% endif %}

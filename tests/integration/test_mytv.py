@@ -464,6 +464,46 @@ def test_mytv_favorite_and_override_follow_replacement_file(authenticated_client
     assert favorites["channels"][0]["favorite"] is True
 
 
+def test_mytv_favorite_order_can_be_persisted(authenticated_client, app):
+    with app.app_context():
+        _, _, second_id = seed_tv()
+        first = db.session.scalar(select(TVChannel).where(TVChannel.name == "News One"))
+        assert first is not None
+        first_id = first.id
+    headers = csrf_header(authenticated_client)
+    for channel_id in (first_id, second_id):
+        response = authenticated_client.patch(
+            f"/iptv/api/channels/{channel_id}/favorite",
+            json={"favorite": True},
+            headers=headers,
+        )
+        assert response.status_code == 200
+
+    reordered = authenticated_client.post(
+        "/iptv/api/channels/favorites/order",
+        json={"channel_id": second_id, "before_channel_id": first_id},
+        headers=headers,
+    )
+    assert reordered.status_code == 200
+    assert reordered.get_json()["channel_ids"] == [second_id, first_id]
+    favorites = authenticated_client.get("/iptv/api/channels?state=favorites").get_json()
+    assert [item["id"] for item in favorites["channels"]] == [second_id, first_id]
+
+    removed = authenticated_client.patch(
+        f"/iptv/api/channels/{second_id}/favorite",
+        json={"favorite": False},
+        headers=headers,
+    )
+    assert removed.status_code == 200
+    with app.app_context():
+        preference = db.session.get(
+            TVChannelPreference,
+            db.session.get(TVChannel, second_id).preference_key,
+        )
+        assert preference is not None
+        assert preference.favorite_position is None
+
+
 def test_mytv_favorite_stays_playable_when_its_bouquet_is_disabled(
     authenticated_client, app
 ):

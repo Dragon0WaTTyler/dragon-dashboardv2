@@ -1,4 +1,9 @@
-from app.movies.integrations import JackettReleaseProvider, NotionMovieProvider, _notion_status
+from app.movies.integrations import (
+    JackettReleaseProvider,
+    NotionMovieProvider,
+    TmdbCatalogProvider,
+    _notion_status,
+)
 
 
 class FakeResponse:
@@ -44,6 +49,80 @@ class FakeSession:
         return FakeResponse()
 
 
+class JsonResponse:
+    ok = True
+    status_code = 200
+
+    def __init__(self, payload):
+        self.payload = payload
+
+    def json(self):
+        return self.payload
+
+    def raise_for_status(self):
+        return None
+
+
+class TmdbAliasSession:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, *, params, headers, timeout):
+        self.calls.append(url)
+        if url.endswith("/alternative_titles"):
+            return JsonResponse(
+                {
+                    "titles": [
+                        {"title": "Where Is The Friend's House?"},
+                        {"title": "Khane-ye doost kojast?"},
+                        {"title": "Khane-ye dust kojast?"},
+                    ]
+                }
+            )
+        return JsonResponse(
+            {
+                "id": 49964,
+                "title": "Where Is the Friend's House?",
+                "original_title": "خانه‌ی دوست کجاست؟",
+                "original_language": "fa",
+                "release_date": "1987-01-01",
+                "external_ids": {"imdb_id": "tt0093342"},
+                "credits": {},
+                "genres": [],
+            }
+        )
+
+
+class TorznabResponse:
+    ok = True
+    status_code = 200
+
+    def __init__(self, content):
+        self.content = content.encode()
+
+
+class CapabilitySession:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, *, params, headers, timeout):
+        self.calls.append((url, params))
+        if params.get("t") == "caps":
+            return TorznabResponse(
+                '<caps><searching><movie-search supportedParams="q,imdbid,tmdbid,year" />'
+                "</searching></caps>"
+            )
+        if params.get("t") == "movie":
+            return TorznabResponse(
+                "<rss><channel><item><title>خانه‌ی دوست کجاست؟ 1987 1080p</title>"
+                "<link>magnet:?xt=urn:btih:CCCC&amp;dn=friend</link>"
+                '<torznab:attr xmlns:torznab="http://torznab.com/schemas/2015/feed" '
+                'name="seeders" value="18" />'
+                "</item></channel></rss>"
+            )
+        return FakeResponse()
+
+
 def _notion_provider() -> NotionMovieProvider:
     provider = NotionMovieProvider(token="token", data_source_id="movie-source")
     provider._schema_cache["movie"] = {
@@ -70,6 +149,118 @@ def test_jackett_filters_low_seed_and_duplicate_results():
     assert results[0]["seeders"] == 18
     assert results[0]["quality_label"] == "1080p"
     assert "1080p" in results[0]["release_tags"]
+
+
+def test_tmdb_multilingual_release_plan_uses_cached_native_and_transliterated_aliases():
+    session = TmdbAliasSession()
+    provider = TmdbCatalogProvider(api_key="key", session=session)
+
+    _details, plan, context = provider.release_search_plan("movie", 49964)
+    provider.release_search_plan("movie", 49964)
+
+    assert [(item["kind"], item["query"]) for item in plan[:5]] == [
+        ("imdb_id", "tt0093342"),
+        ("tmdb_id", "49964"),
+        ("native", "خانه‌ی دوست کجاست؟ 1987"),
+        ("transliteration", "Khane-ye doost kojast? 1987"),
+        ("international", "Where Is the Friend's House? 1987"),
+    ]
+    assert context["title_variants"][:3] == [
+        "خانه‌ی دوست کجاست؟",
+        "Khane-ye doost kojast?",
+        "Khane-ye dust kojast?",
+    ]
+    assert sum(url.endswith("/alternative_titles") for url in session.calls) == 1
+
+
+def test_jackett_search_plan_uses_advertised_ids_then_dedupes_alias_results():
+    session = CapabilitySession()
+    provider = JackettReleaseProvider(
+        base_url="http://127.0.0.1:9117",
+        api_key="secret",
+        min_seeders=5,
+        session=session,
+    )
+    attempts = [
+        {"kind": "imdb_id", "label": "IMDb ID", "query": "tt0093342", "imdb_id": "tt0093342", "year": 1987},
+        {"kind": "tmdb_id", "label": "TMDb ID", "query": "49964", "tmdb_id": "49964", "year": 1987},
+        {"kind": "native", "label": "Original title", "query": "خانه‌ی دوست کجاست؟ 1987", "year": 1987},
+    ]
+
+    results, diagnostics = provider.search_plan(
+        attempts,
+        "movie",
+        match_context={
+            "tmdb_id": "49964",
+            "imdb_id": "tt0093342",
+            "year": 1987,
+            "native_aliases": ["خانه‌ی دوست کجاست؟"],
+            "title_variants": ["خانه‌ی دوست کجاست؟"],
+        },
+    )
+
+    assert [item["title"] for item in results] == ["خانه‌ی دوست کجاست؟ 1987 1080p"]
+    assert [item["kind"] for item in diagnostics] == ["imdb_id", "tmdb_id", "native"]
+    assert [params.get("t") for _url, params in session.calls] == ["caps", "movie", "movie", None]
+
+
+def test_jackett_never_surfaces_an_unrelated_high_seeder_release():
+    provider = JackettReleaseProvider(
+        base_url="http://127.0.0.1:9117",
+        api_key="secret",
+        min_seeders=5,
+        session=FakeSession(),
+    )
+
+    results = provider._filter(
+        [
+            {
+                "title": "An unrelated popular release 2024 1080p",
+                "magnet_uri": "magnet:?xt=urn:btih:FFFF&dn=unrelated",
+                "seeders": 900,
+                "size": 1,
+                "tracker": "TPB",
+            }
+        ],
+        10,
+        match_context={"title_variants": ["Where Is the Friend's House?"]},
+    )
+
+    assert results == []
+
+
+def test_jackett_dedupes_the_same_release_returned_by_multiple_alias_queries():
+    provider = JackettReleaseProvider(
+        base_url="http://127.0.0.1:9117",
+        api_key="secret",
+        min_seeders=5,
+        session=FakeSession(),
+    )
+
+    results = provider._filter(
+        [
+            {
+                "title": "Khane-ye doost kojast? 1987 1080p",
+                "magnet_uri": "magnet:?xt=urn:btih:AAAA&dn=first-query",
+                "seeders": 12,
+                "size": 1_500_000_000,
+                "tracker": "Example",
+            },
+            {
+                "title": "Khane-ye doost kojast? 1987 1080p",
+                "magnet_uri": "magnet:?xt=urn:btih:BBBB&dn=second-query",
+                "seeders": 18,
+                "size": 1_500_000_000,
+                "tracker": "Example",
+            },
+        ],
+        10,
+        match_context={"title_variants": ["Khane-ye doost kojast?"]},
+    )
+
+    assert [item["magnet_uri"] for item in results] == [
+        "magnet:?xt=urn:btih:BBBB&dn=second-query"
+    ]
 
 
 def test_notion_movie_completion_uses_watched_for_legacy_finished_status():

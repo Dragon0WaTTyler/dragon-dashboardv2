@@ -293,6 +293,13 @@
   margin: var(--space-4) 0 0;
   color: var(--color-text-muted);
 }
+.movie-release-browser__diagnostics {
+  max-width: 72ch;
+  margin-top: var(--space-3);
+  color: var(--color-text-muted);
+}
+.movie-release-browser__diagnostics summary { cursor: pointer; }
+.movie-release-browser__diagnostics ul { margin: var(--space-2) 0 0; padding-inline-start: 1.25rem; }
 .movie-release-browser__controls {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1129,10 +1136,13 @@
   background: #000;
 }
 .movie-player.is-watch-mode .movie-player__heading,
-.movie-player.is-watch-mode .movie-player__source-rail,
 .movie-player.is-watch-mode .movie-player__footer {
   display: none;
 }
+.movie-player.is-watch-mode .movie-player__source-rail {
+  padding-block: var(--space-3);
+}
+.movie-player.is-embed-fullscreen .movie-player__source-rail { display: none; }
 .movie-player.is-watch-mode .movie-player__viewport {
   aspect-ratio: 16 / 9;
   min-height: 0;

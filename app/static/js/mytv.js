@@ -23,6 +23,10 @@
     pendingBulk: null,
     savingGroups: new Set(),
     savingFavorites: new Set(),
+    draggingFavoriteId: null,
+    favoriteDragCandidate: null,
+    reorderingFavorites: false,
+    suppressChannelClickUntil: 0,
     syncTimer: null,
     healthTimer: null,
     epgTimer: null,
@@ -56,7 +60,12 @@
     const response = await fetch(url, { ...options, headers, cache });
     const contentType = response.headers.get("content-type") || "";
     const payload = contentType.includes("json") ? await response.json() : await response.text();
-    if (!response.ok) throw new Error(payload?.message || payload?.description || payload || `Request failed (${response.status})`);
+    if (!response.ok) {
+      const message = typeof payload === "string"
+        ? payload
+        : payload?.error?.message || payload?.message || payload?.description || `Request failed (${response.status})`;
+      throw new Error(message);
+    }
     return payload;
   }
 
@@ -320,10 +329,38 @@
   function renderChannels() {
     elements.channelEmpty.hidden = state.channels.length > 0;
     elements.channelGrid.hidden = state.channels.length === 0;
-    elements.channelGrid.innerHTML = state.channels.map((item) => `<article class="tv-channel-card${item.enabled ? "" : " is-disabled"}${state.activeChannel?.id === item.id ? " is-playing" : ""}${state.requestedChannel?.id === item.id ? " is-requested" : ""}" role="listitem">
+    const canReorderFavorites = elements.stateFilter.value === "favorites";
+    elements.channelGrid.classList.toggle("is-reorderable", canReorderFavorites);
+    elements.channelGrid.setAttribute("aria-label", canReorderFavorites ? "Favorite channels. Drag a channel to change its order." : "Available channels");
+    elements.channelGrid.innerHTML = state.channels.map((item) => `<article class="tv-channel-card${item.enabled ? "" : " is-disabled"}${state.activeChannel?.id === item.id ? " is-playing" : ""}${state.requestedChannel?.id === item.id ? " is-requested" : ""}" role="listitem" data-channel-card="${item.id}"${canReorderFavorites ? ` aria-roledescription="sortable channel" title="Drag ${escapeHtml(item.name)} to reorder favorites"` : ""}>
       <button class="tv-channel-main" type="button" aria-label="Play ${escapeHtml(item.name)}" data-play-channel="${item.id}" ${item.enabled ? "" : "disabled"}>${logo(item)}<span class="tv-channel-copy"><strong title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</strong>${guideMarkup(item)}</span><span class="tv-row-play" aria-hidden="true"></span></button>
       <button class="tv-favorite-button" type="button" aria-label="${item.favorite ? "Remove" : "Add"} ${escapeHtml(item.name)} ${item.favorite ? "from" : "to"} favorites" aria-pressed="${item.favorite}" data-favorite-channel="${item.id}"${state.savingFavorites.has(item.id) ? ' disabled aria-busy="true"' : ""}>★</button>
     </article>`).join("");
+  }
+
+  function reorderLocalFavorites(channelId, beforeChannelId) {
+    const from = state.channels.findIndex((item) => item.id === channelId);
+    if (from < 0) return;
+    const [moved] = state.channels.splice(from, 1);
+    const to = beforeChannelId === null ? state.channels.length : state.channels.findIndex((item) => item.id === beforeChannelId);
+    state.channels.splice(to < 0 ? state.channels.length : to, 0, moved);
+  }
+
+  async function persistFavoriteOrder(channelId, beforeChannelId) {
+    if (state.reorderingFavorites) return;
+    state.reorderingFavorites = true;
+    try {
+      await api("/iptv/api/channels/favorites/order", {
+        method: "POST",
+        body: JSON.stringify({ channel_id: channelId, before_channel_id: beforeChannelId }),
+      });
+      toast("Favorite order saved.");
+    } catch (error) {
+      await loadChannels().catch(() => {});
+      toast(error.message, true);
+    } finally {
+      state.reorderingFavorites = false;
+    }
   }
 
   async function loadManageChannels({ append = false } = {}) {
@@ -1030,7 +1067,80 @@
     }
   }
 
+  function clearFavoriteDrag({ restoreOrder = false } = {}) {
+    const candidate = state.favoriteDragCandidate;
+    if (candidate?.card?.hasPointerCapture?.(candidate.pointerId)) {
+      candidate.card.releasePointerCapture(candidate.pointerId);
+    }
+    const wasDragging = state.draggingFavoriteId !== null;
+    state.draggingFavoriteId = null;
+    state.favoriteDragCandidate = null;
+    document.querySelectorAll(".tv-channel-card.is-dragging, .tv-channel-card.is-drop-target").forEach((card) => {
+      card.classList.remove("is-dragging", "is-drop-target");
+    });
+    if (restoreOrder && wasDragging) renderChannels();
+  }
+
+  elements.channelGrid.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || !event.isPrimary || elements.stateFilter.value !== "favorites" || state.reorderingFavorites) return;
+    const card = event.target.closest("[data-channel-card]");
+    if (!card) return;
+    state.favoriteDragCandidate = {
+      card,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+    };
+    card.setPointerCapture(event.pointerId);
+  });
+
+  elements.channelGrid.addEventListener("pointermove", (event) => {
+    const candidate = state.favoriteDragCandidate;
+    if (!candidate || candidate.pointerId !== event.pointerId) return;
+    if (state.draggingFavoriteId === null) {
+      const distance = Math.hypot(event.clientX - candidate.startX, event.clientY - candidate.startY);
+      if (distance < 6) return;
+      state.draggingFavoriteId = Number(candidate.card.dataset.channelCard);
+      candidate.card.classList.add("is-dragging");
+    }
+    event.preventDefault();
+    const target = document.elementFromPoint(event.clientX, event.clientY)?.closest("[data-channel-card]");
+    if (!target || Number(target.dataset.channelCard) === state.draggingFavoriteId) return;
+    document.querySelectorAll(".tv-channel-card.is-drop-target").forEach((card) => card.classList.remove("is-drop-target"));
+    target.classList.add("is-drop-target");
+    const placeAfter = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+    const dragged = elements.channelGrid.querySelector(`[data-channel-card="${state.draggingFavoriteId}"]`);
+    if (dragged) elements.channelGrid.insertBefore(dragged, placeAfter ? target.nextElementSibling : target);
+  });
+
+  elements.channelGrid.addEventListener("pointerup", (event) => {
+    const candidate = state.favoriteDragCandidate;
+    if (!candidate || candidate.pointerId !== event.pointerId) return;
+    if (state.draggingFavoriteId === null) {
+      clearFavoriteDrag();
+      return;
+    }
+    const channelId = state.draggingFavoriteId;
+    const dragged = elements.channelGrid.querySelector(`[data-channel-card="${channelId}"]`);
+    const beforeChannelId = dragged?.nextElementSibling
+      ? Number(dragged.nextElementSibling.dataset.channelCard)
+      : null;
+    clearFavoriteDrag();
+    reorderLocalFavorites(channelId, beforeChannelId);
+    state.suppressChannelClickUntil = Date.now() + 300;
+    persistFavoriteOrder(channelId, beforeChannelId);
+  });
+
+  elements.channelGrid.addEventListener("pointercancel", (event) => {
+    if (state.favoriteDragCandidate?.pointerId === event.pointerId) clearFavoriteDrag({ restoreOrder: true });
+  });
+
   document.addEventListener("click", async (event) => {
+    if (Date.now() < state.suppressChannelClickUntil && event.target.closest("[data-channel-card]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
     const tab = event.target.closest('[role="tab"]');
     if (tab) {
       activateTab(tab);

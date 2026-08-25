@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import re
+import time
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import urljoin
 
 import requests
+from defusedxml import ElementTree as ET
 
 from app.movies.scoring import notion_score_options, score_option_for_input
 
@@ -15,6 +18,8 @@ class MediaIntegrationError(RuntimeError):
 
 
 class TmdbCatalogProvider:
+    RELEASE_ALIAS_CACHE_TTL_SECONDS = 24 * 60 * 60
+
     def __init__(
         self,
         *,
@@ -27,6 +32,7 @@ class TmdbCatalogProvider:
         self.read_access_token = read_access_token.strip()
         self.session = session or requests.Session()
         self.timeout_seconds = timeout_seconds
+        self._release_alias_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
 
     @property
     def configured(self) -> bool:
@@ -198,6 +204,132 @@ class TmdbCatalogProvider:
             "title_variants": title_variants,
         }
 
+    def release_search_plan(
+        self,
+        media_type: str,
+        tmdb_id: int,
+        *,
+        season: int | None = None,
+        episode: int | None = None,
+    ) -> tuple[dict, list[dict[str, Any]], dict[str, Any]]:
+        """Build a small, ordered, multilingual Jackett search cascade.
+
+        The alias cache belongs to this provider instance, which is retained by
+        the Flask app extension.  It keeps normal release searches to one TMDb
+        alternative-titles request per title per day without persisting remote
+        metadata in a user record.
+        """
+        details, identity = self.release_search_identity(media_type, tmdb_id)
+        suffix = _release_query_suffix(
+            media_type,
+            year=identity.get("year"),
+            season=season,
+            episode=episode,
+        )
+        attempts: list[dict[str, Any]] = []
+        if identity.get("imdb_id"):
+            attempts.append(
+                {
+                    "kind": "imdb_id",
+                    "label": "IMDb ID",
+                    "query": str(identity["imdb_id"]),
+                    "imdb_id": str(identity["imdb_id"]),
+                    "year": identity.get("year"),
+                }
+            )
+        attempts.append(
+            {
+                "kind": "tmdb_id",
+                "label": "TMDb ID",
+                "query": str(identity["tmdb_id"]),
+                "tmdb_id": str(identity["tmdb_id"]),
+                "year": identity.get("year"),
+            }
+        )
+        title_steps = (
+            ("native", "Original title", identity.get("native_aliases") or []),
+            (
+                "transliteration",
+                "Transliterated title",
+                identity.get("transliterated_aliases") or [],
+            ),
+            ("international", "International title", identity.get("international_aliases") or []),
+            ("alternative", "Alternative title", (identity.get("alternative_aliases") or [])[:3]),
+        )
+        seen_titles: set[str] = set()
+        for kind, label, aliases in title_steps:
+            for alias in aliases:
+                cleaned = " ".join(str(alias or "").split())
+                key = _normalize_title(cleaned)
+                if not key or key in seen_titles:
+                    continue
+                seen_titles.add(key)
+                attempts.append(
+                    {
+                        "kind": kind,
+                        "label": label,
+                        "query": f"{cleaned}{suffix}",
+                        "year": identity.get("year"),
+                    }
+                )
+                # The first title in each tier is the deliberate cascade; extra
+                # alternatives are reserved for TMDb-provided alias variants.
+                if kind != "alternative":
+                    break
+        match_context = {
+            "media_type": media_type,
+            "tmdb_id": str(identity["tmdb_id"]),
+            "imdb_id": str(identity.get("imdb_id") or ""),
+            "year": identity.get("year"),
+            "original_title": identity.get("original_title") or "",
+            "native_aliases": list(identity.get("native_aliases") or []),
+            "transliterated_aliases": list(identity.get("transliterated_aliases") or []),
+            "international_aliases": list(identity.get("international_aliases") or []),
+            "alternative_aliases": list(identity.get("alternative_aliases") or []),
+            "title_variants": list(identity.get("title_variants") or []),
+            "season": season,
+            "episode": episode,
+        }
+        if season and episode:
+            episode_item = self.episode(tmdb_id, season, episode)
+            match_context.update(
+                {
+                    "episode_title": str((episode_item or {}).get("name") or ""),
+                    "episode_code": f"S{season:02d}E{episode:02d}",
+                    "alt_episode_code": f"{season}x{episode:02d}",
+                }
+            )
+        return details, attempts, match_context
+
+    def release_search_identity(self, media_type: str, tmdb_id: int) -> tuple[dict, dict[str, Any]]:
+        if media_type not in {"movie", "tv"}:
+            raise MediaIntegrationError("Media type must be movie or series.")
+        key = (media_type, int(tmdb_id))
+        cached = self._release_alias_cache.get(key)
+        if cached and cached[0] > time.monotonic():
+            details, identity = cached[1]["details"], cached[1]["identity"]
+            return dict(details), dict(identity)
+
+        details = self.details(media_type, tmdb_id)
+        try:
+            aliases_payload = self._request(f"/{media_type}/{int(tmdb_id)}/alternative_titles")
+            alternative_titles = [
+                str(item.get("title") or "").strip()
+                for item in aliases_payload.get("titles") or []
+                if isinstance(item, dict) and item.get("title")
+            ]
+        except MediaIntegrationError:
+            # A title search remains useful if the optional alias endpoint is
+            # temporarily unavailable.  Do not turn that into a total failure.
+            alternative_titles = []
+        identity = _release_search_identity(details, alternative_titles)
+        payload = {"details": dict(details), "identity": dict(identity)}
+        self._release_alias_cache[key] = (
+            time.monotonic() + self.RELEASE_ALIAS_CACHE_TTL_SECONDS,
+            payload,
+        )
+        return details, identity
+
     def _search_score(self, summary: dict, normalized_query: str, payload: dict) -> float:
         title = _normalize_title(summary.get("title"))
         original_title = _normalize_title(summary.get("original_title"))
@@ -257,6 +389,7 @@ class TmdbCatalogProvider:
             "original_title": str(
                 item.get("original_title") or item.get("original_name") or ""
             ),
+            "original_language": str(item.get("original_language") or ""),
             "overview": str(item.get("overview") or ""),
             "year": year,
             "release_date": released,
@@ -288,6 +421,7 @@ class TmdbCatalogProvider:
 
 
 class JackettReleaseProvider:
+    CAPABILITIES_CACHE_TTL_SECONDS = 15 * 60
     def __init__(
         self,
         *,
@@ -302,6 +436,7 @@ class JackettReleaseProvider:
         self.min_seeders = max(0, int(min_seeders))
         self.session = session or requests.Session()
         self.timeout_seconds = timeout_seconds
+        self._capabilities_cache: tuple[float, set[str]] | None = None
 
     @property
     def configured(self) -> bool:
@@ -342,6 +477,131 @@ class JackettReleaseProvider:
         except (requests.RequestException, ValueError) as exc:
             raise MediaIntegrationError("Jackett is unavailable.") from exc
 
+    def search_plan(
+        self,
+        attempts: list[dict[str, Any]],
+        media_type: str,
+        *,
+        match_context: dict[str, Any] | None = None,
+        mode: str = "auto",
+        limit: int = 50,
+    ) -> tuple[list[dict], list[dict[str, Any]]]:
+        """Run the ordered release cascade and record only safe diagnostics."""
+        if not self.configured:
+            raise MediaIntegrationError("Jackett is not configured.")
+        categories = {"movie": "2000", "tv": "5000"}.get(media_type, "2000,5000")
+        capabilities = self.capabilities(media_type)
+        rows: list[dict] = []
+        diagnostics: list[dict[str, Any]] = []
+        for attempt in attempts:
+            kind = str(attempt.get("kind") or "title")
+            query = str(attempt.get("query") or "").strip()
+            if kind in {"imdb_id", "tmdb_id"} and kind not in capabilities:
+                diagnostics.append(
+                    {
+                        "kind": kind,
+                        "label": str(attempt.get("label") or kind),
+                        "query": query,
+                        "status": "skipped_unsupported",
+                    }
+                )
+                continue
+            if kind not in {"imdb_id", "tmdb_id"} and len(query) < 2:
+                continue
+            try:
+                if kind in {"imdb_id", "tmdb_id"}:
+                    found = self._search_identifier(attempt, media_type)
+                else:
+                    found = self._search_title(query, categories)
+            except (requests.RequestException, ValueError) as exc:
+                raise MediaIntegrationError("Jackett is unavailable.") from exc
+            rows.extend(found)
+            candidates = self._filter(rows, limit, match_context=match_context, mode=mode)
+            diagnostics.append(
+                {
+                    "kind": kind,
+                    "label": str(attempt.get("label") or kind),
+                    "query": query,
+                    "status": "completed",
+                    "result_count": len(found),
+                }
+            )
+            # Five well-matched candidates are enough for a useful chooser.
+            # Avoid sending every spelling variant to every indexer needlessly.
+            if len([item for item in candidates if item.get("match_score", 0) >= 135]) >= 5:
+                break
+        return self._filter(rows, limit, match_context=match_context, mode=mode), diagnostics
+
+    def capabilities(self, media_type: str) -> set[str]:
+        """Return ID search fields advertised by Jackett's aggregate caps.
+
+        Aggregate caps do not prove every indexer supports a field, so callers
+        still retain the title cascade as a portable fallback.
+        """
+        if self._capabilities_cache and self._capabilities_cache[0] > time.monotonic():
+            return set(self._capabilities_cache[1])
+        supported: set[str] = set()
+        search_mode = "movie-search" if media_type == "movie" else "tv-search"
+        try:
+            response = self.session.get(
+                urljoin(self.base_url, "api/v2.0/indexers/all/results/torznab/api"),
+                params={"apikey": self.api_key, "t": "caps"},
+                headers={"Accept": "application/xml"},
+                timeout=self.timeout_seconds,
+            )
+            if response.ok:
+                root = ET.fromstring(response.content)
+                for node in root.iter():
+                    if node.tag.rsplit("}", 1)[-1] != search_mode:
+                        continue
+                    for value in str(node.attrib.get("supportedParams") or "").split(","):
+                        normalized = value.strip().casefold()
+                        if normalized == "imdbid":
+                            supported.add("imdb_id")
+                        elif normalized == "tmdbid":
+                            supported.add("tmdb_id")
+        except (requests.RequestException, ET.ParseError, AttributeError):
+            # Caps are an optimization.  A broken/stale caps response must not
+            # block the ordinary title search that previously worked.
+            pass
+        self._capabilities_cache = (
+            time.monotonic() + self.CAPABILITIES_CACHE_TTL_SECONDS,
+            supported,
+        )
+        return supported
+
+    def _search_title(self, query: str, categories: str) -> list[dict]:
+        response = self.session.get(
+            urljoin(self.base_url, "api/v2.0/indexers/all/results"),
+            params={"apikey": self.api_key, "Query": query, "Category": categories},
+            headers={"Accept": "application/json"},
+            timeout=self.timeout_seconds,
+        )
+        if not response.ok:
+            raise MediaIntegrationError(f"Jackett returned HTTP {response.status_code}.")
+        return self._parse_json(response.json())
+
+    def _search_identifier(self, attempt: dict[str, Any], media_type: str) -> list[dict]:
+        params: dict[str, Any] = {
+            "apikey": self.api_key,
+            "t": "movie" if media_type == "movie" else "tvsearch",
+        }
+        if attempt.get("imdb_id"):
+            params["imdbid"] = str(attempt["imdb_id"])
+        if attempt.get("tmdb_id"):
+            params["tmdbid"] = str(attempt["tmdb_id"])
+        if attempt.get("year"):
+            params["year"] = int(attempt["year"])
+        response = self.session.get(
+            urljoin(self.base_url, "api/v2.0/indexers/all/results/torznab/api"),
+            params=params,
+            headers={"Accept": "application/xml"},
+            timeout=self.timeout_seconds,
+        )
+        if not response.ok:
+            raise MediaIntegrationError(f"Jackett returned HTTP {response.status_code}.")
+        return self._parse_torznab(response.content)
+
     @staticmethod
     def _parse_json(payload: Any) -> list[dict]:
         rows = payload.get("Results", []) if isinstance(payload, dict) else payload
@@ -365,6 +625,39 @@ class JackettReleaseProvider:
                         row.get("Tracker") or row.get("TrackerId") or "Unknown tracker"
                     ),
                     "published": row.get("PublishDate") or row.get("FirstSeen"),
+                    "imdb_id": _external_identifier(
+                        row, "Imdb", "ImdbId", "IMDB", "IMDBId"
+                    ),
+                    "tmdb_id": _external_identifier(row, "Tmdb", "TmdbId", "TMDb", "TMDbId"),
+                }
+            )
+        return results
+
+    @staticmethod
+    def _parse_torznab(payload: bytes) -> list[dict]:
+        root = ET.fromstring(payload)
+        results = []
+        for item in root.iter():
+            if item.tag.rsplit("}", 1)[-1] != "item":
+                continue
+            attributes = {
+                str(node.attrib.get("name") or "").casefold(): str(node.attrib.get("value") or "")
+                for node in item
+                if node.tag.rsplit("}", 1)[-1] == "attr"
+            }
+            link = str(item.findtext("link") or "")
+            magnet = link if link.startswith("magnet:?") else ""
+            results.append(
+                {
+                    "magnet_uri": magnet,
+                    "title": str(item.findtext("title") or "Untitled release"),
+                    "seeders": _integer(attributes.get("seeders")),
+                    "leechers": _integer(attributes.get("peers")),
+                    "size": _integer(attributes.get("size")),
+                    "tracker": attributes.get("tracker") or "Unknown tracker",
+                    "published": item.findtext("pubDate") or "",
+                    "imdb_id": attributes.get("imdb") or attributes.get("imdbid") or "",
+                    "tmdb_id": attributes.get("tmdb") or attributes.get("tmdbid") or "",
                 }
             )
         return results
@@ -378,12 +671,21 @@ class JackettReleaseProvider:
         mode: str = "auto",
     ) -> list[dict]:
         unique: dict[str, dict] = {}
+        result_identities: dict[tuple[str, str, int], str] = {}
         for row in rows:
             magnet = str(row.get("magnet_uri") or "")
             if not magnet.startswith("magnet:?") or row.get("seeders", 0) < self.min_seeders:
                 continue
             info_hash = _magnet_info_hash(magnet)
             key = info_hash or magnet.split("&", 1)[0].casefold()
+            result_identity = _release_result_identity(row)
+            existing_key = result_identities.get(result_identity)
+            if existing_key and existing_key != key:
+                previous = unique.get(existing_key)
+                if previous is not None and previous["seeders"] >= row["seeders"]:
+                    continue
+                unique.pop(existing_key, None)
+            result_identities[result_identity] = key
             previous = unique.get(key)
             if previous is None or row["seeders"] > previous["seeders"]:
                 unique[key] = row
@@ -404,7 +706,11 @@ class JackettReleaseProvider:
         elif season_pack:
             ranked = season_pack + general
         else:
-            ranked = [item for item in ranked if item[0] > -250]
+            ranked = [
+                item
+                for item in ranked
+                if item[0] > -250 and item[1] != "unrelated"
+            ]
         results = []
         for score, match_kind, row in ranked[: max(1, min(int(limit), 100))]:
             profile = _release_profile(row)
@@ -429,25 +735,24 @@ class JackettReleaseProvider:
         score = float(row.get("seeders") or 0) * 12
         score += _release_profile(row)["score_adjustment"]
         match_kind = "general"
-        title_strength = 0
-        for variant in match_context.get("title_variants") or []:
-            normalized_variant = _normalize_title(variant)
-            if not normalized_variant:
-                continue
-            if title.startswith(normalized_variant):
-                score += 80
-                title_strength = max(title_strength, 2)
-            elif normalized_variant in title:
-                variant_index = title.find(normalized_variant)
-                if variant_index <= 14:
-                    score += 40
-                    title_strength = max(title_strength, 1)
-                else:
-                    score += 10
+        title_score, title_strength = _release_title_match_score(title, match_context)
+        score += title_score
+        row_imdb_id = str(row.get("imdb_id") or "").casefold()
+        row_tmdb_id = str(row.get("tmdb_id") or "")
+        if row_imdb_id and row_imdb_id == str(match_context.get("imdb_id") or "").casefold():
+            score += 100
+            title_strength = max(title_strength, 2)
+        if row_tmdb_id and row_tmdb_id == str(match_context.get("tmdb_id") or ""):
+            score += 100
+            title_strength = max(title_strength, 2)
         if match_context.get("title_variants") and not title_strength:
             return score - 1000, "unrelated"
-        if match_context.get("year") and str(match_context["year"]) in title:
-            score += 60
+        expected_year = _optional_int(match_context.get("year"))
+        release_years = {int(value) for value in re.findall(r"\b(?:19|20)\d{2}\b", title)}
+        if expected_year and expected_year in release_years:
+            score += 25
+        elif expected_year and release_years:
+            score -= 50
         season = _optional_int(match_context.get("season"))
         episode = _optional_int(match_context.get("episode"))
         episode_code = str(match_context.get("episode_code") or "").casefold()
@@ -1595,7 +1900,27 @@ def _names_text(value: Any) -> str:
 
 
 def _normalize_title(value: Any) -> str:
-    return " ".join(re.sub(r"[^\w]+", " ", str(value or "").casefold()).split())
+    """Normalize titles only for matching; outbound queries retain TMDb text."""
+    normalized = unicodedata.normalize("NFKC", str(value or "").casefold())
+    normalized = normalized.translate(
+        str.maketrans(
+            {
+                "ي": "ی",
+                "ى": "ی",
+                "ك": "ک",
+                "ة": "ه",
+                "ۀ": "ه",
+                "أ": "ا",
+                "إ": "ا",
+                "ٱ": "ا",
+                "ـ": "",
+            }
+        )
+    )
+    normalized = "".join(
+        character for character in normalized if not unicodedata.combining(character)
+    )
+    return " ".join(re.sub(r"[^\w]+", " ", normalized).split())
 
 
 def _release_profile(row: dict[str, Any]) -> dict[str, Any]:
@@ -1677,6 +2002,122 @@ def _release_profile(row: dict[str, Any]) -> dict[str, Any]:
 def _title_variants(item: dict[str, Any]) -> list[str]:
     return _dedupe_strings(
         [str(item.get("title") or "").strip(), str(item.get("original_title") or "").strip()]
+    )
+
+
+def _release_search_identity(details: dict[str, Any], alternative_titles: list[str]) -> dict[str, Any]:
+    display_title = str(details.get("title") or "").strip()
+    original_title = str(details.get("original_title") or "").strip()
+    alternatives = _dedupe_strings(alternative_titles)
+    native_aliases = _dedupe_strings(
+        [
+            *([original_title] if _contains_non_latin(original_title) else []),
+            *[title for title in alternatives if _contains_non_latin(title)],
+        ]
+    )
+    latin_alternatives = [title for title in alternatives if not _contains_non_latin(title)]
+    original_is_native = _contains_non_latin(original_title)
+    transliterated_aliases = _dedupe_strings(
+        [
+            title
+            for title in latin_alternatives
+            if _normalize_title(title) != _normalize_title(display_title)
+        ]
+        if original_is_native
+        else []
+    )
+    international_aliases = _dedupe_strings(
+        [display_title, *([] if original_is_native else [original_title])]
+    )
+    scheduled_normalizations = {
+        _normalize_title(title)
+        for title in [*native_aliases, *transliterated_aliases, *international_aliases]
+    }
+    alternative_aliases = _dedupe_strings(
+        [
+            title
+            for title in alternatives
+            if _normalize_title(title) not in scheduled_normalizations
+        ]
+    )
+    title_variants = _dedupe_strings(
+        [
+            *native_aliases,
+            *transliterated_aliases,
+            *international_aliases,
+            *alternative_aliases,
+        ]
+    )
+    external_ids = dict(details.get("external_ids") or {})
+    return {
+        "tmdb_id": str(external_ids.get("tmdb_id") or details.get("tmdb_id") or ""),
+        "imdb_id": str(external_ids.get("imdb_id") or ""),
+        "year": details.get("year"),
+        "display_title": display_title,
+        "original_title": original_title,
+        "original_language": str(details.get("original_language") or ""),
+        "native_aliases": native_aliases,
+        "transliterated_aliases": transliterated_aliases,
+        "international_aliases": international_aliases,
+        "alternative_aliases": alternative_aliases,
+        "title_variants": title_variants,
+    }
+
+
+def _release_query_suffix(
+    media_type: str, *, year: Any, season: int | None, episode: int | None
+) -> str:
+    if media_type == "tv" and season and episode:
+        return f" S{season:02d}E{episode:02d}"
+    if media_type == "tv" and season:
+        return f" S{season:02d}"
+    return f" {_optional_int(year)}" if _optional_int(year) else ""
+
+
+def _contains_non_latin(value: str) -> bool:
+    return any("LATIN" not in unicodedata.name(character, "") for character in value if character.isalpha())
+
+
+def _release_title_match_score(title: str, match_context: dict[str, Any]) -> tuple[float, int]:
+    tiers = (
+        ("original_title", [match_context.get("original_title")], 60),
+        ("native_aliases", match_context.get("native_aliases") or [], 60),
+        ("alternative_aliases", match_context.get("alternative_aliases") or [], 55),
+        ("transliterated_aliases", match_context.get("transliterated_aliases") or [], 40),
+        ("international_aliases", match_context.get("international_aliases") or [], 45),
+        ("title_variants", match_context.get("title_variants") or [], 35),
+    )
+    best_score = 0.0
+    strength = 0
+    for _tier, variants, exact_score in tiers:
+        for variant in variants:
+            normalized_variant = _normalize_title(variant)
+            if not normalized_variant:
+                continue
+            if title.startswith(normalized_variant):
+                best_score = max(best_score, float(exact_score))
+                strength = max(strength, 2)
+            elif normalized_variant in title:
+                index = title.find(normalized_variant)
+                best_score = max(best_score, float(exact_score if index <= 14 else exact_score / 3))
+                if index <= 14:
+                    strength = max(strength, 1)
+    return best_score, strength
+
+
+def _external_identifier(row: dict, *keys: str) -> str:
+    for key in keys:
+        value = str(row.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _release_result_identity(row: dict) -> tuple[str, str, int]:
+    return (
+        _normalize_title(row.get("title")),
+        _normalize_title(row.get("tracker")),
+        _integer(row.get("size")),
     )
 
 

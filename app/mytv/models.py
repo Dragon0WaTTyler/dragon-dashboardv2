@@ -162,6 +162,9 @@ class TVChannelPreference(db.Model):
     logo_url: Mapped[str] = mapped_column(String(2000), default="", nullable=False)
     enabled_override: Mapped[bool | None] = mapped_column(Boolean)
     favorite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
+    # This is deliberately separate from the source playlist position: it is a
+    # personal ordering used only when viewing the user's Favorites.
+    favorite_position: Mapped[int | None] = mapped_column(Integer, index=True)
     last_watched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     watch_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     preferred_source_fingerprint: Mapped[str] = mapped_column(

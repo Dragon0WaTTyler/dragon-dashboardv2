@@ -427,6 +427,11 @@ def channels():
     def build_payload() -> dict:
         effective = _effective_enabled()
         effective_sort = "recent" if state == "recent" else sort
+        favorite_order = (
+            TVChannelPreference.favorite_position.is_(None),
+            TVChannelPreference.favorite_position,
+            TVChannel.name,
+        )
         conditions = [
             TVPlaylist.imported.is_(True),
             TVPlaylist.available.is_(True),
@@ -513,11 +518,19 @@ def channels():
             )
             .where(*conditions)
             .order_by(
-                func.coalesce(TVChannelPreference.favorite, False).desc()
-                if favorites_first or effective_sort == "favorites"
-                else TVChannelPreference.last_watched_at.desc().nullslast()
-                if effective_sort == "recent"
-                else TVTheme.name,
+                *(
+                    favorite_order
+                    if state == "favorites"
+                    else (
+                        func.coalesce(TVChannelPreference.favorite, False).desc(),
+                    )
+                    if favorites_first or effective_sort == "favorites"
+                    else (
+                        TVChannelPreference.last_watched_at.desc().nullslast(),
+                    )
+                    if effective_sort == "recent"
+                    else (TVTheme.name,)
+                ),
                 TVChannel.position,
                 TVChannel.name,
             )
@@ -777,6 +790,9 @@ def update_channel_favorite(channel_id: int):
         favorite=payload["favorite"],
         enabled_override=enabled_override,
     )
+    preference = db.session.get(TVChannelPreference, channel.preference_key)
+    if preference is not None and not payload["favorite"]:
+        preference.favorite_position = None
     db.session.commit()
     query_cache.invalidate()
     if (
@@ -791,6 +807,59 @@ def update_channel_favorite(channel_id: int):
             tvg_ids={channel.tvg_id},
         )
     return jsonify({"ok": True, "favorite": payload["favorite"]})
+
+
+@bp.post("/api/channels/favorites/order")
+@login_required
+def reorder_favorite_channel():
+    """Move one favorite before another and persist the complete favorite order."""
+    payload = request.get_json(silent=True) or {}
+    channel_id = payload.get("channel_id")
+    before_channel_id = payload.get("before_channel_id")
+    if type(channel_id) is not int or (
+        before_channel_id is not None and type(before_channel_id) is not int
+    ):
+        abort(400, "channel_id and before_channel_id must be integers or null.")
+    if channel_id == before_channel_id:
+        return jsonify({"ok": True})
+
+    rows = list(
+        db.session.execute(
+            select(TVChannel.id, TVChannelPreference)
+            .join(
+                TVChannelRepresentative,
+                TVChannelRepresentative.channel_id == TVChannel.id,
+            )
+            .join(
+                TVChannelPreference,
+                TVChannelPreference.preference_key == TVChannel.preference_key,
+            )
+            .where(TVChannelPreference.favorite.is_(True))
+            .order_by(
+                TVChannelPreference.favorite_position.is_(None),
+                TVChannelPreference.favorite_position,
+                TVChannelPreference.name,
+                TVChannelPreference.preference_key,
+            )
+        )
+    )
+    by_channel_id = {int(row.id): row[1] for row in rows}
+    if channel_id not in by_channel_id:
+        abort(404, "Favorite channel was not found.")
+    if before_channel_id is not None and before_channel_id not in by_channel_id:
+        abort(404, "Drop target was not found in favorites.")
+
+    ordered_ids = [int(row.id) for row in rows]
+    ordered_ids.remove(channel_id)
+    if before_channel_id is None:
+        ordered_ids.append(channel_id)
+    else:
+        ordered_ids.insert(ordered_ids.index(before_channel_id), channel_id)
+    for position, ordered_id in enumerate(ordered_ids, start=1):
+        by_channel_id[ordered_id].favorite_position = position
+    db.session.commit()
+    query_cache.invalidate()
+    return jsonify({"ok": True, "channel_ids": ordered_ids})
 
 
 @bp.post("/api/sync")

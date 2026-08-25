@@ -1195,7 +1195,7 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     assert any("season=1" in url and "episode=2" in url for url in subtitle_queries)
 
 
-def test_switching_from_season_pack_to_regular_local_hides_pack_browser(page, live_app, app):
+def test_episode_selector_stays_available_after_switching_from_season_pack(page, live_app, app):
     with app.app_context():
         movie = Movie(
             title="The Sopranos",
@@ -1260,16 +1260,62 @@ def test_switching_from_season_pack_to_regular_local_hides_pack_browser(page, li
         DRAGON_PLAYBACK_ENABLED=True,
         DRAGON_MAGNETS_ENABLED=True,
         DRAGON_VIDSRC_ENABLED=False,
+        DRAGON_CINESRC_ENABLED=True,
         DRAGON_SUBTITLES_ENABLED=True,
         DRAGON_SUBDL_API_KEY="private-key",
     )
 
+    provider_requests = []
+
+    def handle_cinesrc(route):
+        provider_requests.append(route.request.url)
+        route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "cinesrc",
+                    "label": "CineSrc",
+                    "url": "https://cinesrc.st/embed/tv/1399?s=1&e=1",
+                    "match": "tmdb",
+                },
+            }
+        )
+
+    page.route("**/playback/movie/*/providers/cinesrc**", handle_cinesrc)
+    page.route(
+        "**/movies/api/tv/1399/seasons/1/episodes",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [
+                    {"episode_number": 1, "name": "Pilot", "runtime_minutes": 60},
+                ],
+            }
+        ),
+    )
+
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/1")
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-pack-episode]')?.options.length > 1"
+    )
     page.get_by_label("Player source").select_option(label="Local · FHD")
     page.wait_for_timeout(400)
-    assert page.locator("[data-player-pack-browser]").is_hidden()
+    assert page.locator("[data-player-pack-browser]").is_visible()
+    assert page.locator("[data-player-pack-episode]").input_value() == "1"
     assert page.locator("[data-subtitle-status]").is_visible()
+
+    page.get_by_label("Player source").select_option("provider-cinesrc")
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-source]')?.value === 'provider-cinesrc'"
+    )
+    assert page.locator("[data-player-pack-browser]").is_visible()
+    assert page.locator("[data-player-pack-episode]").input_value() == "1"
+    page.get_by_role("button", name="Play with CineSrc").click()
+    page.locator("[data-player-frame]").wait_for(state="visible")
+    assert page.get_by_label("Player source").is_visible()
+    assert page.locator("[data-player-pack-browser]").is_visible()
+    assert provider_requests and "season=1" in provider_requests[0] and "episode=1" in provider_requests[0]
 
 
 def test_switching_pack_episode_stops_current_local_session_before_restart(page, live_app, app):

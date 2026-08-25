@@ -328,6 +328,8 @@
   const addButton = browser.querySelector("[data-library-add]");
   const status = browser.querySelector("[data-release-status]");
   const releaseList = browser.querySelector("[data-release-list]");
+  const diagnostics = browser.querySelector("[data-release-diagnostics]");
+  const diagnosticsList = browser.querySelector("[data-release-diagnostics-list]");
   const summary = browser.querySelector("[data-release-summary]");
   const fixedSeason = Number(browser.dataset.fixedSeason || 0) || null;
 
@@ -363,6 +365,21 @@
     if (className) node.className = className;
     if (text) node.textContent = text;
     return node;
+  };
+
+  const renderDiagnostics = (attempts) => {
+    if (!diagnostics || !diagnosticsList) return;
+    diagnosticsList.replaceChildren();
+    const entries = Array.isArray(attempts) ? attempts : [];
+    entries.forEach((attempt) => {
+      const label = String(attempt.label || attempt.kind || "Search");
+      const query = String(attempt.query || "");
+      const outcome = attempt.status === "skipped_unsupported"
+        ? "not supported by the configured indexers"
+        : `${Number(attempt.result_count || 0)} result${Number(attempt.result_count || 0) === 1 ? "" : "s"}`;
+      diagnosticsList.append(element("li", "", query ? `${label}: ${query} — ${outcome}` : `${label}: ${outcome}`));
+    });
+    diagnostics.hidden = !entries.length;
   };
 
   const releaseRow = (release, season, episode, releaseMode = "episode") => {
@@ -435,6 +452,7 @@
     episodeSelect.replaceChildren(new Option("Choose an episode", ""));
     episodeSelect.disabled = true;
     releaseList.replaceChildren();
+    renderDiagnostics([]);
     if (!season) {
       status.textContent = "Choose a season first.";
       return;
@@ -489,6 +507,7 @@
     if (episode && mode !== "season_pack") endpoint.searchParams.set("episode", episode);
     try {
       const payload = await api(endpoint);
+      renderDiagnostics(payload.queries_tried);
       payload.items.forEach((release) => {
         const releaseMode = mode === "season_pack" || release.match_kind === "season_pack"
           ? "season_pack"
