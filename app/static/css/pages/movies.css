@@ -1307,10 +1307,15 @@ body.is-player-embed-fullscreen { overflow: hidden; }
     padding: 16px;
     border-radius: 22px;
   }
-  .movie-player__external-toolbar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .movie-player__external-toolbar span { grid-column: 1 / -1; order: -1; }
+  /* Keep the provider action easy to reach without covering mobile controls. */
+  .movie-player__external-toolbar {
+    inset: 8px 8px auto auto;
+    padding: 6px;
+    border-radius: 10px;
+    background: rgb(10 10 12 / 74%);
+  }
   .movie-player__external-toolbar button,
-  .movie-player__external-toolbar a { width: 100%; min-height: 44px; }
+  .movie-player__external-toolbar a { width: auto; min-height: 40px; padding-inline: 12px; }
   .movie-player__captions {
     inset-inline: 12px;
   }

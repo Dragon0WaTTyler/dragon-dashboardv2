@@ -1,7 +1,7 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Season {{ workspace.season.season_number }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-player-fit-4">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-player-fit-5">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-7" defer></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.detail', movie_id=movie.id) }}">← Back to series</a>

@@ -533,6 +533,10 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
     assert page.get_by_role("link", name="Open separately").is_visible()
     assert page.get_by_role("button", name="Change source").count() == 0
     assert page.get_by_role("button", name="Full screen").count() == 0
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.wait_for_timeout(100)
+    assert page.locator("[data-player-external-toolbar]").bounding_box()["width"] < 190
+    assert page.get_by_role("link", name="Open separately").bounding_box()["width"] < 170
 
     source_select.select_option(updown_id)
     page.wait_for_function(
