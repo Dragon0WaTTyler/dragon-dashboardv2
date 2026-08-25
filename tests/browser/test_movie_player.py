@@ -530,19 +530,10 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
         == "allow-scripts allow-forms allow-popups allow-presentation"
     )
     assert frame.get_attribute("title") == "VideoTube · Arabic player"
-    assert (
-        page.locator("[data-player-external-caption]")
-        .inner_text()
-        .startswith("VideoTube · Arabic uses its own controls")
-    )
-    cinema = page.get_by_role("button", name="Full screen")
-    cinema.click()
-    assert "is-embed-fullscreen" in page.locator("[data-movie-player]").get_attribute("class")
-    assert cinema.get_attribute("aria-pressed") == "true"
-    cinema.click()
-    assert "is-embed-fullscreen" not in page.locator("[data-movie-player]").get_attribute("class")
+    assert page.get_by_role("link", name="Open separately").is_visible()
+    assert page.get_by_role("button", name="Change source").count() == 0
+    assert page.get_by_role("button", name="Full screen").count() == 0
 
-    page.get_by_role("button", name="Change source").click()
     source_select.select_option(updown_id)
     page.wait_for_function(
         "() => document.querySelector('[data-player-badge]')?.textContent === 'UpDown'"
@@ -553,7 +544,6 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
         "() => document.querySelector('[data-player-frame]')?.src === 'https://updown.icu/embed-updownasset-1280x640.html'"
     )
 
-    page.get_by_role("button", name="Change source").click()
     source_select.select_option(ok_id)
     page.wait_for_function(
         "() => document.querySelector('[data-player-badge]')?.textContent === 'OK.ru'"
@@ -564,7 +554,6 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
         "() => document.querySelector('[data-player-frame]')?.src === 'https://ok.ru/videoembed/7593181055685'"
     )
 
-    page.get_by_role("button", name="Change source").click()
     source_select.select_option("vidsrc")
     page.wait_for_function(
         "() => document.querySelector('[data-player-badge]')?.textContent === 'VidSrc'"

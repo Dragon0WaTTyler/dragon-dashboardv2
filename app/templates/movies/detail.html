@@ -1,7 +1,7 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-player-fit-3">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-player-fit-4">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=release-browser-1" defer></script><script type="module" src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-7"></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
@@ -85,10 +85,6 @@
       {# VidSrc rejects every sandboxed iframe; loading remains explicit and feature-gated. #}
       <iframe class="movie-player__frame" data-player-frame title="Embedded player for {{ movie.title }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer" hidden></iframe>
       <div class="movie-player__external-toolbar" data-player-external-toolbar hidden aria-label="Embedded player options">
-        <button type="button" data-player-external-back>← Change source</button>
-        <span data-player-external-caption>Embedded players use their own controls. Dragon timeline works with Local.</span>
-        <button type="button" data-player-external-fullscreen aria-pressed="false">Full screen</button>
-        <button type="button" data-player-external-reload>Reload</button>
         <a data-player-external-open target="_blank" rel="noopener noreferrer">Open separately</a>
       </div>
       <div class="movie-player__media-shell" data-player-shell data-paused="true" data-controls-visible="true" hidden>
