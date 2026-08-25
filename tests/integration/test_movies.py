@@ -747,3 +747,23 @@ def test_what_should_i_watch_api_uses_only_personal_unwatched_entries(authentica
     payload = response.get_json()
     assert payload["item"]["id"] == available_id
     assert payload["item"]["eligibility_reason"] == "From your personal unwatched library."
+
+
+def test_movies_home_prioritizes_personal_focus_and_want_to_watch(authenticated_client, app):
+    with app.app_context():
+        available = Movie(title="Personal choice", normalized_title="personal choice")
+        watched = Movie(title="Already watched", normalized_title="already watched")
+        db.session.add_all([available, watched])
+        db.session.commit()
+        MovieService.set_status(available, "want_to_watch")
+        MovieService.set_status(watched, "watched")
+
+        page = authenticated_client.get("/movies")
+    html = page.get_data(as_text=True)
+
+    assert page.status_code == 200
+    assert 'data-home-focus' in html
+    assert "From your personal library" in html
+    assert "Personal choice" in html
+    assert "Want to watch" in html
+    assert 'data-home-focus-shuffle' in html

@@ -129,6 +129,58 @@
 })();
 
 (() => {
+  const focus = document.querySelector("[data-home-focus]");
+  if (!focus) return;
+
+  const shuffle = focus.querySelector("[data-home-focus-shuffle]");
+  if (!shuffle || !focus.dataset.pickEndpoint) return;
+  const title = focus.querySelector("[data-home-focus-title]");
+  const meta = focus.querySelector("[data-home-focus-meta]");
+  const progress = focus.querySelector("[data-home-focus-progress]");
+  const label = focus.querySelector("[data-home-focus-label]");
+  const primary = focus.querySelector("[data-home-focus-primary]");
+  const resumeSignal = focus.querySelector(".movie-personal-hero__signal");
+  const detailTemplate = focus.dataset.detailTemplate || "";
+  const detailUrl = (item) => detailTemplate.replace("999999999", encodeURIComponent(item.id));
+
+  shuffle.addEventListener("click", async () => {
+    shuffle.disabled = true;
+    shuffle.setAttribute("aria-busy", "true");
+    const originalLabel = shuffle.textContent;
+    shuffle.textContent = "Choosing…";
+    try {
+      const response = await fetch(focus.dataset.pickEndpoint, {
+        credentials: "same-origin",
+        headers: { Accept: "application/json" },
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error?.message || "A new pick is unavailable.");
+      const item = payload.item;
+      if (!item) throw new Error("Your unwatched library is empty.");
+      const url = detailUrl(item);
+      title.textContent = item.title || "Untitled";
+      title.href = url;
+      meta.textContent = [
+        item.media_type === "tv" ? "TV" : "Movie",
+        item.year,
+        item.runtime_minutes ? `${item.runtime_minutes} min` : "",
+      ].filter(Boolean).join(" · ");
+      progress.textContent = item.eligibility_reason || "From your personal unwatched library.";
+      label.textContent = "From your personal library";
+      primary.textContent = "Open details";
+      primary.href = url;
+      resumeSignal?.remove();
+    } catch (error) {
+      progress.textContent = error.message;
+    } finally {
+      shuffle.disabled = false;
+      shuffle.removeAttribute("aria-busy");
+      shuffle.textContent = originalLabel;
+    }
+  });
+})();
+
+(() => {
   const discovery = document.querySelector("[data-media-discovery]");
   if (!discovery) return;
 

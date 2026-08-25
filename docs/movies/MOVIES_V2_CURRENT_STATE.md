@@ -52,6 +52,17 @@ more editorial detail hierarchy. This is CSS/template composition only:
 - the player remains a functional Playback-owned component; and
 - the visual layer respects keyboard focus and `prefers-reduced-motion`.
 
+## Verified Phase 3 personal-home delta
+
+The Movies home now projects Dragon-owned state instead of treating a generic
+recommendation as the primary experience: Continue Watching takes priority when
+there is resumable progress; otherwise the hero selects from `MovieLibraryEntry`
+rows that are not watched. Its shuffle control calls the existing local
+`GET /movies/api/what-should-i-watch` contract only on an explicit click. A
+separate Want to Watch rail uses the existing Watch Next repository projection.
+This is presentation and routing composition only: it introduces no new external
+catalog/provider request, no state transition, and no playback/source change.
+
 ## Ownership map
 
 ```text

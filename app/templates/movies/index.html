@@ -20,6 +20,31 @@
   <a href="{{ url_for('movies.watch_next') }}">Watch next</a>
   <a href="#movie-discovery">Search</a>
 </nav>
+{% if home_focus %}
+<section
+  class="movie-personal-hero"
+  data-home-focus
+  data-pick-endpoint="{{ url_for('movies.api_what_should_i_watch') }}"
+  data-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}"
+  aria-labelledby="movie-personal-hero-title"
+>
+  <div class="movie-personal-hero__eyebrow">
+    <span class="eyebrow" data-home-focus-label>{% if home_focus_kind == 'resume' %}Ready when you are{% elif home_focus_kind == 'personal' %}From your personal library{% else %}A considered recommendation{% endif %}</span>
+    {% if home_focus_kind == 'resume' %}<span class="movie-personal-hero__signal">Resume</span>{% endif %}
+  </div>
+  <div class="movie-personal-hero__content">
+    <div>
+      <h2 id="movie-personal-hero-title"><a data-home-focus-title href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{{ home_focus.title }}</a></h2>
+      <p data-home-focus-meta>{{ [home_focus.media_type|title, home_focus.year, home_focus.runtime_minutes ~ ' min' if home_focus.runtime_minutes else '']|select|join(' · ') }}</p>
+      {% if home_focus_kind == 'resume' and home_focus.progress %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.progress.percent }}% watched{% if home_focus.progress.remaining_seconds %} · {{ (home_focus.progress.remaining_seconds / 60)|round|int }} min left{% endif %}</p>{% elif home_focus_kind == 'personal' %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.eligibility_reason }}</p>{% else %}<p class="movie-personal-hero__progress" data-home-focus-progress>A title to consider when your personal list is clear.</p>{% endif %}
+    </div>
+    <div class="movie-personal-hero__actions">
+      <a class="button button--primary" data-home-focus-primary href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{% if home_focus_kind == 'resume' %}Resume{% else %}Open details{% endif %}</a>
+      {% if personal_pick %}<button class="button button--secondary" type="button" data-home-focus-shuffle>Shuffle again</button>{% endif %}
+    </div>
+  </div>
+</section>
+{% endif %}
 {% if recommendation and dragon_feature('movies', 'recommendation') %}
 <section id="movie-recommendation" class="movie-recommendation" data-recommendation-card data-recommendation-items="{{ recommendations|tojson|forceescape }}" data-recommendation-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}" aria-labelledby="movie-recommendation-title" hidden>
   <article class="movie-recommendation__card">
@@ -66,6 +91,31 @@
   </div>
   {% else %}
   <p class="movie-now__empty">Nothing is paused right now. Pick something deliberate from Watch next.</p>
+  {% endif %}
+</section>
+<section class="movie-now movie-want" aria-labelledby="want-to-watch-title">
+  <div class="movie-now__heading">
+    <div><span class="eyebrow">Your list</span><h2 id="want-to-watch-title">Want to watch</h2></div>
+    <a class="button button--quiet" href="{{ url_for('movies.watch_next') }}">View all</a>
+  </div>
+  {% if want_to_watch %}
+  <div class="movie-now__grid movie-rail">
+    {% for movie in want_to_watch %}
+    <article class="movie-now__item movie-want__item">
+      <a class="movie-now__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}">
+        {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="120" height="180">{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+      </a>
+      <div class="movie-now__body">
+        <span class="eyebrow">{{ movie.media_type|title }}</span>
+        <h3><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h3>
+        <p>{{ movie.year or 'Year unknown' }}{% if movie.runtime_minutes %} · {{ movie.runtime_minutes }} min{% endif %}</p>
+        <a class="button button--secondary" href="{{ url_for('movies.detail', movie_id=movie.id) }}">Details</a>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <p class="movie-now__empty">Your Want to Watch list is clear. Add a title when something catches your eye.</p>
   {% endif %}
 </section>
 <div id="movie-library" class="movie-actions">

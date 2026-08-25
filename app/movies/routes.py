@@ -230,10 +230,21 @@ def index():
         offset=offset,
         library_ids=library_sync.library_ids,
     )
+    continue_items = [
+        movie_item(movie)
+        for movie in MovieRepository.continue_watching(library_ids=library_sync.library_ids)
+    ]
+    want_to_watch = [
+        movie_item(movie)
+        for movie in MovieRepository.watch_next(limit=12, library_ids=library_sync.library_ids)
+    ]
+    personal_pick = MovieService.what_should_i_watch()
     recommendations = MovieService.recommendation_pool(
         category=filters["category"], source=filters["source"]
     )["items"]
     recommendation = recommendations[0] if recommendations else None
+    home_focus = continue_items[0] if continue_items else personal_pick or recommendation
+    home_focus_kind = "resume" if continue_items else "personal" if personal_pick else "recommendation"
     return render_template(
         "movies/index.html",
         active_module="movies",
@@ -247,10 +258,11 @@ def index():
         has_previous=page > 1,
         has_next=offset + len(movies) < total,
         library_sync_error=library_sync.error,
-        continue_watching=[
-            movie_item(movie)
-            for movie in MovieRepository.continue_watching(library_ids=library_sync.library_ids)
-        ],
+        continue_watching=continue_items,
+        want_to_watch=want_to_watch,
+        home_focus=home_focus,
+        home_focus_kind=home_focus_kind,
+        personal_pick=personal_pick,
         recommendation=recommendation,
         recommendations=recommendations,
     )
