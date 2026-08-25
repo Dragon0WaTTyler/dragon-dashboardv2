@@ -2,7 +2,7 @@
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Season {{ workspace.season.season_number }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-player-fit-2">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-6" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-7" defer></script>{% endblock %}
 {% block content %}
 <a class="back-link" href="{{ url_for('movies.detail', movie_id=movie.id) }}">← Back to series</a>
 <article class="movie-detail">
@@ -57,11 +57,11 @@
       <div class="movie-player__source-details">
         <p class="movie-player__source-help">Choose a source, then press Play. Nothing connects before that.</p>
       {% if movie.external_ids.tmdb_id %}
-      <div class="movie-player__pack-browser" data-player-pack-browser hidden>
+      <div class="movie-player__pack-browser" data-player-pack-browser>
         <label class="field movie-player__pack-field">
           <span data-player-pack-heading>Episode</span>
           <select data-player-pack-episode disabled aria-label="Episode in season pack">
-            <option value="">Choose an episode</option>
+            <option value="{{ selected_episode.episode_number }}">E{{ '%02d'|format(selected_episode.episode_number) }} · {{ selected_episode.name }}</option>
           </select>
         </label>
         <p class="movie-player__pack-status" data-player-pack-status aria-live="polite" hidden></p>

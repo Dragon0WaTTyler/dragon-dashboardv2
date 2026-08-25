@@ -1306,7 +1306,9 @@
   };
   const loadPackEpisodes = async () => {
     const meta = selectedSourceMeta();
-    const season = configuredSelectedSeason() || meta?.season || null;
+    // An embed provider has no season metadata of its own. Retain the episode
+    // context picked from Local while its source option is selected.
+    const season = activeSelection.season || configuredSelectedSeason() || meta?.season || null;
     if (
       !packBrowser
       || !packEpisode
@@ -2017,6 +2019,7 @@
   };
 
   source.addEventListener("change", () => {
+    const previousSelection = selectedEpisodeScope();
     // Stop the old runtime without making the next source wait on its network shutdown.
     // `stopLocal` clears its local state synchronously before its cleanup request awaits.
     void stopLocal({ silent: true, persistProgress: false });
@@ -2025,8 +2028,8 @@
     savedProgress = null;
     progressLoaded = false;
     lastProgressSentAt = 0;
-    activeSelection.season = configuredSelectedSeason() || selectedSourceMeta()?.season || null;
-    activeSelection.episode = configuredSelectedEpisode() || selectedSourceMeta()?.episode || null;
+    activeSelection.season = previousSelection.season || configuredSelectedSeason() || selectedSourceMeta()?.season || null;
+    activeSelection.episode = previousSelection.episode || configuredSelectedEpisode() || selectedSourceMeta()?.episode || null;
     activeSelection.runtimeSeconds = configuredRuntimeSeconds();
     activeSelection.episodeTitle = configuredSelectedEpisodeTitle();
     resetViewport();
