@@ -22,6 +22,7 @@
       <div class="movie-detail__quick-actions" aria-label="Primary movie actions">
         {% if embed_player_sources or player_sources %}<a class="button button--primary" href="#movie-player">{{ 'Resume' if movie.progress and movie.progress.current_seconds else 'Watch' }}</a>{% endif %}
         <a class="button button--secondary" href="#actions-title">Status &amp; score</a>
+        <form method="post" action="{{ url_for('movies.update_favorite', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="favorite" value="{{ '0' if movie.is_favorite else '1' }}"><button class="button button--quiet" type="submit">{{ 'Remove favorite' if movie.is_favorite else 'Favorite' }}</button></form>
         {% if movie.trailer_url %}<a class="button button--quiet" href="{{ movie.trailer_url }}" rel="noreferrer">Trailer</a>{% endif %}
         <a class="button button--quiet" href="{{ url_for('ai.workspace', mode='film_analysis', context_type='movie', context_id=movie.id) }}">Ask AI</a>
         <form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh details</button></form>

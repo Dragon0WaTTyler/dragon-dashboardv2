@@ -103,6 +103,8 @@ class MovieRepository:
             )
         if filters.get("hide_completed"):
             conditions.append(lifecycle_status != "watched")
+        if filters.get("favorite"):
+            conditions.append(MovieLibraryEntry.is_favorite.is_(True))
         if conditions:
             query = query.where(*conditions)
             count_query = count_query.where(*conditions)

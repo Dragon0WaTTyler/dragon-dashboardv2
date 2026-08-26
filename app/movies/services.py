@@ -847,6 +847,7 @@ def parse_movie_filters(values) -> tuple[dict[str, Any], dict[str, str]]:
         "genre": values.get("genre", ""),
         "sort": values.get("sort", "recently_updated"),
         "view": values.get("view", "grid"),
+        "favorite": values.get("favorite", "") == "1",
     }
     errors: dict[str, str] = {}
     if filters["status"] and filters["status"] not in MOVIE_STATUSES:
@@ -964,6 +965,20 @@ class MovieService:
             entity_id=movie.id,
             event_type="rating",
             label=f"Rated {movie.title}: {score if score is not None else 'cleared'}",
+        )
+        db.session.commit()
+        return movie
+
+    @staticmethod
+    def set_favorite(movie: Movie, is_favorite: bool) -> Movie:
+        entry = MovieService.ensure_library_entry(movie)
+        entry.is_favorite = bool(is_favorite)
+        HistoryService.record(
+            domain="movies",
+            entity_type="movie",
+            entity_id=movie.id,
+            event_type="favorite",
+            label=("Favorited " if entry.is_favorite else "Removed favorite ") + movie.title,
         )
         db.session.commit()
         return movie

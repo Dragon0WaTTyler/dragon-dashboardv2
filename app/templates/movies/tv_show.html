@@ -19,6 +19,7 @@
       {% if movie.tagline %}<p class="movie-detail__tagline">{{ movie.tagline }}</p>{% endif %}
       {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
       <div class="movie-detail__quick-actions">
+        <form method="post" action="{{ url_for('movies.update_favorite', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="favorite" value="{{ '0' if movie.is_favorite else '1' }}"><button class="button button--quiet" type="submit">{{ 'Remove favorite' if movie.is_favorite else 'Favorite' }}</button></form>
         <form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh series details</button></form>
       </div>
     </header>

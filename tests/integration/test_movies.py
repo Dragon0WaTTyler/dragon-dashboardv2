@@ -999,6 +999,36 @@ def test_explicit_detail_refresh_caches_tmdb_sections_without_touching_playback(
         )
 
 
+def test_favorite_is_independent_from_lifecycle_and_progress(authenticated_client, app):
+    movie_id = add_movie(app, title="Favorite title", normalized_title="favorite title")
+    with app.app_context():
+        db.session.add(
+            MovieProgress(
+                movie_id=movie_id,
+                current_seconds=600,
+                duration_seconds=6_000,
+            )
+        )
+        db.session.commit()
+
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    response = authenticated_client.post(
+        f"/movies/{movie_id}/favorite",
+        data={"favorite": "1", "csrf_token": csrf_from(detail)},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "Remove favorite" in response.get_data(as_text=True)
+    favorites = authenticated_client.get("/movies?favorite=1")
+    assert "Favorite title" in favorites.get_data(as_text=True)
+    with app.app_context():
+        movie = db.session.get(Movie, movie_id)
+        assert movie.library_entry.is_favorite is True
+        progress = MovieProgress.query.filter_by(movie_id=movie_id, scope_key="movie").one()
+        assert (progress.current_seconds, progress.duration_seconds) == (600, 6_000)
+
+
 def test_tv_detail_refresh_caches_real_seasons_and_preserves_specials(
     authenticated_client, app
 ):

@@ -141,7 +141,7 @@
   {% endif %}
 </section>
 <div id="movie-library" class="movie-actions">
-  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.watch_next') }}">Watch next</a><a href="{{ url_for('movies.index', sort='score_desc') }}">Top rated</a></nav>
+  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index') }}">All</a><a href="{{ url_for('movies.index', status='want_to_watch') }}">Want to watch</a><a href="{{ url_for('movies.index', status='watching') }}">Watching</a><a href="{{ url_for('movies.index', status='watched') }}">Watched</a><a href="{{ url_for('movies.index', favorite='1') }}">Favorites</a><a href="{{ url_for('movies.watch_next') }}">Watch next</a></nav>
   <div class="movie-actions__controls">
     {% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary movie-actions__recommend" type="button" data-recommendation-open aria-controls="movie-recommendation">What should I watch?</button>{% endif %}
     <a class="button button--secondary movie-actions__add" href="#movie-discovery">+ Add title</a>
@@ -220,16 +220,16 @@
     <div class="movie-tile__body">
       <h2><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h2>
       <p>{{ movie.year or 'Year unknown' }}{% if dragon_feature('movies', 'personal_score') and movie.personal_score is not none %} · {{ '%.1f'|format(movie.personal_score) }}/5{% endif %}</p>
-      <div>{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}</div>
+      <div>{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}{% if movie.is_favorite %} {{ badge('Favorite', 'accent') }}{% endif %}</div>
       {% if dragon_feature('movies', 'progress') and movie.progress %}<progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>{% endif %}
     </div>
   </article>
   {% endfor %}
 </div>
 <nav class="pagination" aria-label="Movie results pages">
-  {% if has_previous %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page-1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Previous</a>{% endif %}
+  {% if has_previous %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page-1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, favorite='1' if filters.favorite else '', year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Previous</a>{% endif %}
   <span>Page {{ page }}</span>
-  {% if has_next %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page+1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Next</a>{% endif %}
+  {% if has_next %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page+1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, favorite='1' if filters.favorite else '', year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Next</a>{% endif %}
 </nav>
 {% else %}
 {{ empty_state('No Notion titles match this view', 'Use the search above to find a movie or series and add it to Notion.') }}

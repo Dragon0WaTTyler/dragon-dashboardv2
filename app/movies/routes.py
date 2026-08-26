@@ -741,6 +741,17 @@ def update_score(movie_id: str):
     return redirect(url_for("movies.detail", movie_id=movie_id))
 
 
+@bp.post("/<movie_id>/favorite")
+@login_required
+def update_favorite(movie_id: str):
+    movie = MovieRepository.get(movie_id)
+    if movie is None:
+        abort(404)
+    MovieService.set_favorite(movie, str(request.form.get("favorite") or "") == "1")
+    flash("Favorite updated.", "success")
+    return redirect(url_for("movies.detail", movie_id=movie_id))
+
+
 @bp.post("/<movie_id>/refresh-metadata")
 @login_required
 def refresh_metadata(movie_id: str):

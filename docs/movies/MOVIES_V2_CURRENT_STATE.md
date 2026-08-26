@@ -146,6 +146,15 @@ the automatic transition. No `postMessage` event handling was added or trusted:
 the feature depends only on Dragon's native local-video `ended` event and the
 same-origin progress API.
 
+## Verified Phase 10 Library delta
+
+The Library view now has explicit lifecycle links for All, Want to Watch,
+Watching, Watched, and an independent Favorites projection. Favorites are
+stored on the existing `MovieLibraryEntry`, can be toggled from Movie and TV
+detail pages, and are rendered as a separate card state rather than a lifecycle
+status. Toggling a favorite does not write, remove, or reset MovieProgress.
+Custom-list ownership remains the dedicated next milestone.
+
 ## Ownership map
 
 ```text
