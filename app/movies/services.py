@@ -240,7 +240,7 @@ def tv_catalog(movie: Movie) -> dict[str, Any]:
 def _tv_progress_lookup(movie: Movie) -> dict[tuple[int, int], MovieProgress]:
     lookup: dict[tuple[int, int], MovieProgress] = {}
     for progress in movie.progress_entries or []:
-        if progress.season and progress.episode:
+        if progress.season is not None and progress.episode is not None:
             lookup[(int(progress.season), int(progress.episode))] = progress
     return lookup
 
@@ -353,6 +353,8 @@ def _tv_effective_progress(
 ) -> dict[str, Any] | None:
     key = (int(season_number), int(episode_number))
     explicit = progress_dict(progress_lookup.get(key))
+    if season_number == 0:
+        return explicit
     if furthest_position and key < furthest_position:
         return {
             "season": season_number,
@@ -457,11 +459,12 @@ def tv_show_workspace(movie: Movie) -> dict[str, Any]:
     )
     completed_seasons = 0
     watched_episodes = 0
+    watched_specials = 0
     seasons: list[dict[str, Any]] = []
 
     for season in catalog["seasons"]:
         season_number = int(season.get("season_number") or 0)
-        if season_number < 1:
+        if season_number < 0:
             continue
         episode_rows = list(catalog["episodes"].get(str(season_number)) or [])
         completed_count = 0
@@ -478,16 +481,20 @@ def tv_show_workspace(movie: Movie) -> dict[str, Any]:
             )
             if _progress_completed(progress_data):
                 completed_count += 1
-                watched_episodes += 1
+                if season_number == 0:
+                    watched_specials += 1
+                else:
+                    watched_episodes += 1
             if source_lookup.get((season_number, episode_number), {}).get("exact") or source_lookup.get((season_number, episode_number), {}).get("fallback"):
                 available_count += 1
         episode_count = max(len([row for row in episode_rows if int(row.get("episode_number") or 0) > 0]), int(season.get("episode_count") or 0))
-        if episode_count and completed_count >= episode_count:
+        if season_number > 0 and episode_count and completed_count >= episode_count:
             completed_seasons += 1
         seasons.append(
             {
                 **season,
                 "season_number": season_number,
+                "is_specials": season_number == 0,
                 "episode_count": episode_count,
                 "completed_episode_count": completed_count,
                 "available_episode_count": available_count,
@@ -503,6 +510,7 @@ def tv_show_workspace(movie: Movie) -> dict[str, Any]:
         "seasons": seasons,
         "completed_seasons": completed_seasons,
         "watched_episodes": watched_episodes,
+        "watched_specials": watched_specials,
         "resume_target": resume_target,
     }
 

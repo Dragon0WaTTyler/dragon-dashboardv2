@@ -273,7 +273,11 @@ class TmdbCatalogProvider:
             item["seasons"] = [
                 self._season_summary(season)
                 for season in payload.get("seasons") or []
-                if int(season.get("season_number") or 0) > 0
+                if int(
+                    season.get("season_number")
+                    if season.get("season_number") is not None
+                    else -1
+                ) >= 0
             ]
         return item
 

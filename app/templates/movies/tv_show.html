@@ -1,8 +1,11 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=tv-show-1">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=tv-show-2">{% endblock %}
 {% block content %}
+<div class="movies-v2 movies-v2--detail movies-v2--tv">
+<div class="movies-v2__atmosphere" aria-hidden="true"></div>
+{% if movie.backdrop_url %}<div class="movie-detail__backdrop" aria-hidden="true"><img src="{{ movie.backdrop_url }}" alt=""></div>{% endif %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
   <div class="movie-detail__poster" data-media-frame>
@@ -13,7 +16,11 @@
       <span class="eyebrow">Series{% if movie.year %} · {{ movie.year }}{% endif %}</span>
       <h1>{{ movie.title }}</h1>
       {% if movie.original_title and movie.original_title != movie.title %}<p class="muted">{{ movie.original_title }}</p>{% endif %}
+      {% if movie.tagline %}<p class="movie-detail__tagline">{{ movie.tagline }}</p>{% endif %}
       {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
+      <div class="movie-detail__quick-actions">
+        <form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh series details</button></form>
+      </div>
     </header>
     {% if movie.overview %}<p class="movie-detail__overview">{{ movie.overview }}</p>{% endif %}
     <dl class="definition-grid">
@@ -21,6 +28,9 @@
       <div><dt>Episodes</dt><dd>{{ workspace.catalog.total_episodes or 'Unknown' }}</dd></div>
       <div><dt>Completed seasons</dt><dd>{{ workspace.completed_seasons }}</dd></div>
       <div><dt>Watched episodes</dt><dd>{{ workspace.watched_episodes }}</dd></div>
+      {% if workspace.watched_specials %}<div><dt>Watched specials</dt><dd>{{ workspace.watched_specials }}</dd></div>{% endif %}
+      {% if movie.original_language %}<div><dt>Original language</dt><dd>{{ movie.original_language|upper }}</dd></div>{% endif %}
+      {% if movie.countries %}<div><dt>Country</dt><dd>{{ movie.countries|join(', ') }}</dd></div>{% endif %}
     </dl>
     {% if workspace.resume_target %}
     <section class="detail-section tv-season-summary">
@@ -59,9 +69,9 @@
             {% if season.poster_url %}<img src="{{ season.poster_url }}" alt="{{ season.name }}" loading="lazy" width="240" height="360">{% else %}<span class="media-fallback" aria-hidden="true">S{{ season.season_number }}</span>{% endif %}
           </span>
           <div>
-            <span class="eyebrow">Season {{ season.season_number }}</span>
+            <span class="eyebrow">{{ 'Specials' if season.is_specials else 'Season ' ~ season.season_number }}</span>
             <h3>{{ season.name }}</h3>
-            <p>{{ season.episode_count }} episodes</p>
+            <p>{{ season.episode_count }} episodes{% if season.air_date %} · {{ season.air_date }}{% endif %}</p>
           </div>
           <div class="tv-progress-inline">
             <progress class="progress-track" value="{{ season.completion_percent }}" max="100">{{ season.completion_percent }}%</progress>
@@ -77,4 +87,5 @@
     </section>
   </div>
 </article>
+</div>
 {% endblock %}

@@ -2,7 +2,7 @@ from app.extensions import db
 from app.movies import routes as movie_routes
 from app.movies.external_library import search_catalog
 from app.movies.models import Movie, MovieProgress
-from app.movies.services import MovieService
+from app.movies.services import MovieService, tv_season_workspace
 from app.playback.models import PlaybackSource
 from app.playback.services import PlaybackService
 from tests.conftest import csrf_from
@@ -997,3 +997,118 @@ def test_explicit_detail_refresh_caches_tmdb_sections_without_touching_playback(
             7_200,
             False,
         )
+
+
+def test_tv_detail_refresh_caches_real_seasons_and_preserves_specials(
+    authenticated_client, app
+):
+    class TvDetailProvider:
+        def details(self, media_type, tmdb_id):
+            assert (media_type, tmdb_id) == ("tv", 1399)
+            return {
+                "tmdb_id": 1399,
+                "media_type": "tv",
+                "title": "Example Series",
+                "overview": "A real cached series overview.",
+                "poster_url": "https://image.test/series.jpg",
+                "genres": [{"name": "Drama"}],
+                "directors": [],
+                "cast": [],
+                "runtime_minutes": 55,
+                "seasons": [
+                    {
+                        "tmdb_id": 10,
+                        "name": "Specials",
+                        "season_number": 0,
+                        "episode_count": 1,
+                        "air_date": "1998-12-31",
+                        "poster_url": "",
+                    },
+                    {
+                        "tmdb_id": 11,
+                        "name": "Season 1",
+                        "season_number": 1,
+                        "episode_count": 1,
+                        "air_date": "1999-01-10",
+                        "poster_url": "",
+                    },
+                ],
+                "tmdb_detail": {
+                    "backdrop_url": "",
+                    "tagline": "A real show.",
+                    "original_language": "en",
+                    "countries": ["United States"],
+                    "certification": "",
+                    "tmdb_rating": 8.0,
+                    "trailers": [],
+                    "reviews": [],
+                    "similar": [],
+                    "recommendations": [],
+                },
+            }
+
+        def episodes(self, tmdb_id, season_number):
+            assert tmdb_id == 1399
+            return [
+                {
+                    "tmdb_id": 100 + season_number,
+                    "season_number": season_number,
+                    "episode_number": 1,
+                    "name": "Prelude" if season_number == 0 else "Pilot",
+                    "overview": "Episode overview.",
+                    "still_url": "https://image.test/still.jpg",
+                    "runtime_minutes": 55,
+                    "air_date": "1999-01-01",
+                }
+            ]
+
+    with app.app_context():
+        movie = Movie(
+            title="Example Series",
+            normalized_title="example series",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        db.session.add(
+            MovieProgress(
+                movie_id=movie.id,
+                season=0,
+                episode=1,
+                current_seconds=900,
+                duration_seconds=3_300,
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+        app.extensions["dragon_tmdb_catalog_provider"] = TvDetailProvider()
+
+    page = authenticated_client.get(f"/movies/{movie_id}")
+    response = authenticated_client.post(
+        f"/movies/{movie_id}/refresh-metadata",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert "Specials" in html
+    assert "Season 1" in html
+    assert "Prelude" not in html
+    with app.app_context():
+        workspace = tv_season_workspace(db.session.get(Movie, movie_id), season_number=0)
+        assert [episode["name"] for episode in workspace["episodes"]] == ["Prelude"], workspace[
+            "catalog"
+        ]
+        assert workspace["episodes"][0]["progress"]["percent"] == 27
+        assert workspace["resume_target"] is None
+    specials = authenticated_client.get(f"/movies/{movie_id}/seasons/0")
+    assert specials.status_code == 200
+    specials_html = specials.get_data(as_text=True)
+    assert "Episode browser" in specials_html
+    assert "Prelude" in specials_html
+    with app.app_context():
+        refreshed = db.session.get(Movie, movie_id)
+        assert refreshed.metadata_state["tv_total_seasons"] == 1
+        assert refreshed.metadata_state["tv_episodes"]["0"][0]["name"] == "Prelude"

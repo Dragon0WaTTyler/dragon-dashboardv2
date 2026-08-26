@@ -116,6 +116,21 @@ links and remain outside the Dragon player. Provider availability, favorites,
 custom-list controls, and acquisition claims are intentionally not represented
 by this metadata cache.
 
+## Verified Phase 8 TV detail delta
+
+The same explicit refresh path now hydrates a TV title's real TMDB season and
+episode metadata into `tv_seasons` and `tv_episodes`. The TV show and season
+workspaces render those cached season names, air dates, episode titles, stills,
+runtime, overview, and explicit per-episode progress. They do not synthesize a
+1–10 episode list.
+
+Season 0 is preserved and labelled **Specials**. Its canonical `s00eNN`
+progress record is shown only for that special and is not inferred from normal
+series ordering. Specials are excluded from default resume/auto-next and normal
+season-completion counts, as frozen in the V2 contract. Existing source and
+player controls remain in the Playback boundary; no new source lookup is made
+by TV page rendering or metadata refresh.
+
 ## Ownership map
 
 ```text

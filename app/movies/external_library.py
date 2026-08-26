@@ -245,6 +245,8 @@ def refresh_movie_metadata(movie: Movie) -> Movie:
     if not tmdb_id:
         raise MediaIntegrationError("This title has no TMDB identity to refresh yet.")
     details = tmdb_catalog_provider().details(movie.media_type, tmdb_id)
+    if movie.media_type == "tv":
+        details = _hydrate_tv_details(details)
     if details.get("overview"):
         movie.overview = str(details["overview"])
     if details.get("poster_url"):
@@ -259,6 +261,8 @@ def refresh_movie_metadata(movie: Movie) -> Movie:
         movie.runtime_minutes = int(details["runtime_minutes"])
     metadata = dict(movie.metadata_state or {})
     metadata["tmdb_detail"] = dict(details.get("tmdb_detail") or {})
+    if movie.media_type == "tv":
+        metadata.update(_tv_metadata_state(details))
     movie.metadata_state = metadata
     trailers = list(metadata["tmdb_detail"].get("trailers") or [])
     if trailers:
@@ -810,11 +814,22 @@ def _optional_int(value: Any) -> int | None:
 def _hydrate_tv_details(details: dict[str, Any]) -> dict[str, Any]:
     if str(details.get("media_type") or "") != "tv":
         return details
-    seasons = [item for item in list(details.get("seasons") or []) if int(item.get("season_number") or 0) > 0]
+    seasons = [
+        item
+        for item in list(details.get("seasons") or [])
+        if int(
+            item.get("season_number")
+            if item.get("season_number") is not None
+            else -1
+        ) >= 0
+    ]
+    standard_seasons = [
+        item for item in seasons if int(item.get("season_number") or 0) > 0
+    ]
     episodes_by_season: dict[str, list[dict]] = {}
     for season in seasons:
         season_number = int(season.get("season_number") or 0)
-        if season_number < 1:
+        if season_number < 0:
             continue
         provider = tmdb_catalog_provider()
         if hasattr(provider, "episodes"):
@@ -827,8 +842,11 @@ def _hydrate_tv_details(details: dict[str, Any]) -> dict[str, Any]:
     return {
         **details,
         "episodes_by_season": episodes_by_season,
-        "tv_total_seasons": len(seasons),
-        "tv_total_episodes": sum(len(items) for items in episodes_by_season.values()),
+        "tv_total_seasons": len(standard_seasons),
+        "tv_total_episodes": sum(
+            len(episodes_by_season.get(str(int(season.get("season_number") or 0))) or [])
+            for season in standard_seasons
+        ),
     }
 
 
@@ -867,12 +885,15 @@ def _tv_metadata_state(item: dict[str, Any]) -> dict[str, Any]:
     if str(item.get("media_type") or "") != "tv":
         return {}
     seasons = [dict(entry) for entry in list(item.get("seasons") or [])]
+    standard_seasons = [
+        entry for entry in seasons if int(entry.get("season_number") or 0) > 0
+    ]
     episodes_by_season = item.get("episodes_by_season")
     if not episodes_by_season:
         grouped: dict[str, list[dict]] = {}
         for entry in list(item.get("episode_items") or []):
             season_number = int(entry.get("season") or entry.get("season_number") or 0)
-            if season_number < 1:
+            if season_number < 0:
                 continue
             grouped.setdefault(str(season_number), []).append(
                 {
@@ -887,9 +908,10 @@ def _tv_metadata_state(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "tv_show_notion_page_id": item.get("tv_show_notion_page_id") or item.get("notion_page_id"),
         "tv_show_notion_url": item.get("tv_show_notion_url") or item.get("notion_url"),
-        "tv_total_seasons": item.get("tv_total_seasons") or len(seasons),
+        "tv_total_seasons": item.get("tv_total_seasons") or len(standard_seasons),
         "tv_total_episodes": item.get("tv_total_episodes") or sum(
-            len(list(entries or [])) for entries in dict(episodes_by_season or {}).values()
+            len(list((episodes_by_season or {}).get(str(entry.get("season_number"))) or []))
+            for entry in standard_seasons
         ),
         "tv_seasons": seasons,
         "tv_episodes": episodes_by_season or {},

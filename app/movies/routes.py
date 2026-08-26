@@ -347,7 +347,7 @@ def api_tv_seasons(tmdb_id: int):
 @bp.get("/api/tv/<int:tmdb_id>/seasons/<int:season_number>/episodes")
 @login_required
 def api_tv_episodes(tmdb_id: int, season_number: int):
-    if season_number < 1:
+    if season_number < 0:
         return _api_error("Choose a valid season.")
     try:
         items = tmdb_catalog_provider().episodes(tmdb_id, season_number)
@@ -535,7 +535,7 @@ def tv_season(movie_id: str, season_number: int):
     if movie is None or movie.media_type != "tv":
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
-    if season_number < 1:
+    if season_number < 0:
         abort(404)
     workspace = tv_season_workspace(movie, season_number=season_number)
     if not workspace["season"]["episode_count"]:
@@ -585,7 +585,7 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
     if movie is None or movie.media_type != "tv":
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
-    if season_number < 1 or episode_number < 1:
+    if season_number < 0 or episode_number < 1:
         abort(404)
     workspace = tv_season_workspace(
         movie,
@@ -652,7 +652,7 @@ def api_tv_season_workspace(movie_id: str, season_number: int):
     movie = MovieRepository.get(movie_id)
     if movie is None or movie.media_type != "tv":
         abort(404)
-    if season_number < 1:
+    if season_number < 0:
         return _api_error("Choose a valid season.")
     selected_episode = _optional_positive_int(request.args.get("episode"))
     workspace = tv_season_workspace(

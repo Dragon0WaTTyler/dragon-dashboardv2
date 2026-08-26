@@ -1,9 +1,12 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Season {{ workspace.season.season_number }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-player-fit-5">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movie-player-fit-6">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-7" defer></script>{% endblock %}
 {% block content %}
+<div class="movies-v2 movies-v2--detail movies-v2--tv">
+<div class="movies-v2__atmosphere" aria-hidden="true"></div>
+{% if movie.backdrop_url %}<div class="movie-detail__backdrop" aria-hidden="true"><img src="{{ movie.backdrop_url }}" alt=""></div>{% endif %}
 <a class="back-link" href="{{ url_for('movies.detail', movie_id=movie.id) }}">← Back to series</a>
 <article class="movie-detail">
   <div class="movie-detail__poster" data-media-frame>
@@ -11,7 +14,7 @@
   </div>
   <div class="movie-detail__content movie-detail__content--hero">
     <header>
-      <span class="eyebrow">Season {{ workspace.season.season_number }}</span>
+      <span class="eyebrow">{{ 'Specials' if workspace.season.season_number == 0 else 'Season ' ~ workspace.season.season_number }}</span>
       <h1>{{ movie.title }}</h1>
       {% if movie.original_title and movie.original_title != movie.title %}<p class="muted">{{ movie.original_title }}</p>{% endif %}
       {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
@@ -19,7 +22,7 @@
     <section class="detail-section tv-season-summary">
       <div>
         <span class="eyebrow">Season progress</span>
-        <h2>{{ workspace.season.episode_count }} episodes</h2>
+        <h2>{{ workspace.season.name or ('Specials' if workspace.season.season_number == 0 else workspace.season.episode_count ~ ' episodes') }}</h2>
         <p>{{ workspace.season.watched_episode_count }} watched so far.</p>
       </div>
       <div class="tv-progress-inline">
@@ -269,7 +272,7 @@
     {% endif %}
     <section class="detail-section" aria-labelledby="episode-list-title">
       <div class="movie-release-browser__header">
-        <div><span class="eyebrow">Episode browser</span><h2 id="episode-list-title">Season {{ workspace.season.season_number }}</h2></div>
+        <div><span class="eyebrow">Episode browser</span><h2 id="episode-list-title">{{ 'Specials' if workspace.season.season_number == 0 else 'Season ' ~ workspace.season.season_number }}</h2></div>
       </div>
       <div class="movie-grid tv-episode-grid">
         {% for episode in workspace.episodes %}
@@ -297,4 +300,5 @@
     </section>
   </div>
 </article>
+</div>
 {% endblock %}
