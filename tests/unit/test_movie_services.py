@@ -263,6 +263,87 @@ def test_recommendation_pool_uses_profile_and_excludes_watched(app):
     assert result["summary"]["excluded_watched"] == 2
 
 
+def test_what_should_i_watch_filters_only_personal_unwatched_entries(app):
+    with app.app_context():
+        matching = Movie(
+            title="Short French film",
+            normalized_title="short french film",
+            media_type="movie",
+            year=1998,
+            runtime_minutes=94,
+            genres=[{"name": "Drama"}],
+            metadata_state={"tmdb_detail": {"original_language": "fr"}},
+        )
+        nonmatching = Movie(
+            title="Long series",
+            normalized_title="long series",
+            media_type="tv",
+            year=2014,
+            runtime_minutes=55,
+            genres=[{"name": "Drama"}],
+            metadata_state={"tmdb_detail": {"original_language": "en"}},
+        )
+        watched = Movie(title="Watched", normalized_title="watched", year=1996)
+        db.session.add_all([matching, nonmatching, watched])
+        db.session.commit()
+        MovieService.set_status(matching, "want_to_watch")
+        MovieService.set_status(nonmatching, "want_to_watch")
+        MovieService.set_status(watched, "watched")
+
+        selection = MovieService.what_should_i_watch(
+            media_type="movie",
+            genre="Drama",
+            runtime_max=100,
+            language="fr",
+            decade=1990,
+            sort="oldest_added",
+        )
+
+    assert selection is not None
+    assert selection["id"] == matching.id
+    assert selection["eligibility_reason"] == (
+        "Unwatched in your personal library; matches movie, Drama genre, up to 100 min, "
+        "FR original language, 1990s."
+    )
+
+
+def test_because_you_watched_uses_cached_related_cards_and_excludes_local_titles(app):
+    with app.app_context():
+        anchor = Movie(
+            title="Anchor",
+            normalized_title="anchor",
+            status="watched",
+            external_ids={"tmdb_id": "100", "tmdb_type": "movie"},
+            metadata_state={
+                "tmdb_detail": {
+                    "recommendations": [
+                        {"tmdb_id": 200, "media_type": "movie", "title": "Already local"},
+                        {"tmdb_id": 201, "media_type": "movie", "title": "Cached recommendation"},
+                    ],
+                    "similar": [
+                        {"tmdb_id": 202, "media_type": "movie", "title": "Cached similar"},
+                    ],
+                }
+            },
+        )
+        duplicate = Movie(
+            title="Already local",
+            normalized_title="already local",
+            external_ids={"tmdb_id": "200", "tmdb_type": "movie"},
+        )
+        db.session.add_all([anchor, duplicate])
+        db.session.commit()
+        MovieService.set_status(anchor, "watched")
+
+        rail = MovieService.because_you_watched()
+
+    assert rail is not None
+    assert rail["anchor"]["id"] == anchor.id
+    assert [item["tmdb_id"] for item in rail["items"]] == [201, 202]
+    assert rail["items"][0]["signal"] == "TMDB recommendation"
+    assert rail["items"][0]["detail_url"] == "/movies/discover/movie/201"
+
+
 def test_tv_season_workspace_handles_episodes_without_progress(app):
     with app.app_context():
         movie = Movie(

@@ -26,6 +26,7 @@ MOVIE_STATUSES = {"want_to_watch", "watching", "finished", "watched", "unknown"}
 MOVIE_COMPLETION_THRESHOLD = 0.95
 EPISODE_COMPLETION_THRESHOLD = 0.90
 SORT_VALUES = {"title_asc", "title_desc", "score_desc", "year_desc", "recently_updated"}
+WHAT_TO_WATCH_SORTS = {"random", "oldest_added", "recently_added"}
 VALID_MOVIE_CATEGORIES = {
     "movie",
     "tv show",
@@ -1281,8 +1282,16 @@ class MovieService:
         return movie_item(movies[position % len(movies)]) if movies else None
 
     @staticmethod
-    def what_should_i_watch() -> dict[str, Any] | None:
-        """Randomly select only an unwatched title from Dragon's own library."""
+    def what_should_i_watch(
+        *,
+        media_type: str = "",
+        genre: str = "",
+        runtime_max: int | None = None,
+        language: str = "",
+        decade: int | None = None,
+        sort: str = "random",
+    ) -> dict[str, Any] | None:
+        """Select only an unwatched personal title with factual local filters."""
 
         entries = list(
             db.session.scalars(
@@ -1293,13 +1302,162 @@ class MovieService:
                 .order_by(MovieLibraryEntry.media_key)
             )
         )
-        if not entries:
+        normalized_type = str(media_type or "").strip().lower()
+        normalized_genre = _normalized_key(genre)
+        normalized_language = str(language or "").strip().lower()
+        normalized_sort = str(sort or "random").strip().lower()
+        if normalized_type not in {"", "movie", "tv"}:
+            raise ValueError("Type must be movie or tv.")
+        if normalized_sort not in WHAT_TO_WATCH_SORTS:
+            raise ValueError("Choose a supported What Should I Watch sort.")
+        if runtime_max is not None and not 1 <= int(runtime_max) <= 1_000:
+            raise ValueError("Maximum runtime must be between 1 and 1000 minutes.")
+        if decade is not None and not 1800 <= int(decade) <= 2200:
+            raise ValueError("Decade must be between 1800 and 2200.")
+
+        candidates: list[MovieLibraryEntry] = []
+        for entry in entries:
+            movie = entry.movie
+            if movie is None:
+                continue
+            if normalized_type and movie.media_type != normalized_type:
+                continue
+            if normalized_genre and normalized_genre not in {
+                _normalized_key(name) for name in _entry_names(movie.genres)
+            }:
+                continue
+            if runtime_max is not None and (
+                movie.runtime_minutes is None or movie.runtime_minutes > int(runtime_max)
+            ):
+                continue
+            detail = dict(movie.metadata_state or {}).get("tmdb_detail") or {}
+            if (
+                normalized_language
+                and str(detail.get("original_language") or "").lower()
+                != normalized_language
+            ):
+                continue
+            if decade is not None and (
+                movie.year is None or not int(decade) <= movie.year < int(decade) + 10
+            ):
+                continue
+            candidates.append(entry)
+        if not candidates:
             return None
-        selected = SystemRandom().choice(entries).movie
+        if normalized_sort == "oldest_added":
+            selected_entry = min(candidates, key=lambda entry: (entry.added_at, entry.media_key))
+        elif normalized_sort == "recently_added":
+            selected_entry = max(candidates, key=lambda entry: (entry.added_at, entry.media_key))
+        else:
+            selected_entry = SystemRandom().choice(candidates)
+        selected = selected_entry.movie
+        filters = []
+        if normalized_type:
+            filters.append(normalized_type)
+        if normalized_genre:
+            filters.append(f"{genre.strip()} genre")
+        if runtime_max is not None:
+            filters.append(f"up to {int(runtime_max)} min")
+        if normalized_language:
+            filters.append(f"{normalized_language.upper()} original language")
+        if decade is not None:
+            filters.append(f"{int(decade)}s")
+        reason = "From your personal unwatched library."
+        if filters:
+            reason = f"Unwatched in your personal library; matches {', '.join(filters)}."
         return {
             **movie_item(selected),
-            "eligibility_reason": "From your personal unwatched library.",
+            "eligibility_reason": reason,
+            "eligibility_filters": {
+                "media_type": normalized_type,
+                "genre": genre.strip(),
+                "runtime_max": runtime_max,
+                "language": normalized_language,
+                "decade": decade,
+                "sort": normalized_sort,
+            },
         }
+
+    @staticmethod
+    def because_you_watched(*, limit: int = 12) -> dict[str, Any] | None:
+        """Project cached TMDB similar/recommendation cards from personal anchors.
+
+        This is intentionally a cache-only discovery rail. It never refreshes an
+        anchor, inserts a Movie, or returns an item that already exists in the
+        local library.
+        """
+
+        movies = list(
+            db.session.scalars(
+                db.select(Movie).options(selectinload(Movie.library_entry))
+            )
+        )
+        local_keys = {movie.media_key for movie in movies}
+        anchors = [
+            movie
+            for movie in movies
+            if effective_lifecycle_status(movie) == "watched"
+            or bool(movie.library_entry and movie.library_entry.is_favorite)
+            or (effective_personal_rating(movie) or 0) >= 4
+        ]
+        anchors.sort(
+            key=lambda movie: (
+                bool(movie.library_entry and movie.library_entry.is_favorite),
+                float(effective_personal_rating(movie) or 0),
+                (
+                    movie.library_entry.last_watched_at
+                    or movie.library_entry.updated_at
+                    if movie.library_entry
+                    else movie.updated_at
+                ),
+                movie.id,
+            ),
+            reverse=True,
+        )
+        for anchor in anchors:
+            detail = dict(anchor.metadata_state or {}).get("tmdb_detail") or {}
+            candidates: list[dict[str, Any]] = []
+            seen: set[str] = set()
+            for signal, related in (
+                ("TMDB recommendation", detail.get("recommendations") or []),
+                ("Similar on TMDB", detail.get("similar") or []),
+            ):
+                for item in related:
+                    try:
+                        tmdb_id = int(item.get("tmdb_id"))
+                    except (AttributeError, TypeError, ValueError):
+                        continue
+                    media_type = str(item.get("media_type") or anchor.media_type).lower()
+                    if media_type not in {"movie", "tv"}:
+                        continue
+                    media_key = f"{media_type}:{tmdb_id}"
+                    if media_key in local_keys or media_key in seen:
+                        continue
+                    seen.add(media_key)
+                    candidates.append(
+                        {
+                            "media_key": media_key,
+                            "tmdb_id": tmdb_id,
+                            "media_type": media_type,
+                            "title": str(item.get("title") or "Untitled"),
+                            "year": _optional_int(item.get("year")),
+                            "poster_url": str(item.get("poster_url") or ""),
+                            "rating": item.get("rating"),
+                            "signal": signal,
+                            "detail_url": f"/movies/discover/{media_type}/{tmdb_id}",
+                        }
+                    )
+                    if len(candidates) >= max(1, min(limit, 24)):
+                        break
+                if len(candidates) >= max(1, min(limit, 24)):
+                    break
+            if candidates:
+                return {
+                    "anchor": movie_item(anchor),
+                    "items": candidates,
+                    "cache_only": True,
+                }
+        return None
 
     @staticmethod
     def recommendation_pool(*, category: str = "", source: str = "") -> dict[str, Any]:

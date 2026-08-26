@@ -229,6 +229,21 @@ fine adjustments, drift correction, segmented resync, reset, fullscreen
 controls, and source/episode-specific persistence identity; Movies V2 only
 composes that tested Playback component.
 
+## Verified Phase 17 personal-recommendations delta
+
+`What Should I Watch` remains constrained to `MovieLibraryEntry` rows that are
+not watched. Its API now accepts optional local filters for type, genre, maximum
+runtime, original language when cached, decade, and random/oldest/recent sort.
+The response explains only the concrete eligibility filters that were applied;
+it neither queries TMDB nor invents a behavioral rationale.
+
+The cache-only “Because you watched” rail chooses a personal watched,
+high-rated, or favorited anchor, then projects only already-cached TMDB
+recommendation/similar cards. It removes all identities already in the local
+library and labels its signal truthfully. A missing cached detail simply omits
+the rail: Home does not refresh TMDB, add a Movie, or alter personal state to
+make a recommendation appear.
+
 ## Ownership map
 
 ```text

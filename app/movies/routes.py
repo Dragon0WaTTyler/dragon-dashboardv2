@@ -263,6 +263,7 @@ def index():
         for movie in MovieRepository.watch_next(limit=12, library_ids=library_sync.library_ids)
     ]
     personal_pick = MovieService.what_should_i_watch()
+    because_you_watched = MovieService.because_you_watched()
     recommendations = MovieService.recommendation_pool(
         category=filters["category"], source=filters["source"]
     )["items"]
@@ -289,6 +290,7 @@ def index():
         home_focus=home_focus,
         home_focus_kind=home_focus_kind,
         personal_pick=personal_pick,
+        because_you_watched=because_you_watched,
         discovery_rails=discovery_rails(),
         recommendation=recommendation,
         recommendations=recommendations,
@@ -472,7 +474,20 @@ def api_search():
 @bp.get("/api/what-should-i-watch")
 @login_required
 def api_what_should_i_watch():
-    return jsonify({"ok": True, "item": MovieService.what_should_i_watch()})
+    try:
+        runtime_max = request.args.get("runtime_max", type=int)
+        decade = request.args.get("decade", type=int)
+        item = MovieService.what_should_i_watch(
+            media_type=str(request.args.get("type") or ""),
+            genre=str(request.args.get("genre") or ""),
+            runtime_max=runtime_max,
+            language=str(request.args.get("language") or ""),
+            decade=decade,
+            sort=str(request.args.get("sort") or "random"),
+        )
+    except ValueError as exc:
+        return _api_error(str(exc))
+    return jsonify({"ok": True, "item": item})
 
 
 @bp.get("/api/tv/<int:tmdb_id>/seasons")
