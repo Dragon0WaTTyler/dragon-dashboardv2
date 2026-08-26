@@ -191,6 +191,21 @@ story”, provider, or playback claim is fabricated from a loose genre query.
 `/movies/collections/<collection_id>` reuses the browse result surface with its
 editorial query fixed and pagination preserved in the URL.
 
+## Verified Phase 14 source-selector delta
+
+The existing Player source select remains the control that drives the already
+tested Playback routes. Its presentation now records the selected source's
+display name, source type, enabled state, effective priority, and the last
+known health only when one is already persisted. `UNKNOWN` means Dragon has no
+fresh recorded check; rendering the selector never calls a provider probe.
+Fresh `UNAVAILABLE` authorized embeds remain omitted by the pre-existing
+Playback service policy, while stale checks remain selectable rather than being
+misreported as a current outage. Local runtime sources expose their existing
+release metadata and report health as unchecked unless a recorded availability
+row exists. This is a selector UX/projection change only: source resolution,
+selection persistence, acquisition, local runtime, and provider configuration
+contracts are unchanged.
+
 ## Ownership map
 
 ```text

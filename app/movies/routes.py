@@ -123,6 +123,11 @@ def _id_catalog_embed_candidates(movie: Movie) -> list[dict]:
                 "quality": "",
                 "priority": priorities.get(key, 100),
                 "id_catalog": True,
+                "enabled": True,
+                "source_type_label": "Configured embed provider",
+                "availability_status": "UNKNOWN",
+                "availability_checked": False,
+                "availability_fresh": False,
             }
         )
     return candidates
@@ -160,10 +165,21 @@ def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> li
                 "label": "VidSrc",
                 "quality": "",
                 "priority": priorities.get("vidsrc", 100),
+                "enabled": True,
+                "source_type_label": "Configured embed provider",
+                "availability_status": "UNKNOWN",
+                "availability_checked": False,
+                "availability_fresh": False,
             }
         )
     sources.extend(_id_catalog_embed_candidates(movie))
-    sources.extend(dict(item) for item in indexed_embed_sources)
+    sources.extend(
+        {
+            **dict(item),
+            "priority": int(item.get("priority") or priorities.get(item["provider"], 100)),
+        }
+        for item in indexed_embed_sources
+    )
     return sorted(
         sources,
         key=lambda source: priorities.get(source["provider"], 100),

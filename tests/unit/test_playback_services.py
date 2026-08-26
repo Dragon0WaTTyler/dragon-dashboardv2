@@ -4,7 +4,8 @@ from app.extensions import db
 from app.history.models import HistoryEvent
 from app.movies.models import Movie
 from app.playback.models import PlaybackSource
-from app.playback.services import PlaybackService
+from app.playback.providers import ProviderProbeResult
+from app.playback.services import PlaybackService, ProviderAvailabilityService
 
 
 def add_movie() -> Movie:
@@ -91,5 +92,43 @@ def test_player_sources_expose_season_pack_metadata(app):
                 "season": 1,
                 "episode": None,
                 "release_mode": "season_pack",
+                "player_metadata": {
+                    "quality": "",
+                    "codec": "",
+                    "playback": "",
+                    "size": "",
+                    "hdr": False,
+                },
+                "enabled": True,
+                "source_type_label": "Local runtime source",
+                "priority": None,
+                "availability_status": "UNKNOWN",
+                "availability_checked": False,
+                "availability_fresh": False,
             }
         ]
+
+
+def test_indexed_embed_source_exposes_recorded_health_without_probing(app):
+    with app.app_context():
+        movie = add_movie()
+        source = PlaybackService.upsert_indexed_embed_source(
+            movie_id=movie.id,
+            provider="videotube",
+            provider_asset_id="selector-health",
+            label="VideoTube selector",
+        )
+        ProviderAvailabilityService.record(
+            source,
+            ProviderProbeResult(status="AVAILABLE", probe_level="REACHABLE"),
+        )
+
+        items = PlaybackService.indexed_embed_sources(
+            movie.id, provider_priorities={"videotube": 25}
+        )
+
+    assert items[0]["source_type_label"] == "Authorized embed mapping"
+    assert items[0]["priority"] == 25
+    assert items[0]["availability_status"] == "AVAILABLE"
+    assert items[0]["availability_checked"] is True
+    assert items[0]["availability_fresh"] is True

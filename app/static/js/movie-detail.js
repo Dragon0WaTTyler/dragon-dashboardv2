@@ -24,6 +24,11 @@
   const playerTitle = player.querySelector("#movie-player-title");
   const selectedEpisodeSummary = document.querySelector("[data-player-selected-episode]");
   const source = player.querySelector("[data-player-source]");
+  const sourceFacts = player.querySelector("[data-player-source-facts]");
+  const sourceFactName = player.querySelector("[data-player-source-name]");
+  const sourceFactType = player.querySelector("[data-player-source-type]");
+  const sourceFactHealth = player.querySelector("[data-player-source-health]");
+  const sourceFactPriority = player.querySelector("[data-player-source-priority]");
   const launch = player.querySelector("[data-player-launch]");
   const launchTitle = player.querySelector("[data-player-launch-title]");
   const launchHint = player.querySelector("[data-player-launch-hint]");
@@ -334,6 +339,28 @@
   const selectedProvider = () => selectedOption()?.dataset.provider || "local";
   const selectedProviderLabel = () => selectedOption()?.dataset.providerLabel || "Local";
   const selectedEmbedEndpoint = () => selectedOption()?.dataset.embedEndpoint || "";
+  const syncSourceFacts = () => {
+    const option = selectedOption();
+    if (!sourceFacts || !option) return;
+    const kind = selectedKind();
+    const health = String(option.dataset.sourceHealth || "UNKNOWN").toUpperCase();
+    const checked = option.dataset.sourceHealthChecked === "true";
+    const priority = String(option.dataset.sourcePriority || "").trim();
+    if (sourceFactName) sourceFactName.textContent = option.textContent?.trim() || "Selected source";
+    if (sourceFactType) {
+      sourceFactType.textContent = option.dataset.sourceType
+        || (kind === "local" ? "Local runtime source" : "Configured embed provider");
+    }
+    if (sourceFactHealth) {
+      sourceFactHealth.textContent = health === "UNKNOWN"
+        ? (checked ? "Last health check expired" : "Health not checked")
+        : `Health: ${health.toLowerCase()}`;
+      sourceFactHealth.dataset.health = health.toLowerCase();
+    }
+    if (sourceFactPriority) {
+      sourceFactPriority.textContent = priority ? `Priority ${priority}` : "Default priority";
+    }
+  };
   const selectedSourceMeta = () => {
     const option = selectedOption();
     if (!option || option.dataset.kind !== "local") return null;
@@ -1722,6 +1749,7 @@
   const syncSourceUi = () => {
     const kind = selectedKind();
     const meta = selectedSourceMeta();
+    syncSourceFacts();
     badge.textContent = kind === "embed" ? selectedProviderLabel() : "Local";
     launchTitle.textContent = kind === "embed" ? `Play with ${selectedProviderLabel()}` : "Start local player";
     if (launchHint) launchHint.textContent = kind === "embed"

@@ -120,6 +120,20 @@ def _player_source_metadata(metadata: dict) -> dict:
     }
 
 
+def _availability_presentation(availability: ProviderAvailability | None) -> dict:
+    """Return recorded health only; this helper never triggers a provider probe."""
+
+    fresh = bool(
+        availability
+        and _as_utc(availability.expires_at) >= _as_utc(utc_now())
+    )
+    return {
+        "availability_status": str(availability.status) if fresh else "UNKNOWN",
+        "availability_checked": availability is not None,
+        "availability_fresh": fresh,
+    }
+
+
 def magnet_item(candidate: MagnetCandidate) -> dict:
     return {
         "id": candidate.id,
@@ -260,6 +274,7 @@ class PlaybackService:
             if rows
             else {}
         )
+        priorities = provider_priorities or {}
         items = [
             (
                 {
@@ -271,6 +286,16 @@ class PlaybackService:
                     "quality": row.quality,
                     "playback_mode": "embed",
                     "selected": row.selected,
+                    "enabled": row.enabled,
+                    "source_type_label": "Authorized embed mapping",
+                    "priority": (
+                        row.priority_override
+                        if row.priority_override is not None
+                        else priorities.get(row.provider, 100)
+                    ),
+                    **_availability_presentation(
+                        availability_by_source_id.get(row.id)
+                    ),
                 },
                 row.priority_override,
             )
@@ -284,7 +309,6 @@ class PlaybackService:
                 and ProviderAvailabilityService.is_fresh(availability)
             )
         ]
-        priorities = provider_priorities or {}
         return [
             item
             for item, _ in sorted(
@@ -310,6 +334,14 @@ class PlaybackService:
                 .order_by(PlaybackSource.selected.desc(), PlaybackSource.label.asc())
             )
         )
+        availability_by_source_id = {
+            availability.playback_source_id: availability
+            for availability in db.session.scalars(
+                db.select(ProviderAvailability).where(
+                    ProviderAvailability.playback_source_id.in_([source.id for source in sources])
+                )
+            )
+        } if sources else {}
         unique: list[dict] = []
         seen_locators: set[str] = set()
         seen_labels: set[str] = set()
@@ -332,6 +364,12 @@ class PlaybackService:
                     "episode": metadata.get("episode"),
                     "release_mode": str(metadata.get("release_mode") or ""),
                     "player_metadata": _player_source_metadata(metadata),
+                    "enabled": source.enabled,
+                    "source_type_label": "Local runtime source",
+                    "priority": source.priority_override,
+                    **_availability_presentation(
+                        availability_by_source_id.get(source.id)
+                    ),
                 }
             )
         return unique
