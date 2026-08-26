@@ -1,7 +1,7 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge, empty_state %}
 {% block title %}Movies · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-ambient-1">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-polish-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-recommendation-rotation-4" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script>{% endblock %}
 {% block content %}
 <div class="movies-v2" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
@@ -159,7 +159,7 @@
 <div id="movie-library" class="movie-actions">
   <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index') }}">All</a><a href="{{ url_for('movies.index', status='want_to_watch') }}">Want to watch</a><a href="{{ url_for('movies.index', status='watching') }}">Watching</a><a href="{{ url_for('movies.index', status='watched') }}">Watched</a><a href="{{ url_for('movies.index', favorite='1') }}">Favorites</a><a href="{{ url_for('movies.custom_lists') }}">Custom lists</a><a href="{{ url_for('movies.watch_next') }}">Watch next</a></nav>
   <div class="movie-actions__controls">
-    {% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary movie-actions__recommend" type="button" data-recommendation-open aria-controls="movie-recommendation">What should I watch?</button>{% endif %}
+    {% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary movie-actions__recommend" type="button" data-recommendation-open aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}
     <a class="button button--secondary movie-actions__add" href="#movie-discovery">+ Add title</a>
   </div>
 </div>
@@ -204,7 +204,7 @@
   <label class="field"><span>Sort</span><select name="sort"><option value="recently_updated"{% if filters.sort == 'recently_updated' %} selected{% endif %}>Recently updated</option><option value="title_asc"{% if filters.sort == 'title_asc' %} selected{% endif %}>Title A–Z</option><option value="year_desc"{% if filters.sort == 'year_desc' %} selected{% endif %}>Newest year</option><option value="score_desc"{% if filters.sort == 'score_desc' %} selected{% endif %}>Top rated</option></select></label>
   <label class="field"><span>View</span><select name="view"><option value="grid"{% if filters.view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if filters.view == 'list' %} selected{% endif %}>Compact list</option></select></label>
   <div class="filter-bar__actions">
-    <button class="button button--secondary" type="button" data-dialog-open="movie-filter-dialog" aria-controls="movie-filter-dialog">More filters</button>
+    <button class="button button--secondary" type="button" data-dialog-open="movie-filter-dialog" aria-controls="movie-filter-dialog" aria-expanded="false">More filters</button>
     <dialog id="movie-filter-dialog" class="filter-dialog" aria-labelledby="movie-filter-title">
       <div class="filter-dialog__header"><div><span class="eyebrow">Refine library</span><h2 id="movie-filter-title">More filters</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close more filters">×</button></div>
       <div class="filter-dialog__panel">

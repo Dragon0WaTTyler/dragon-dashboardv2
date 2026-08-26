@@ -318,19 +318,25 @@ def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app)
     assert discovery_box and filters_box
     assert abs(discovery_box["x"] - filters_box["x"]) <= 1
     assert abs(discovery_box["width"] - filters_box["width"]) <= 1
-    filters = page.get_by_role("button", name="More filters")
+    filters = page.get_by_role("button", name="More filters", exact=True)
+    assert filters.get_attribute("aria-expanded") == "false"
     filters.click()
     filter_dialog = page.locator("#movie-filter-dialog")
     filter_dialog.wait_for(state="visible")
     assert filter_dialog.evaluate("dialog => dialog.open") is True
+    assert filters.get_attribute("aria-expanded") == "true"
     assert filter_dialog.get_by_role("button", name="Apply filters").is_visible()
     page.keyboard.press("Escape")
     filter_dialog.wait_for(state="hidden")
+    assert filters.get_attribute("aria-expanded") == "false"
     assert page.evaluate("() => document.activeElement?.textContent?.includes('More filters')")
 
     page.get_by_role("button", name="What should I watch?").click()
     recommendation = page.locator("[data-recommendation-card]")
     recommendation.wait_for(state="visible")
+    assert page.get_by_role("button", name="What should I watch?").get_attribute(
+        "aria-expanded"
+    ) == "true"
     first_title = recommendation.locator("h2").inner_text()
     page.get_by_role("button", name="Try another").click()
     assert recommendation.locator("h2").inner_text() != first_title
@@ -516,6 +522,21 @@ def test_movie_search_failure_has_explicit_error_state(page, live_app):
     assert failure.get_by_role("heading", name="Search unavailable").is_visible()
     assert "TMDB search is unavailable" in failure.inner_text()
     assert page.locator("[data-discovery-results]").get_attribute("aria-busy") is None
+
+
+def test_movies_home_has_no_document_overflow_at_supported_widths(page, live_app):
+    sign_in(page, live_app)
+
+    for width in (375, 390, 430, 768, 1024, 1280, 1440):
+        page.set_viewport_size({"width": width, "height": 900})
+        page.goto(f"{live_app}/movies")
+        assert page.locator(".movies-v2").is_visible()
+        assert page.locator(".movie-v2-nav a").first.evaluate(
+            "node => node.getBoundingClientRect().height"
+        ) >= 43.9
+        assert page.evaluate(
+            "document.documentElement.scrollWidth === document.documentElement.clientWidth"
+        )
 
 
 def test_vidsrc_player_loads_only_after_explicit_click(page, live_app, app):

@@ -32,6 +32,19 @@ def test_control_center_desktop_registry_and_mobile_section_controls(page, live_
     assert_no_horizontal_overflow(page)
 
 
+def test_movies_settings_remain_usable_on_mobile(page, live_app):
+    sign_in(page, live_app)
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(f"{live_app}/admin/sections/movies")
+
+    assert page.get_by_role(
+        "heading", name="Playback, discovery & atmosphere", level=2
+    ).count() == 1
+    assert page.get_by_label("Ambient level").is_visible()
+    assert page.get_by_label("Default subtitle language").is_visible()
+    assert_no_horizontal_overflow(page)
+
+
 def test_tv_and_news_source_managers_are_responsive(page, live_app):
     page.set_viewport_size({"width": 1440, "height": 960})
     sign_in(page, live_app)

@@ -1,7 +1,7 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import empty_state %}
 {% block title %}{% if collection is defined %}{{ collection.title }} · Collections · Dragon{% else %}Browse {{ 'Movies' if query.media_type == 'movie' else 'Series' }} · Dragon{% endif %}{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-ambient-1">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-polish-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script>{% endblock %}
 {% block content %}
 <main class="movies-v2 movie-browse" data-movie-browse data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">

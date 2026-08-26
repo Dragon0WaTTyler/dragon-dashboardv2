@@ -324,6 +324,20 @@ failure, playback failure, and subtitle failure. It must not call all of those
 errors “Something went wrong,” and it must not imply a catalog failure changed
 Dragon personal state.
 
+### Responsive and accessibility baseline — FROZEN
+
+Movies surfaces must remain keyboard-operable at the supported responsive
+widths (375, 390, 430, 768, 1024, 1280, and 1440+ pixels) without creating
+document-level horizontal overflow. Horizontal rails may scroll within their
+own labelled containers; no action may depend on hover alone. Primary touch
+controls require a 44px minimum target where the platform does not provide a
+larger native target.
+
+Native dialogs retain focus, support Escape, and restore focus to their opener.
+Controls that reveal/close an in-page region or dialog must keep
+`aria-expanded` synchronized. Reduced-motion mode removes nonessential motion
+but keeps focus, status, and essential loading/error information perceivable.
+
 ## 7. Snapshot contract
 
 ### Canonical Movies snapshot — FROZEN

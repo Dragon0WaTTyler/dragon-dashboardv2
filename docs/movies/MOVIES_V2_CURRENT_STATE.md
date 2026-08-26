@@ -302,6 +302,21 @@ truthful toasts while preserving the Player's detailed inline status/error
 messages. Existing server-rendered empty states for library, lists, browse and
 collections remain intact.
 
+## Verified Phase 21 responsive/accessibility delta
+
+Movies V2 was verified without document-level horizontal overflow at 375, 390,
+430, 768, 1024, 1280, and 1440 pixels. Existing responsive player coverage
+continues to exercise a 390-pixel player and a desktop player. The compact
+Movies settings card is also verified at 390 pixels.
+
+The internal Movies navigation, external-player actions, player controls, and
+toast dismissal control now have 44px touch targets. The `More filters` dialog
+already uses the shared native-dialog focus trap/Escape/return-focus behavior;
+its trigger now truthfully reports `aria-expanded`. The personal recommendation
+trigger does the same as it opens or dismisses its controlled region. The
+reduced-motion rules suppress nonessential skeleton/toast motion while retaining
+readable feedback and visible focus states.
+
 ## Ownership map
 
 ```text

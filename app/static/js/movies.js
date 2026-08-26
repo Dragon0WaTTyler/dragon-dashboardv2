@@ -16,9 +16,11 @@ const showMovieToast = (message, level = "success") => {
   const next = document.querySelector("[data-recommendation-next]");
   const dismiss = document.querySelector("[data-recommendation-dismiss]");
   if (!section) return;
+  open?.setAttribute("aria-expanded", "false");
 
   const reveal = () => {
     section.hidden = false;
+    open?.setAttribute("aria-expanded", "true");
     try {
       sessionStorage.removeItem("dragon:recommendation-dismissed");
     } catch {
@@ -135,6 +137,7 @@ const showMovieToast = (message, level = "success") => {
 
   dismiss.addEventListener("click", () => {
     section.hidden = true;
+    open?.setAttribute("aria-expanded", "false");
     sessionStorage.setItem("dragon:recommendation-dismissed", "1");
   });
   if (sessionStorage.getItem("dragon:recommendation-dismissed") === "1") section.hidden = true;
@@ -191,6 +194,15 @@ const showMovieToast = (message, level = "success") => {
       shuffle.textContent = originalLabel;
     }
   });
+})();
+
+(() => {
+  const trigger = document.querySelector("[data-dialog-open='movie-filter-dialog']");
+  const dialog = document.getElementById("movie-filter-dialog");
+  if (!trigger || !dialog) return;
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.addEventListener("click", () => trigger.setAttribute("aria-expanded", "true"));
+  dialog.addEventListener("close", () => trigger.setAttribute("aria-expanded", "false"));
 })();
 
 (() => {

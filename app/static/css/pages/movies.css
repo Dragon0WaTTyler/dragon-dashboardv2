@@ -199,7 +199,7 @@
 .movies-toast--error { border-color: rgb(255 145 157 / 52%); }
 .movies-toast--warning { border-color: rgb(255 201 112 / 52%); }
 .movies-toast.is-leaving { animation: movies-toast-out 180ms ease-in both; }
-.movies-toast__close { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--color-text-muted); cursor: pointer; font: inherit; font-size: 1.25rem; line-height: 1; }
+.movies-toast__close { width: 44px; height: 44px; margin: -9px -9px -9px 0; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--color-text-muted); cursor: pointer; font: inherit; font-size: 1.25rem; line-height: 1; }
 .movies-toast__close:hover, .movies-toast__close:focus-visible { background: rgb(255 255 255 / 10%); color: var(--color-text); outline: none; }
 @keyframes movies-toast-in { from { opacity: 0; transform: translateY(8px); } }
 @keyframes movies-toast-out { to { opacity: 0; transform: translateY(5px); } }
@@ -573,7 +573,7 @@
 .movie-player__frame,
 .movie-player__video { display: block; min-width: 0; width: 100%; max-width: 100%; height: 100%; border: 0; background: #050505; }
 .movie-player__external-toolbar { position: absolute; z-index: 20; inset: 14px 14px auto; display: flex; justify-content: flex-end; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid rgb(255 255 255 / 14%); border-radius: 12px; background: rgb(10 10 12 / 88%); box-shadow: 0 12px 34px rgb(0 0 0 / 34%); backdrop-filter: blur(12px); color: rgb(255 255 255 / 82%); font-size: .82rem; }
-.movie-player__external-toolbar button, .movie-player__external-toolbar a { min-height: 36px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 8px; background: transparent; color: #fff; font: inherit; text-decoration: none; cursor: pointer; display: inline-grid; place-items: center; }
+.movie-player__external-toolbar button, .movie-player__external-toolbar a { min-height: 44px; padding: 0 10px; border: 1px solid rgb(255 255 255 / 18%); border-radius: 8px; background: transparent; color: #fff; font: inherit; text-decoration: none; cursor: pointer; display: inline-grid; place-items: center; }
 .movie-player__external-toolbar button:hover, .movie-player__external-toolbar button:focus-visible, .movie-player__external-toolbar a:hover, .movie-player__external-toolbar a:focus-visible { border-color: rgb(255 255 255 / 42%); background: rgb(255 255 255 / 9%); outline: none; }
 .movie-player__video { object-fit: contain; }
 .movie-player__video::cue { color: #fff; background: rgb(0 0 0 / 82%); font-size: 1rem; }
@@ -828,8 +828,8 @@
 .movie-player__dragon-right { min-width: 0; }
 .movie-player__dragon-controls button {
   display: inline-grid;
-  min-width: 40px;
-  height: 40px;
+  min-width: 44px;
+  height: 44px;
   padding: 0 10px;
   border: 0;
   border-radius: 8px;
@@ -1384,7 +1384,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
     background: rgb(10 10 12 / 74%);
   }
   .movie-player__external-toolbar button,
-  .movie-player__external-toolbar a { width: auto; min-height: 40px; padding-inline: 12px; }
+  .movie-player__external-toolbar a { width: auto; min-height: 44px; padding-inline: 12px; }
   .movie-player__captions {
     inset-inline: 12px;
   }
@@ -1529,7 +1529,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 }
 .movie-v2-nav a {
   display: inline-flex;
-  min-height: 38px;
+  min-height: 44px;
   align-items: center;
   padding: 0 15px;
   border-radius: 999px;
@@ -1858,7 +1858,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movie-v2-masthead h1 { max-width: 8ch; font-size: clamp(3rem, 16vw, 4.9rem); }
   .movie-v2-masthead__meta { display: flex; gap: 12px; justify-items: unset; align-items: center; margin-top: 18px; padding: 0; }
   .movie-v2-nav { width: 100%; margin-bottom: 34px; }
-  .movie-v2-nav a { min-height: 36px; padding-inline: 13px; }
+  .movie-v2-nav a { min-height: 44px; padding-inline: 13px; }
   .movies-v2 .movie-recommendation { padding: 22px; border-radius: 20px; }
   .movie-personal-hero { min-height: 300px; padding: 24px; border-radius: 20px; }
   .movie-personal-hero h2 { font-size: clamp(2.5rem, 12vw, 4.5rem); }
