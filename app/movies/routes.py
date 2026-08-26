@@ -13,6 +13,7 @@ from flask import (
 )
 from flask_login import login_required
 
+from app.movies.browse import browse_catalog, parse_browse_query
 from app.movies.external_library import (
     add_to_library,
     discover_item,
@@ -282,6 +283,31 @@ def watch_next():
         active_module="movies",
         movies=[movie_item(movie) for movie in movies],
         library_sync_error=library_sync.error,
+    )
+
+
+@bp.get("/browse/<media_type>")
+@login_required
+def browse(media_type: str):
+    try:
+        query, filter_errors = parse_browse_query(media_type, request.args)
+    except ValueError:
+        abort(404)
+    result = browse_catalog(query)
+    return render_template(
+        "movies/browse.html",
+        active_module="movies",
+        query=query,
+        filter_errors=filter_errors,
+        **result,
+    )
+
+
+@bp.get("/shows")
+@login_required
+def shows():
+    return redirect(
+        url_for("movies.browse", media_type="tv", **request.args.to_dict(flat=True))
     )
 
 

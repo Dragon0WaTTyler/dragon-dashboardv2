@@ -827,3 +827,47 @@ def test_movies_home_renders_cached_tmdb_discovery_rails(authenticated_client, a
         ("movie", "upcoming", 12),
         ("movie", "now_playing", 12),
     ]
+
+
+def test_movies_browse_route_restores_movie_filter_url_state(authenticated_client, app):
+    class BrowseProvider:
+        configured = True
+
+        def genres(self, media_type):
+            return [{"id": 18, "name": "Drama"}]
+
+        def discover(self, media_type, **kwargs):
+            assert media_type == "movie"
+            assert kwargs == {"genre_id": 18, "year": 1999, "sort": "rating", "page": 2}
+            return {
+                "items": [
+                    {
+                        "tmdb_id": 603,
+                        "media_type": "movie",
+                        "title": "The Matrix",
+                        "poster_url": "",
+                        "year": 1999,
+                        "rating": 8.2,
+                    }
+                ],
+                "page": 2,
+                "total_pages": 3,
+            }
+
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = BrowseProvider()
+
+    response = authenticated_client.get("/movies/browse/movie?genre=18&year=1999&sort=rating&page=2")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Browse movies" in html
+    assert 'value="18" selected' in html
+    assert 'value="rating" selected' in html
+    assert 'href="/movies/discover/movie/603"' in html
+    assert "Page 2 of 3" in html
+
+    shows = authenticated_client.get("/movies/shows?sort=title", follow_redirects=False)
+
+    assert shows.status_code == 302
+    assert shows.headers["Location"].endswith("/movies/browse/tv?sort=title")

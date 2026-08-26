@@ -98,6 +98,62 @@ class TmdbCatalogProvider:
             if item.get("id")
         ]
 
+    def discover(
+        self,
+        media_type: str,
+        *,
+        genre_id: int | None = None,
+        year: int | None = None,
+        sort: str = "popular",
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Fetch one shareable TMDB browse page, without creating Dragon data."""
+
+        if media_type not in {"movie", "tv"}:
+            raise MediaIntegrationError("Browse media type must be movie or series.")
+        sort_by = {
+            "popular": "popularity.desc",
+            "rating": "vote_average.desc",
+            "newest": "primary_release_date.desc"
+            if media_type == "movie"
+            else "first_air_date.desc",
+            "title": "original_title.asc" if media_type == "movie" else "original_name.asc",
+        }.get(sort)
+        if sort_by is None:
+            raise MediaIntegrationError("Unsupported TMDB browse sort.")
+        params: dict[str, Any] = {
+            "language": "en-US",
+            "include_adult": "false",
+            "sort_by": sort_by,
+            "page": max(1, min(int(page), 500)),
+        }
+        if genre_id:
+            params["with_genres"] = int(genre_id)
+        if year:
+            params["primary_release_year" if media_type == "movie" else "first_air_date_year"] = int(
+                year
+            )
+        payload = self._request(f"/discover/{media_type}", params)
+        return {
+            "items": [
+                self._summary(item, media_type)
+                for item in payload.get("results") or []
+                if item.get("id")
+            ],
+            "page": int(payload.get("page") or params["page"]),
+            "total_pages": min(500, int(payload.get("total_pages") or 1)),
+        }
+
+    def genres(self, media_type: str) -> list[dict[str, Any]]:
+        if media_type not in {"movie", "tv"}:
+            raise MediaIntegrationError("Genre media type must be movie or series.")
+        payload = self._request(f"/genre/{media_type}/list", {"language": "en-US"})
+        return [
+            {"id": int(item["id"]), "name": str(item["name"])}
+            for item in payload.get("genres") or []
+            if item.get("id") and item.get("name")
+        ]
+
     def details(self, media_type: str, tmdb_id: int) -> dict:
         if media_type not in {"movie", "tv"}:
             raise MediaIntegrationError("Media type must be movie or series.")

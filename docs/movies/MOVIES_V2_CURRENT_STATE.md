@@ -75,6 +75,18 @@ query, while repeated page loads within the TTL reuse normalized cards; Top 10
 reuses the Trending Movies query. View All browse targets remain deferred to
 the shared browse-engine phase.
 
+## Verified Phase 5 shared browse delta
+
+`/movies/browse/movie` and `/movies/browse/tv` now use one typed query contract
+for `genre`, `year`, `sort`, and `page`; `/movies/shows` is a convenience alias
+for the Series view. Every filter and pagination value remains in the URL, so a
+browse result is shareable/restorable. `app/movies/browse.py` caches genre
+metadata for a day and each normalized TMDB browse page for five minutes. Its
+cards remain catalog previews and link to the existing Dragon `discover` route;
+they do not mutate the personal library, playback state, or acquisition data.
+Language, country, availability provider, rating, and runtime filters are
+explicitly deferred until their metadata/source contracts are implemented.
+
 ## Ownership map
 
 ```text

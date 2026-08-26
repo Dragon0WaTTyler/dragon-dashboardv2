@@ -229,6 +229,27 @@ def test_tmdb_trending_returns_normalized_rankable_catalog_cards():
     assert session.calls[1][1] == {"language": "en-US", "page": 1, "api_key": "key"}
 
 
+def test_tmdb_discover_maps_shareable_browse_filters_to_tmdb_parameters():
+    session = TmdbTrendingSession()
+    provider = TmdbCatalogProvider(api_key="key", session=session)
+
+    payload = provider.discover("tv", genre_id=18, year=2024, sort="rating", page=2)
+
+    assert payload["page"] == 2
+    assert payload["total_pages"] == 1
+    assert payload["items"][0]["media_type"] == "tv"
+    assert session.calls[0][0].endswith("/discover/tv")
+    assert session.calls[0][1] == {
+        "language": "en-US",
+        "include_adult": "false",
+        "sort_by": "vote_average.desc",
+        "page": 2,
+        "with_genres": 18,
+        "first_air_date_year": 2024,
+        "api_key": "key",
+    }
+
+
 def test_jackett_search_plan_uses_advertised_ids_then_dedupes_alias_results():
     session = CapabilitySession()
     provider = JackettReleaseProvider(
