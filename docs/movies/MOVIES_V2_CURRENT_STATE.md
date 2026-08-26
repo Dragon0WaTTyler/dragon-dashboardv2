@@ -218,6 +218,17 @@ engine/buffer state; neither the Movie catalog nor the V2 snapshot contract
 receives those fields. Existing focused tests verify that a direct embed skips
 automatic source search and that normal pages do not trigger a release lookup.
 
+## Verified Phase 16 subtitle-preservation checkpoint
+
+No subtitle implementation was replaced. The post-selector focused baseline
+passes the full Movies player browser suite, covering subtitle retrieval and
+track selection, a failed-track fallback, subtitle style/offset persistence,
+TV episode-specific subtitle requests, local runtime/transcode, and saved
+resume behavior. The Player still owns subtitle rendering, Subtitle Rescue,
+fine adjustments, drift correction, segmented resync, reset, fullscreen
+controls, and source/episode-specific persistence identity; Movies V2 only
+composes that tested Playback component.
+
 ## Ownership map
 
 ```text
