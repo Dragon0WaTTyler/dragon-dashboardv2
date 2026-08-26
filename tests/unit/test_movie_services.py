@@ -293,6 +293,39 @@ def test_tv_season_workspace_handles_episodes_without_progress(app):
         assert workspace["season"]["completion_percent"] == 0
 
 
+def test_tv_season_workspace_uses_the_next_real_normal_season_episode(app):
+    with app.app_context():
+        movie = Movie(
+            title="Example Series",
+            normalized_title="example series",
+            media_type="tv",
+            metadata_state={
+                "tv_seasons": [
+                    {"season_number": 0, "name": "Specials", "episode_count": 1},
+                    {"season_number": 1, "name": "Season 1", "episode_count": 1},
+                    {"season_number": 2, "name": "Season 2", "episode_count": 1},
+                ],
+                "tv_episodes": {
+                    "0": [{"season_number": 0, "episode_number": 1, "name": "Bonus"}],
+                    "1": [{"season_number": 1, "episode_number": 1, "name": "Finale"}],
+                    "2": [{"season_number": 2, "episode_number": 1, "name": "Premiere"}],
+                },
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+
+        workspace = tv_season_workspace(movie, season_number=1, selected_episode=1)
+        specials = tv_season_workspace(movie, season_number=0, selected_episode=1)
+
+        assert workspace["next_episode"] == {
+            "season_number": 2,
+            "episode_number": 1,
+            "name": "Premiere",
+        }
+        assert specials["next_episode"] is None
+
+
 def test_tv_season_workspace_recognizes_legacy_season_pack_sources(app):
     with app.app_context():
         movie = Movie(

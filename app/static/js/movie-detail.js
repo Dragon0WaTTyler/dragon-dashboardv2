@@ -125,7 +125,11 @@
   const packStatus = player.querySelector("[data-player-pack-status]");
   const nextEpisode = player.querySelector("[data-player-next]");
   const nextCountdown = player.querySelector("[data-player-next-countdown]");
+  const nextPlay = player.querySelector("[data-player-next-play]");
   const nextCancel = player.querySelector("[data-player-next-cancel]");
+  const nextReplay = player.querySelector("[data-player-next-replay]");
+  const autoNextToggle = player.querySelector("[data-player-auto-next]");
+  const startOver = player.querySelector("[data-player-start-over]");
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
   const initialParams = new URLSearchParams(window.location.search);
   const subtitlePrefsLegacyKey = "dragon:subtitle-style:v1";
@@ -214,6 +218,8 @@
   let lastProgressSentAt = 0;
   let progressRequestToken = 0;
   let nextEpisodeTimer = 0;
+  const autoNextPreferenceKey = "dragon:player-auto-next:v1";
+  let autoNextEnabled = true;
   const playerMarkersKey = `dragon:player-markers:v1:${player.dataset.mediaId || "unknown"}`;
   let playerMarkers = { intro: null, recap: null, bookmarks: [] };
   let subtitleOpener = null;
@@ -279,9 +285,23 @@
     nextEpisodeTimer = 0;
     if (nextEpisode) nextEpisode.hidden = true;
   };
+  const saveAutoNextPreference = () => {
+    try {
+      window.localStorage.setItem(autoNextPreferenceKey, autoNextEnabled ? "true" : "false");
+    } catch (_error) {
+      // A blocked storage area should not prevent an explicit player choice.
+    }
+    if (autoNextToggle) autoNextToggle.checked = autoNextEnabled;
+  };
+  const openNextEpisode = () => {
+    const url = String(player.dataset.nextEpisodeUrl || "").trim();
+    if (!url) return;
+    clearNextEpisode();
+    window.location.assign(url);
+  };
   const queueNextEpisode = () => {
     const url = String(player.dataset.nextEpisodeUrl || "").trim();
-    if (!nextEpisode || !url) return;
+    if (!nextEpisode || !url || !autoNextEnabled) return;
     clearNextEpisode();
     let seconds = 10;
     nextEpisode.hidden = false;
@@ -290,8 +310,7 @@
       seconds -= 1;
       if (nextCountdown) nextCountdown.textContent = String(Math.max(0, seconds));
       if (seconds <= 0) {
-        clearNextEpisode();
-        window.location.assign(url);
+        openNextEpisode();
       }
     }, 1000);
   };
@@ -305,6 +324,11 @@
     return url.toString();
   };
 
+  const optionalNonNegativeNumber = (value) => {
+    if (value === null || value === undefined || String(value).trim() === "") return null;
+    const parsed = Number(value);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+  };
   const selectedKind = () => source.selectedOptions[0]?.dataset.kind || "embed";
   const selectedOption = () => source.selectedOptions[0] || null;
   const selectedProvider = () => selectedOption()?.dataset.provider || "local";
@@ -313,8 +337,8 @@
   const selectedSourceMeta = () => {
     const option = selectedOption();
     if (!option || option.dataset.kind !== "local") return null;
-    const season = Number(option.dataset.sourceSeason || 0) || null;
-    const episode = Number(option.dataset.sourceEpisode || 0) || null;
+    const season = optionalNonNegativeNumber(option.dataset.sourceSeason);
+    const episode = optionalNonNegativeNumber(option.dataset.sourceEpisode);
     return {
       sourceId: option.value,
       seasonPack: option.dataset.sourceSeasonPack === "true",
@@ -742,21 +766,21 @@
     if (!option?.value || !text) return "";
     return text.replace(/^E\d+\s*[·:-]\s*/i, "").trim();
   };
-  const configuredSelectedSeason = () => Number(player.dataset.selectedSeason || 0) || null;
-  const configuredSelectedEpisode = () => Number(player.dataset.selectedEpisode || 0) || null;
+  const configuredSelectedSeason = () => optionalNonNegativeNumber(player.dataset.selectedSeason);
+  const configuredSelectedEpisode = () => optionalNonNegativeNumber(player.dataset.selectedEpisode);
   const configuredSelectedEpisodeTitle = () => String(player.dataset.selectedEpisodeTitle || "").trim();
   const syncPlayerTitle = () => {
     if (!playerTitle || player.dataset.mediaType !== "tv") return;
     const meta = selectedSourceMeta();
-    const season = activeSelection.season || meta?.season || configuredSelectedSeason();
+    const season = activeSelection.season ?? meta?.season ?? configuredSelectedSeason();
     const episode = activeSelection.episode
-      || Number(packEpisode?.value || 0)
-      || meta?.episode
-      || configuredSelectedEpisode();
+      ?? optionalNonNegativeNumber(packEpisode?.value)
+      ?? meta?.episode
+      ?? configuredSelectedEpisode();
     const episodeTitle = activeSelection.episodeTitle
       || selectedEpisodeTitle()
       || configuredSelectedEpisodeTitle();
-    if (!season || !episode || !episodeTitle) return;
+    if (season === null || episode === null || !episodeTitle) return;
     const episodeCode = `S${String(season).padStart(2, "0")}E${String(episode).padStart(2, "0")}`;
     playerTitle.textContent = `Watch ${episodeCode} · ${episodeTitle}`;
     if (selectedEpisodeSummary) {
@@ -764,29 +788,29 @@
     }
   };
   const requestedEpisodeFromUrl = (season) => {
-    const querySeason = Number(initialParams.get("season") || 0) || null;
-    const queryEpisode = Number(initialParams.get("episode") || 0) || null;
-    return querySeason === Number(season || 0) && queryEpisode ? queryEpisode : null;
+    const querySeason = optionalNonNegativeNumber(initialParams.get("season"));
+    const queryEpisode = optionalNonNegativeNumber(initialParams.get("episode"));
+    return querySeason === season && queryEpisode !== null ? queryEpisode : null;
   };
   const selectedEpisodeScope = () => {
     if (player.dataset.mediaType !== "tv") {
       return { season: null, episode: null };
     }
     const meta = selectedSourceMeta();
-    const season = activeSelection.season || configuredSelectedSeason() || meta?.season || null;
+    const season = activeSelection.season ?? configuredSelectedSeason() ?? meta?.season ?? null;
     const episode = activeSelection.episode
-      || Number(packEpisode?.value || 0)
-      || configuredSelectedEpisode()
-      || requestedEpisodeFromUrl(season)
-      || meta?.episode
-      || null;
+      ?? optionalNonNegativeNumber(packEpisode?.value)
+      ?? configuredSelectedEpisode()
+      ?? requestedEpisodeFromUrl(season)
+      ?? meta?.episode
+      ?? null;
     return { season, episode };
   };
   const syncEpisodeUrl = ({ replace = false } = {}) => {
     if (player.dataset.mediaType !== "tv" || !window.history) return;
     const { season, episode } = selectedEpisodeScope();
     const url = new URL(window.location.href);
-    if (season && episode) {
+    if (season !== null && episode !== null) {
       url.searchParams.set("season", String(season));
       url.searchParams.set("episode", String(episode));
     } else {
@@ -818,7 +842,7 @@
       timeLabel.textContent = `${formatTime(current)} / ${formatTime(duration)}`;
     }
     if (dragonEpisode) {
-      dragonEpisode.textContent = activeSelection.season && activeSelection.episode
+      dragonEpisode.textContent = activeSelection.season !== null && activeSelection.episode !== null
         ? `S${String(activeSelection.season).padStart(2, "0")}E${String(activeSelection.episode).padStart(2, "0")}`
         : "";
     }
@@ -911,17 +935,17 @@
     const endpoint = player.dataset.subtitleEndpoint;
     if (!endpoint || selectedKind() !== "local") return { key: "", url: "", season: null, episode: null };
     const meta = selectedSourceMeta();
-    const season = activeSelection.season || configuredSelectedSeason() || meta?.season || null;
+    const season = activeSelection.season ?? configuredSelectedSeason() ?? meta?.season ?? null;
     const episode = activeSelection.episode
-      || Number(packEpisode?.value || 0)
-      || configuredSelectedEpisode()
-      || meta?.episode
-      || null;
+      ?? optionalNonNegativeNumber(packEpisode?.value)
+      ?? configuredSelectedEpisode()
+      ?? meta?.episode
+      ?? null;
     const episodeTitle = activeSelection.episodeTitle || selectedEpisodeTitle() || configuredSelectedEpisodeTitle();
     const url = new URL(endpoint, window.location.origin);
     if (player.dataset.mediaType === "tv") {
-      if (season) url.searchParams.set("season", String(season));
-      if (episode) url.searchParams.set("episode", String(episode));
+      if (season !== null) url.searchParams.set("season", String(season));
+      if (episode !== null) url.searchParams.set("episode", String(episode));
       if (episodeTitle) url.searchParams.set("episode_title", episodeTitle);
     }
     return {
@@ -948,7 +972,7 @@
     const { season, episode } = selectedEpisodeScope();
     const url = new URL(endpoint, window.location.origin);
     if (player.dataset.mediaType === "tv") {
-      if (!season || !episode) return { url: "", season: null, episode: null };
+      if (season === null || episode === null) return { url: "", season: null, episode: null };
       url.searchParams.set("season", String(season));
       url.searchParams.set("episode", String(episode));
     }
@@ -991,15 +1015,15 @@
       syncSourceUi();
     }
   };
-  const saveMovieProgress = async ({ force = false, keepalive = false } = {}) => {
+  const saveMovieProgress = async ({ force = false, keepalive = false, ended = false } = {}) => {
     const target = progressTarget();
     const duration = Math.round(displayDurationSeconds());
     const current = Math.round(effectiveCurrentTime());
-    if (!target.url || activeKind !== "local" || !duration || current < 5) return;
+    if (!target.url || activeKind !== "local" || !duration || current < 5) return false;
     const now = Date.now();
-    if (!force && now - lastProgressSentAt < 10000) return;
+    if (!force && now - lastProgressSentAt < 10000) return false;
     lastProgressSentAt = now;
-    const completed = duration > 0 && current / duration >= 0.92;
+    const completed = ended || (duration > 0 && current / duration >= 0.92);
     try {
       const response = await fetch(target.url, {
         method: "PUT",
@@ -1028,9 +1052,11 @@
         progressLoaded = true;
         syncSourceUi();
       }
+      return completed;
     } catch (_error) {
       // Progress save should never interrupt playback.
       lastProgressSentAt = 0;
+      return false;
     }
   };
   const scheduleProgressSave = () => {
@@ -1279,16 +1305,16 @@
   const syncPackLaunchState = () => {
     const meta = selectedSourceMeta();
     if (!meta?.seasonPack) return false;
-    const season = Number(meta.season || 0) || null;
-    const episode = Number(packEpisode?.value || 0) || meta.episode || null;
+    const season = optionalNonNegativeNumber(meta.season);
+    const episode = optionalNonNegativeNumber(packEpisode?.value) ?? meta.episode ?? null;
     launchTitle.textContent = "Play selected episode from pack";
-    if (!season) {
+    if (season === null) {
       launch.disabled = true;
       setStatus("This season pack has no season metadata yet.");
       setPackStatus("Re-add this pack from the season picker so Dragon can bind it to the right season.");
       return true;
     }
-    if (!episode) {
+    if (episode === null) {
       launch.disabled = true;
       setStatus("Choose an episode from this season pack before you press play.");
       setPackStatus("");
@@ -1308,12 +1334,12 @@
     const meta = selectedSourceMeta();
     // An embed provider has no season metadata of its own. Retain the episode
     // context picked from Local while its source option is selected.
-    const season = activeSelection.season || configuredSelectedSeason() || meta?.season || null;
+    const season = activeSelection.season ?? configuredSelectedSeason() ?? meta?.season ?? null;
     if (
       !packBrowser
       || !packEpisode
       || player.dataset.mediaType !== "tv"
-      || !season
+      || season === null
     ) {
       hidePackBrowser();
       return;
@@ -1323,7 +1349,7 @@
     const template = player.dataset.episodesTemplate;
     packBrowser.hidden = false;
     packHeading.textContent = "Episode";
-    if (!season || !tmdbId || !template) {
+    if (season === null || !tmdbId || !template) {
       packEpisode.disabled = true;
       setPackStatus("This pack cannot be mapped to TMDB episodes yet.");
       launch.disabled = Boolean(meta?.seasonPack);
@@ -1352,7 +1378,7 @@
       if (
         requestToken !== packRequestToken
         || currentMeta?.sourceId !== meta?.sourceId
-        || (currentMeta?.season && Number(currentMeta.season) !== season)
+        || (currentMeta?.season !== null && Number(currentMeta.season) !== season)
       ) {
         return;
       }
@@ -1603,7 +1629,7 @@
     subtitleOptions = null;
     subtitleOptionsKey = target.key;
     setSubtitleStatus(
-      target.season && target.episode
+      target.season !== null && target.episode !== null
         ? `Finding subtitles for S${String(target.season).padStart(2, "0")}E${String(target.episode).padStart(2, "0")}…`
         : "Finding Arabic and English subtitles…"
     );
@@ -1701,6 +1727,7 @@
     if (launchHint) launchHint.textContent = kind === "embed"
       ? "Loads only after you press play."
       : "The magnet starts only after you press play.";
+    if (startOver) startOver.hidden = kind !== "local" || !savedProgress?.seconds;
     if (kind === "embed") {
       void loadPackEpisodes();
       launch.disabled = false;
@@ -2028,8 +2055,14 @@
     savedProgress = null;
     progressLoaded = false;
     lastProgressSentAt = 0;
-    activeSelection.season = previousSelection.season || configuredSelectedSeason() || selectedSourceMeta()?.season || null;
-    activeSelection.episode = previousSelection.episode || configuredSelectedEpisode() || selectedSourceMeta()?.episode || null;
+    activeSelection.season = previousSelection.season
+      ?? configuredSelectedSeason()
+      ?? selectedSourceMeta()?.season
+      ?? null;
+    activeSelection.episode = previousSelection.episode
+      ?? configuredSelectedEpisode()
+      ?? selectedSourceMeta()?.episode
+      ?? null;
     activeSelection.runtimeSeconds = configuredRuntimeSeconds();
     activeSelection.episodeTitle = configuredSelectedEpisodeTitle();
     resetViewport();
@@ -2050,7 +2083,7 @@
     savedProgress = null;
     progressLoaded = false;
     lastProgressSentAt = 0;
-    activeSelection.season = configuredSelectedSeason() || selectedSourceMeta()?.season || null;
+    activeSelection.season = configuredSelectedSeason() ?? selectedSourceMeta()?.season ?? null;
     activeSelection.episode = Number(packEpisode.value || 0) || null;
     activeSelection.runtimeSeconds = selectedEpisodeRuntimeSeconds();
     activeSelection.episodeTitle = selectedEpisodeTitle();
@@ -2068,7 +2101,7 @@
       if (activeKind === "local") {
         const meta = selectedSourceMeta();
         const scope = selectedEpisodeScope();
-        const selection = scope.season || scope.episode
+        const selection = scope.season !== null || scope.episode !== null
           ? {
             season: scope.season,
             episode: scope.episode,
@@ -2089,7 +2122,7 @@
       if (!embedEndpoint) throw new Error("The selected embed provider is unavailable.");
       const endpoint = new URL(embedEndpoint, window.location.origin);
       const scope = selectedEpisodeScope();
-      if (scope.season && scope.episode) {
+      if (scope.season !== null && scope.episode !== null) {
         endpoint.searchParams.set("season", String(scope.season));
         endpoint.searchParams.set("episode", String(scope.episode));
       }
@@ -2136,7 +2169,35 @@
     resetViewport();
     syncSourceUi();
   });
-  nextCancel?.addEventListener("click", clearNextEpisode);
+  try {
+    autoNextEnabled = window.localStorage.getItem(autoNextPreferenceKey) !== "false";
+  } catch (_error) {
+    autoNextEnabled = true;
+  }
+  if (autoNextToggle) {
+    autoNextToggle.checked = autoNextEnabled;
+    autoNextToggle.addEventListener("change", () => {
+      autoNextEnabled = autoNextToggle.checked;
+      saveAutoNextPreference();
+      if (!autoNextEnabled) clearNextEpisode();
+    });
+  }
+  nextPlay?.addEventListener("click", openNextEpisode);
+  nextCancel?.addEventListener("click", () => {
+    autoNextEnabled = false;
+    saveAutoNextPreference();
+    clearNextEpisode();
+  });
+  nextReplay?.addEventListener("click", () => {
+    clearNextEpisode();
+    video.currentTime = 0;
+    void video.play();
+  });
+  startOver?.addEventListener("click", () => {
+    savedProgress = null;
+    syncSourceUi();
+    launch.click();
+  });
   const retryLocalPlayer = async () => {
     await stopLocal({ silent: true, persistProgress: false });
     resetViewport();
@@ -2494,7 +2555,7 @@
   });
   video.addEventListener("playing", () => {
     if (activeKind === "local") {
-      const selectionText = activeSelection.season && activeSelection.episode
+      const selectionText = activeSelection.season !== null && activeSelection.episode !== null
         ? `Playing S${String(activeSelection.season).padStart(2, "0")}E${String(activeSelection.episode).padStart(2, "0")} from the selected season pack.`
         : "Playing directly from the local WebTorrent runtime.";
       setPlayerState("playing", selectionText);
@@ -2510,9 +2571,8 @@
     renderActiveCaption();
     void saveMovieProgress({ force: true });
   });
-  video.addEventListener("ended", () => {
-    void saveMovieProgress({ force: true });
-    queueNextEpisode();
+  video.addEventListener("ended", async () => {
+    if (await saveMovieProgress({ force: true, ended: true })) queueNextEpisode();
   });
   video.addEventListener("volumechange", syncQuickControls);
   video.addEventListener("error", () => {

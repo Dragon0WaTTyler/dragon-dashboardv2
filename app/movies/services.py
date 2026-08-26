@@ -448,6 +448,32 @@ def _tv_resume_target(
     return None
 
 
+def _tv_next_normal_episode(
+    catalog: dict[str, Any], *, season_number: int, episode_number: int
+) -> dict[str, Any] | None:
+    """Return the next catalogued normal episode without crossing through Specials."""
+
+    current_key = (int(season_number), int(episode_number))
+    candidates: list[dict[str, Any]] = []
+    for season in sorted(
+        catalog["seasons"], key=lambda item: int(item.get("season_number") or 0)
+    ):
+        candidate_season = int(season.get("season_number") or 0)
+        if candidate_season < 1:
+            continue
+        for row in sorted(
+            catalog["episodes"].get(str(candidate_season)) or [],
+            key=lambda item: int(item.get("episode_number") or 0),
+        ):
+            candidate_episode = int(row.get("episode_number") or 0)
+            if candidate_episode < 1 or (candidate_season, candidate_episode) <= current_key:
+                continue
+            candidates.append(
+                {**row, "season_number": candidate_season, "episode_number": candidate_episode}
+            )
+    return candidates[0] if candidates else None
+
+
 def tv_show_workspace(movie: Movie) -> dict[str, Any]:
     catalog = tv_catalog(movie)
     progress_lookup = _tv_progress_lookup(movie)
@@ -581,12 +607,15 @@ def tv_season_workspace(movie: Movie, *, season_number: int, selected_episode: i
         )
 
     season_progress = min(100, round(watched_count / len(episodes) * 100)) if episodes else 0
-    next_episode = None
-    if selected_episode:
-        next_episode = next(
-            (item for item in episodes if int(item["episode_number"]) > int(selected_episode)),
-            None,
+    next_episode = (
+        _tv_next_normal_episode(
+            catalog,
+            season_number=season_number,
+            episode_number=selected_episode,
         )
+        if selected_episode and season_number > 0
+        else None
+    )
     return {
         "show": movie_item(movie),
         "catalog": catalog,

@@ -131,6 +131,21 @@ season-completion counts, as frozen in the V2 contract. Existing source and
 player controls remain in the Playback boundary; no new source lookup is made
 by TV page rendering or metadata refresh.
 
+## Verified Phase 9 TV resume and next-episode delta
+
+The local player retains an explicit Resume path and now exposes Start from
+Beginning when an incomplete episode record exists. On a trusted native `ended`
+event it saves completion before offering the next episode; a failed progress
+write never triggers the transition. The server derives that target from the
+cached normal-episode catalog, including a valid next season, rather than
+incrementing an episode number. Season 0 is never auto-sequenced.
+
+The ten-second next prompt provides Play now, Cancel, and Replay. Its default
+autoplay behavior is a browser-local user preference; turning it off suppresses
+the automatic transition. No `postMessage` event handling was added or trusted:
+the feature depends only on Dragon's native local-video `ended` event and the
+same-origin progress API.
+
 ## Ownership map
 
 ```text
