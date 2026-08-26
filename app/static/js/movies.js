@@ -1,3 +1,15 @@
+const rememberMovieToast = (message, level = "success") => {
+  try {
+    sessionStorage.setItem("dragon:movies:next-toast", JSON.stringify({ message, level }));
+  } catch (_error) {
+    // Navigation must not depend on feedback storage.
+  }
+};
+
+const showMovieToast = (message, level = "success") => {
+  window.dispatchEvent(new CustomEvent("dragon:movies:toast", { detail: { message, level } }));
+};
+
 (() => {
   const section = document.querySelector("[data-recommendation-card]");
   const open = document.querySelector("[data-recommendation-open]");
@@ -170,6 +182,7 @@
       primary.textContent = "Open details";
       primary.href = url;
       resumeSignal?.remove();
+      showMovieToast(`${item.title || "A new title"} is ready to consider.`);
     } catch (error) {
       progress.textContent = error.message;
     } finally {
@@ -258,6 +271,11 @@
           season: item.media_type === "tv" ? 1 : null,
         }),
       });
+      rememberMovieToast(
+        item.media_type === "tv"
+          ? `${item.title || "Series"} was added with season 1 ready.`
+          : `${item.title || "Movie"} was added to your library.`
+      );
       window.location.assign(payload.detail_url);
     } catch (error) {
       searchStatus.textContent = error.message;
@@ -328,8 +346,32 @@
     return card;
   };
 
-  const renderSearchResults = (payload) => {
+  const searchSkeleton = () => {
+    const card = element("article", "movie-skeleton-card");
+    card.setAttribute("aria-hidden", "true");
+    card.append(element("span", "movie-skeleton-card__poster"));
+    const copy = element("div", "movie-skeleton-card__copy");
+    copy.append(element("span"), element("span"), element("span"));
+    card.append(copy);
+    return card;
+  };
+  const clearSearchBusy = () => {
     results.classList.remove("is-loading");
+    results.removeAttribute("aria-busy");
+  };
+  const describeSearchFailure = (error) => {
+    const message = String(error?.message || "Search could not be completed.").trim();
+    const normalized = message.toLowerCase();
+    if (normalized.includes("tmdb")) {
+      return "TMDB search is unavailable. Your local library was not changed; try again later.";
+    }
+    if (normalized.includes("network") || normalized.includes("fetch") || normalized.includes("offline")) {
+      return "Network search is unavailable. Check your connection, then try again.";
+    }
+    return `Search could not complete: ${message}`;
+  };
+  const renderSearchResults = (payload) => {
+    clearSearchBusy();
     results.replaceChildren();
     const merged = [...(payload.library || []), ...(payload.discovery || [])];
     const seen = new Set();
@@ -341,8 +383,13 @@
     });
     results.hidden = false;
     if (!seen.size) {
-      searchStatus.textContent = "No TMDB results matched that search.";
-      results.hidden = true;
+      const empty = element("section", "movie-discovery__empty");
+      empty.append(
+        element("h3", "", "No local or TMDB title matched"),
+        element("p", "", "Try a different title, original title, alias, year, or TMDB ID.")
+      );
+      results.append(empty);
+      searchStatus.textContent = "No local or TMDB title matched that search.";
       return;
     }
     searchStatus.textContent = `${seen.size} result${seen.size === 1 ? "" : "s"}. Local titles open directly; missing titles can be previewed before you add them.`;
@@ -380,8 +427,9 @@
     submitButton.setAttribute("aria-busy", "true");
     searchStatus.textContent = "Searching your library, then TMDB title variants…";
     results.hidden = false;
-    results.replaceChildren();
+    results.replaceChildren(...Array.from({ length: 6 }, searchSkeleton));
     results.classList.add("is-loading");
+    results.setAttribute("aria-busy", "true");
     const endpoint = new URL(discovery.dataset.searchEndpoint, window.location.origin);
     endpoint.searchParams.set("q", query);
     endpoint.searchParams.set("type", typeInput.value);
@@ -392,8 +440,16 @@
       rememberQuery(query);
     } catch (error) {
       if (error.name === "AbortError" || version !== searchVersion) return;
-      results.classList.remove("is-loading");
-      searchStatus.textContent = error.message;
+      clearSearchBusy();
+      const message = describeSearchFailure(error);
+      const failure = element("section", "movie-discovery__error");
+      failure.setAttribute("role", "alert");
+      failure.append(
+        element("h3", "", "Search unavailable"),
+        element("p", "", message)
+      );
+      results.replaceChildren(failure);
+      searchStatus.textContent = message;
     } finally {
       if (version !== searchVersion) return;
       submitButton.disabled = false;
@@ -532,6 +588,7 @@
           }),
         });
         const redirectUrl = String(browser.dataset.importRedirectUrl || "").trim();
+        rememberMovieToast(`${release.title || "Release"} was added to your local playback library.`);
         window.location.assign(redirectUrl || `${payload.detail_url}${importEpisode ? "#movie-player" : "#release-browser"}`);
       } catch (error) {
         status.textContent = error.message;

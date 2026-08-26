@@ -285,6 +285,23 @@ motion preference prevents palette extraction and uses the low-intensity static
 fallback. There is no parallax, auto-playing carousel, large-area animation, or
 new Dragon theme.
 
+## Verified Phase 20 feedback-state delta
+
+Movies now has a compact, dismissible toast region for truthful action feedback.
+On Movies routes, server flash outcomes are presented as success/warning/error
+toasts, and a deliberate client action can carry one short confirmation through
+the next page navigation. The feedback layer is transient: it neither changes
+the underlying action nor stores a personal-state record.
+
+The discovery search replaces its old single shimmer with six inert skeleton
+cards while a request is pending, exposes `aria-busy`, and then renders one of
+three explicit outcomes: results, a no-local-or-TMDB-match explanation, or a
+source-aware failure (TMDB unavailable, network unavailable, or the specific
+returned error). Source selection and browser-local auto-next changes emit
+truthful toasts while preserving the Player's detailed inline status/error
+messages. Existing server-rendered empty states for library, lists, browse and
+collections remain intact.
+
 ## Ownership map
 
 ```text

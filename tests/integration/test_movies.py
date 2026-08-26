@@ -126,11 +126,13 @@ def test_movie_pages_are_protected_and_render_local_data(authenticated_client, a
     assert "Arrival" in listing_html
     assert 'data-ambient-level="subtle"' in listing_html
     assert "js/movies-ambient.js" in listing_html
+    assert "js/movies-feedback.js" in listing_html
     assert detail.status_code == 200
     detail_html = detail.get_data(as_text=True)
     assert "Science Fiction" in detail_html
     assert 'data-ambient-level="subtle"' in detail_html
     assert "js/movies-ambient.js" in detail_html
+    assert "js/movies-feedback.js" in detail_html
 
 
 def test_movie_collections_are_authenticated_and_do_not_require_tmdb_for_the_index(

@@ -2118,6 +2118,9 @@
     resetViewport();
     syncEpisodeUrl();
     syncSourceUi();
+    window.dispatchEvent(new CustomEvent("dragon:movies:toast", {
+      detail: { message: `${selectedProviderLabel()} selected. Playback starts only when you press play.` },
+    }));
     void loadSavedProgress();
   });
   packEpisode?.addEventListener("change", async () => {
@@ -2234,6 +2237,9 @@
       autoNextEnabled = autoNextToggle.checked;
       saveAutoNextPreference();
       if (!autoNextEnabled) clearNextEpisode();
+      window.dispatchEvent(new CustomEvent("dragon:movies:toast", {
+        detail: { message: `Auto-next ${autoNextEnabled ? "enabled" : "disabled"} for this browser.` },
+      }));
     });
   }
   nextPlay?.addEventListener("click", openNextEpisode);

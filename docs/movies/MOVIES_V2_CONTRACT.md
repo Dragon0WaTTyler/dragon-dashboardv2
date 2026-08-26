@@ -310,6 +310,20 @@ palette cache, and reduced-motion state never enter a Movies snapshot. `off` and
 reduced-effects settings must suppress the dynamic treatment; operating-system
 reduced-motion remains an independent safety override.
 
+### Feedback, loading, empty, and error states — FROZEN
+
+UI feedback is transient presentation state and never changes a lifecycle,
+favorite, list, rating, progress, source, or snapshot field by itself. A toast
+may report only an action that succeeded, a selected source that has not yet
+started playback, or a browser-local setting change. It must be dismissible and
+must not conceal the Player's more specific inline runtime/subtitle errors.
+
+Async search must expose a non-interactive loading state, then distinguish no
+match from unavailable TMDB, unavailable network, metadata failure, source
+failure, playback failure, and subtitle failure. It must not call all of those
+errors “Something went wrong,” and it must not imply a catalog failure changed
+Dragon personal state.
+
 ## 7. Snapshot contract
 
 ### Canonical Movies snapshot — FROZEN

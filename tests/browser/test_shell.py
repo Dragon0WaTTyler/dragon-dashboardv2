@@ -498,6 +498,26 @@ def test_movie_discovery_opens_series_detail_and_seeded_release(page, live_app, 
     )
 
 
+def test_movie_search_failure_has_explicit_error_state(page, live_app):
+    sign_in(page, live_app)
+    page.route(
+        "**/movies/api/search?*",
+        lambda route: route.fulfill(
+            status=503,
+            json={"error": {"message": "TMDB is unavailable"}},
+        ),
+    )
+    page.goto(f"{live_app}/movies")
+    page.locator("[data-discovery-query]").fill("Arrival")
+    page.get_by_role("button", name="Search", exact=True).click()
+
+    failure = page.locator(".movie-discovery__error")
+    failure.wait_for(state="visible")
+    assert failure.get_by_role("heading", name="Search unavailable").is_visible()
+    assert "TMDB search is unavailable" in failure.inner_text()
+    assert page.locator("[data-discovery-results]").get_attribute("aria-busy") is None
+
+
 def test_vidsrc_player_loads_only_after_explicit_click(page, live_app, app):
     with app.app_context():
         movie = Movie(

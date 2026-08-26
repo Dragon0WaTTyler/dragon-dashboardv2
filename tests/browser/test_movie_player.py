@@ -183,6 +183,9 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     )
     assert page.locator("[data-subtitle-select]").count() == 0
     assert page.locator("[data-player-badge]").inner_text() == "Local"
+    assert page.get_by_text(
+        "Local selected. Playback starts only when you press play.", exact=True
+    ).is_visible()
     page.get_by_role("button", name="Start local player").click()
     page.locator("[data-movie-player][data-playback-state]").wait_for()
     page.wait_for_function(
