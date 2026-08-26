@@ -416,6 +416,14 @@ Watch-time totals remain absent until Dragon has an append-only, reliable watch
 duration ledger. A current playhead or completed duration alone must not be
 presented as historical time watched.
 
+## 10. PWA/offline shell — DEFERRED
+
+No Movies service worker, manifest or install claim is authorized until Dragon
+has an app-wide authenticated-cache policy, explicit cache invalidation, and a
+reviewed rule that excludes Playback runtime/source responses and personal JSON
+from public/shared caches. Offline playback is not a V2 claim. The isolated
+legacy `/media/` WebTorrent worker is not a reusable Movies PWA foundation.
+
 ### Runtime-only fields excluded from snapshots — FROZEN
 
 Never serialize API keys, credentials, passwords, auth cookies, provider tokens,

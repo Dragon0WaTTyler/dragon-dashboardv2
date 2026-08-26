@@ -63,7 +63,7 @@ current” records only audited evidence, not a promise of runtime availability.
 | Toasts | Interaction feedback style | `ToastContainer` | Movies has dismissible, source-aware transient toast feedback; Player keeps detailed inline states | Reusable Dragon toast only for reversible confirmations | ADAPT_IDEA |
 | Responsive/mobile nav | Desktop screenshots; mobile nav components in repo | `BottomNav`, `MobileDrawer` | Movies V2 has verified no-overflow responsive surfaces, labelled internal navigation, 44px controls, and native dialog focus handling | Movie-specific navigation and rail/detail behavior | PORT_UX |
 | Ambient light | Artwork colors influence background | `ambientLight`, theme utilities | Dragon samples already-rendered artwork once with a session cache and static/CORS-safe fallback; it respects off/reduced settings | Optional subtle dynamic movie atmosphere | ADAPT_IDEA |
-| PWA | Install-oriented code/components | `usePWAInstall`, `InstallBanner` | Not confirmed for Movies | Post-runtime-stabilization app shell/cache policy | LATER |
+| PWA | Install-oriented code/components | `usePWAInstall`, `InstallBanner` | Deliberately deferred: no app-wide manifest/worker/cache policy; existing `/media/` worker is isolated | Post-runtime-stabilization app shell/cache policy | LATER |
 | Settings | Top-nav settings control | `SettingsModal` | Compact Dragon Movies settings now persist playback defaults, availability region and display preferences; provider/runtime administration remains separate | Small Movies preferences with advanced disclosure | ADAPT_IDEA |
 
 ## Cinejoy weaknesses Dragon must not inherit

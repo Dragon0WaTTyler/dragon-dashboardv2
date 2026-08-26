@@ -381,6 +381,17 @@ Reliable counts can be derived from canonical library/progress rows later, but
 Phase 24 intentionally does not claim aggregate watch time: the persisted
 playhead is current state, not a trustworthy total-time-watched ledger.
 
+## Verified Phase 25 PWA decision
+
+Movies V2 PWA work is deliberately deferred. Dragon has no app-wide web manifest
+or service-worker lifecycle; the only discovered registration is an isolated
+`/media/` WebTorrent worker and is not a safe Movies shell foundation. Adding a
+worker now could incorrectly cache authenticated pages, source/runtime responses
+or personally scoped JSON, and could imply offline playback that Dragon cannot
+provide. The existing cache-first server rendering remains the supported
+offline-failure behavior; no manifest, install prompt, worker or media caching
+was added in this phase.
+
 ## Ownership map
 
 ```text
