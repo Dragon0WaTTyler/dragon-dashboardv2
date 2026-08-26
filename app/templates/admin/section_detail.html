@@ -60,6 +60,28 @@
   </section>
   {% endif %}
 
+  {% if section.key == 'movies' %}
+  {% set movie_preferences = section_state.preferences.movie_preferences %}
+  <section class="section-settings-card" aria-labelledby="movie-preferences-title">
+    <div class="section-heading"><span class="eyebrow">Movies V2</span><h2 id="movie-preferences-title">Playback, discovery &amp; atmosphere</h2><p>These are personal display defaults. Provider accounts, source authorization, and runtime controls stay in Playback settings.</p></div>
+    <div class="section-settings-fields">
+      <label class="field"><span>Default subtitle language</span><input name="default_subtitle_language" value="{{ movie_preferences.default_subtitle_language }}" maxlength="3" pattern="[A-Za-z]{2,3}" placeholder="ar, en, fr"></label>
+      <label class="field"><span>Preferred source key</span><input name="preferred_source" value="{{ movie_preferences.preferred_source }}" maxlength="40" pattern="[A-Za-z0-9_-]+" placeholder="Leave blank for Dragon default"></label>
+      <label class="field"><span>Preferred availability region</span><input name="preferred_region" value="{{ movie_preferences.preferred_region }}" maxlength="2" pattern="[A-Za-z]{2}"></label>
+      <label class="field"><span>Ambient level</span><select name="ambient_level">{% for level in ['off', 'subtle', 'normal', 'vivid'] %}<option value="{{ level }}"{% if movie_preferences.ambient_level == level %} selected{% endif %}>{{ level|title }}</option>{% endfor %}</select></label>
+    </div>
+    <div class="preference-form">
+      <label class="preference-switch"><span><strong>Autoplay next episode</strong><small>Use this as the default before the player’s local choice is saved.</small></span><input type="checkbox" name="autoplay_next"{% if movie_preferences.autoplay_next %} checked{% endif %}></label>
+      <label class="preference-switch"><span><strong>Automatic resume</strong><small>Offer the saved local resume point when available.</small></span><input type="checkbox" name="automatic_resume"{% if movie_preferences.automatic_resume %} checked{% endif %}></label>
+      <label class="preference-switch"><span><strong>Reduced Movies effects</strong><small>Reduce nonessential visual motion independently of your operating-system setting.</small></span><input type="checkbox" name="reduced_effects"{% if movie_preferences.reduced_effects %} checked{% endif %}></label>
+    </div>
+  </section>
+  <section class="section-settings-card" aria-labelledby="movie-cache-title">
+    <div class="section-heading"><span class="eyebrow">Movies data</span><h2 id="movie-cache-title">Disposable discovery cache</h2><p>Clear cached TMDB browse, rails, and alternate-title results. Your library, personal state, and Playback records remain intact.</p></div>
+    <form method="post" action="{{ url_for('admin.clear_movies_discovery_cache') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--secondary" type="submit">Clear Movies discovery cache</button></form>
+  </section>
+  {% endif %}
+
   <footer class="section-settings-actions"><button class="button button--primary" type="submit">Save {{ section.label }} settings</button></footer>
 </form>
 

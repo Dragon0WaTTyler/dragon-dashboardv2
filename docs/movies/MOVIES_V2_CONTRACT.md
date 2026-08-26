@@ -276,6 +276,32 @@ not fan out to providers on detail-page load. Jackett/magnet internals stay behi
 the local/desktop acquisition boundary. Any future embed `postMessage` protocol
 validates event origin, source frame and message schema.
 
+### Movies preferences and disposable cache — FROZEN
+
+Movies preferences are owner-local display/control defaults, not provider
+configuration, credentials, or runtime state. The initial compact set is:
+
+```text
+autoplay_next
+automatic_resume
+default_subtitle_language
+preferred_source
+preferred_region
+reduced_effects
+ambient_level
+```
+
+`preferred_source` is only a fallback when no safe remembered Dragon source
+selection exists. `preferred_region` scopes catalog availability metadata only;
+it never selects or authorizes a playback source. A browser-local player choice
+may override the account-local auto-next default. Unsupported preferences must
+fail closed to established Dragon behavior.
+
+Discovery metadata caches (rails, browse results, alternate titles, provider
+availability, collections) are disposable and may be cleared independently.
+That action must never delete or rewrite `LibraryEntry`, lists, ratings,
+favorites, progress, Playback sources, or active/runtime playback data.
+
 ## 7. Snapshot contract
 
 ### Canonical Movies snapshot — FROZEN

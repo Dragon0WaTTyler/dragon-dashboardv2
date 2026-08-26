@@ -22,7 +22,7 @@ def test_preference_store_merges_defaults_and_writes_atomically(tmp_path):
     )
 
     saved = json.loads((tmp_path / "control-center.json").read_text(encoding="utf-8"))
-    assert saved["schema_version"] == 2
+    assert saved["schema_version"] == 3
     assert saved["general"]["appearance"] == "system"
     assert saved["sections"]["movies"]["enabled"] is True
     assert saved["sections"]["movies"]["show_in_navigation"] is False
@@ -33,6 +33,40 @@ def test_preference_store_merges_defaults_and_writes_atomically(tmp_path):
         "recommendation": False,
     }
     assert not list(tmp_path.glob("*.tmp"))
+
+
+def test_movie_preferences_are_validated_and_preserved(tmp_path):
+    store = PreferenceStore(tmp_path)
+
+    store.update(
+        "movies",
+        {
+            "enabled": True,
+            "show_in_navigation": True,
+            "show_on_home": True,
+            "default_view": "library",
+            "default_sort": "recent",
+            "autoplay_next": False,
+            "automatic_resume": True,
+            "default_subtitle_language": "ar",
+            "preferred_source": "videotube",
+            "preferred_region": "ma",
+            "reduced_effects": True,
+            "ambient_level": "normal",
+        },
+    )
+
+    preferences = store.read()["sections"]["movies"]["movie_preferences"]
+
+    assert preferences == {
+        "autoplay_next": False,
+        "automatic_resume": True,
+        "default_subtitle_language": "ar",
+        "preferred_source": "videotube",
+        "preferred_region": "MA",
+        "reduced_effects": True,
+        "ambient_level": "normal",
+    }
 
 
 def test_preference_store_ignores_unknown_or_malformed_values(tmp_path):

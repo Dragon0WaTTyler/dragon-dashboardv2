@@ -1595,15 +1595,37 @@
   };
 
   const selectFirstUsableSubtitle = () => {
-    const readyIndex = subtitleEntries.findIndex((entry) => entry.ready && !entry.error);
+    const preferredLanguage = String(player.dataset.defaultSubtitleLanguage || "").trim().toLowerCase();
+    const findUsableIndex = (predicate) => subtitleEntries.findIndex((entry) => (
+      predicate(entry) && !entry.error
+    ));
+    const readyIndex = findUsableIndex((entry) => (
+      entry.ready
+      && (!preferredLanguage || String(entry.item?.language || "").toLowerCase() === preferredLanguage)
+    ));
     if (readyIndex >= 0) {
       setActiveSubtitleIndex(readyIndex);
       return;
     }
-    const pendingIndex = subtitleEntries.findIndex((entry) => !entry.error);
+    const pendingIndex = findUsableIndex((entry) => (
+      !entry.ready
+      && (!preferredLanguage || String(entry.item?.language || "").toLowerCase() === preferredLanguage)
+    ));
     if (pendingIndex >= 0) {
       setActiveSubtitleIndex(pendingIndex);
       return;
+    }
+    if (preferredLanguage) {
+      const fallbackReadyIndex = findUsableIndex((entry) => entry.ready);
+      if (fallbackReadyIndex >= 0) {
+        setActiveSubtitleIndex(fallbackReadyIndex);
+        return;
+      }
+      const fallbackPendingIndex = findUsableIndex((entry) => !entry.ready);
+      if (fallbackPendingIndex >= 0) {
+        setActiveSubtitleIndex(fallbackPendingIndex);
+        return;
+      }
     }
     setActiveSubtitleIndex(-1);
     const firstError = subtitleEntries.find((entry) => entry.error)?.error || "";
@@ -2136,7 +2158,9 @@
             episodeTitle: activeSelection.episodeTitle || configuredSelectedEpisodeTitle() || selectedEpisodeTitle(),
           }
           : {};
-        if (savedProgress?.seconds) selection.resumeSeconds = savedProgress.seconds;
+        if (savedProgress?.seconds && player.dataset.automaticResume !== "false") {
+          selection.resumeSeconds = savedProgress.seconds;
+        }
         if (meta?.seasonPack && !selection.episode) {
           syncPackLaunchState();
           return;
@@ -2197,10 +2221,12 @@
     resetViewport();
     syncSourceUi();
   });
+  const defaultAutoNext = player.dataset.autoNextDefault !== "false";
   try {
-    autoNextEnabled = window.localStorage.getItem(autoNextPreferenceKey) !== "false";
+    const savedAutoNext = window.localStorage.getItem(autoNextPreferenceKey);
+    autoNextEnabled = savedAutoNext === null ? defaultAutoNext : savedAutoNext !== "false";
   } catch (_error) {
-    autoNextEnabled = true;
+    autoNextEnabled = defaultAutoNext;
   }
   if (autoNextToggle) {
     autoNextToggle.checked = autoNextEnabled;

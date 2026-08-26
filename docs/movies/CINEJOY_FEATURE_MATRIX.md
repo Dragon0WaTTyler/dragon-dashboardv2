@@ -64,7 +64,7 @@ current” records only audited evidence, not a promise of runtime availability.
 | Responsive/mobile nav | Desktop screenshots; mobile nav components in repo | `BottomNav`, `MobileDrawer` | Dragon global responsive navigation/M11 coverage | Movie-specific navigation and rail/detail behavior | PORT_UX |
 | Ambient light | Artwork colors influence background | `ambientLight`, theme utilities | Dragon Noir has ambient signature, not movie palette extraction | Optional subtle dynamic movie atmosphere | LATER |
 | PWA | Install-oriented code/components | `usePWAInstall`, `InstallBanner` | Not confirmed for Movies | Post-runtime-stabilization app shell/cache policy | LATER |
-| Settings | Top-nav settings control | `SettingsModal` | Playback settings exist separately | Small Movies preferences with advanced disclosure | ADAPT_IDEA |
+| Settings | Top-nav settings control | `SettingsModal` | Compact Dragon Movies settings now persist playback defaults, availability region and display preferences; provider/runtime administration remains separate | Small Movies preferences with advanced disclosure | ADAPT_IDEA |
 
 ## Cinejoy weaknesses Dragon must not inherit
 

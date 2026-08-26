@@ -227,3 +227,54 @@ def test_movies_control_center_reports_and_clears_inactive_playback_cache(
     assert response.status_code == 200
     assert "inactive playback cache" in response.get_data(as_text=True)
     assert not cache_file.exists()
+
+
+def test_movies_v2_preferences_and_discovery_cache_are_personal_and_disposable(
+    authenticated_client, app
+):
+    page = authenticated_client.get("/admin/sections/movies")
+    saved = authenticated_client.post(
+        "/admin/sections/movies/preferences",
+        data={
+            "csrf_token": csrf_from(page),
+            "enabled": "on",
+            "show_in_navigation": "on",
+            "show_on_home": "on",
+            "default_view": "watching",
+            "default_sort": "recent",
+            "feature_recommendation": "on",
+            "feature_progress": "on",
+            "feature_personal_score": "on",
+            "autoplay_next": "on",
+            "automatic_resume": "on",
+            "default_subtitle_language": "ar",
+            "preferred_source": "vidsrc",
+            "preferred_region": "ma",
+            "reduced_effects": "on",
+            "ambient_level": "normal",
+        },
+        follow_redirects=True,
+    )
+    body = saved.get_data(as_text=True)
+    assert 'value="ar"' in body
+    assert 'value="vidsrc"' in body
+    assert 'value="MA"' in body
+    assert "Disposable discovery cache" in body
+
+    app.extensions["dragon_movies_discovery_rails"] = {"fixture": "cache"}
+    app.extensions["dragon_movies_browse_cache"] = {"fixture": "cache"}
+    app.extensions["dragon_tmdb_alternate_title_cache"] = {"fixture": "cache"}
+    app.extensions["unrelated_extension"] = object()
+    cleared = authenticated_client.post(
+        "/admin/sections/movies/discovery-cache/clear",
+        data={"csrf_token": csrf_from(saved)},
+        follow_redirects=True,
+    )
+    assert "Your library, lists, progress, and sources were not changed." in cleared.get_data(
+        as_text=True
+    )
+    assert "dragon_movies_discovery_rails" not in app.extensions
+    assert "dragon_movies_browse_cache" not in app.extensions
+    assert "dragon_tmdb_alternate_title_cache" not in app.extensions
+    assert "unrelated_extension" in app.extensions
+    app.extensions.pop("unrelated_extension")

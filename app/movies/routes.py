@@ -55,6 +55,12 @@ from app.playback.services import PlaybackService
 bp = Blueprint("movies", __name__, url_prefix="/movies")
 
 
+def _movie_preferences() -> dict:
+    from app.admin.control_center import preference_store
+
+    return dict(preference_store().read()["sections"]["movies"]["movie_preferences"])
+
+
 def _playback_is_enabled() -> bool:
     """Return the single server-side gate for every playable surface."""
     return bool(current_app.config["DRAGON_PLAYBACK_ENABLED"])
@@ -224,14 +230,15 @@ def index():
     filters, errors = parse_movie_filters(request.args)
     from app.admin.control_center import preference_store
 
-    preferences = preference_store().read()["sections"]["movies"]
+    section_preferences = preference_store().read()["sections"]["movies"]
+    preferences = dict(section_preferences["movie_preferences"])
     if "status" not in request.args:
         default_status = {
             "watching": "watching",
             "library": "",
             "finished": "finished",
             "wishlist": "want_to_watch",
-        }.get(preferences["default_view"], "")
+        }.get(section_preferences["default_view"], "")
         filters["status"] = default_status
     if "sort" not in request.args:
         filters["sort"] = {
@@ -240,8 +247,8 @@ def index():
             "rating": "score_desc",
             "year": "year_desc",
             "title": "title_asc",
-        }.get(preferences["default_sort"], "recently_updated")
-    if preferences["hide_completed"] and not filters["status"]:
+        }.get(section_preferences["default_sort"], "recently_updated")
+    if section_preferences["hide_completed"] and not filters["status"]:
         filters["hide_completed"] = True
     page = _positive_int(request.args.get("page"), 1, 100000)
     per_page = _positive_int(request.args.get("per_page"), 24, 100)
@@ -294,6 +301,7 @@ def index():
         discovery_rails=discovery_rails(),
         recommendation=recommendation,
         recommendations=recommendations,
+        movie_preferences=preferences,
     )
 
 
@@ -407,7 +415,11 @@ def remove_custom_list_item(custom_list_id: str, movie_id: str):
 @login_required
 def browse(media_type: str):
     try:
-        query, filter_errors = parse_browse_query(media_type, request.args)
+        query, filter_errors = parse_browse_query(
+            media_type,
+            request.args,
+            default_region=_movie_preferences()["preferred_region"],
+        )
     except ValueError:
         abort(404)
     result = browse_catalog(query)
@@ -662,6 +674,7 @@ def detail(movie_id: str):
         last_selected_source, player_sources
     )
     embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
+    movie_preferences = _movie_preferences()
     return render_template(
         "movies/detail.html",
         active_module="movies",
@@ -683,6 +696,7 @@ def detail(movie_id: str):
         ),
         jackett_search_available=_jackett_search_available(movie),
         custom_lists=MovieService.custom_lists(current_user.id),
+        movie_preferences=movie_preferences,
     )
 
 
@@ -712,6 +726,7 @@ def tv_season(movie_id: str, season_number: int):
     player_sources = workspace["player_sources"] if local_player_enabled else []
     indexed_embed_sources: list[dict] = []
     embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
+    movie_preferences = _movie_preferences()
     return render_template(
         "movies/tv_season.html",
         active_module="movies",
@@ -733,6 +748,7 @@ def tv_season(movie_id: str, season_number: int):
             player_sources=player_sources,
         ),
         jackett_search_available=_jackett_search_available(movie),
+        movie_preferences=movie_preferences,
     )
 
 
@@ -780,6 +796,7 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
         last_selected_source, player_sources
     )
     embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
+    movie_preferences = _movie_preferences()
     return render_template(
         "movies/tv_season.html",
         active_module="movies",
@@ -801,6 +818,7 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
             player_sources=player_sources,
         ),
         jackett_search_available=_jackett_search_available(movie),
+        movie_preferences=movie_preferences,
     )
 
 

@@ -189,6 +189,23 @@ def clear_playback_cache():
     return redirect(url_for("admin.section_detail", section_key="movies"))
 
 
+@bp.post("/sections/movies/discovery-cache/clear")
+@login_required
+def clear_movies_discovery_cache():
+    disposable_keys = (
+        "dragon_movies_discovery_rails",
+        "dragon_movies_browse_cache",
+        "dragon_tmdb_alternate_title_cache",
+    )
+    removed = sum(1 for key in disposable_keys if current_app.extensions.pop(key, None) is not None)
+    flash(
+        f"Cleared {removed} disposable Movies cache {'entry' if removed == 1 else 'entries'}. "
+        "Your library, lists, progress, and sources were not changed.",
+        "success",
+    )
+    return redirect(url_for("admin.section_detail", section_key="movies"))
+
+
 def _tv_source(source_id: int):
     from app.extensions import db
     from app.mytv.models import TVSource

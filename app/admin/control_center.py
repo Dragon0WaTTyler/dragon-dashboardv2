@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -261,7 +262,7 @@ HOME_BLOCK_MAP = {block.key: block for block in HOME_BLOCKS}
 
 
 class PreferenceStore:
-    version = 2
+    version = 3
 
     def __init__(self, root: str | Path):
         self.path = Path(root).resolve() / "control-center.json"
@@ -300,6 +301,21 @@ class PreferenceStore:
                     "hide_completed": False,
                     "favorites_first": False,
                     "features": {feature.key: feature.default for feature in section.features},
+                    **(
+                        {
+                            "movie_preferences": {
+                                "autoplay_next": True,
+                                "automatic_resume": True,
+                                "default_subtitle_language": "",
+                                "preferred_source": "",
+                                "preferred_region": "US",
+                                "reduced_effects": False,
+                                "ambient_level": "subtle",
+                            }
+                        }
+                        if section.key == "movies"
+                        else {}
+                    ),
                     **(
                         {"retention_days": 30, "never_delete_saved": True}
                         if section.key == "reading"
@@ -390,6 +406,33 @@ class PreferenceStore:
                     target["retention_days"] = saved["retention_days"]
                 if isinstance(saved.get("never_delete_saved"), bool):
                     target["never_delete_saved"] = saved["never_delete_saved"]
+            if section.key == "movies":
+                movie_preferences = saved.get("movie_preferences")
+                if isinstance(movie_preferences, dict):
+                    target_preferences = target["movie_preferences"]
+                    for key in (
+                        "autoplay_next",
+                        "automatic_resume",
+                        "reduced_effects",
+                    ):
+                        if isinstance(movie_preferences.get(key), bool):
+                            target_preferences[key] = movie_preferences[key]
+                    language = str(movie_preferences.get("default_subtitle_language") or "").lower()
+                    if not language or re.fullmatch(r"[a-z]{2,3}", language):
+                        target_preferences["default_subtitle_language"] = language
+                    source = str(movie_preferences.get("preferred_source") or "").lower()
+                    if not source or re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", source):
+                        target_preferences["preferred_source"] = source
+                    region = str(movie_preferences.get("preferred_region") or "").upper()
+                    if re.fullmatch(r"[A-Z]{2}", region):
+                        target_preferences["preferred_region"] = region
+                    if movie_preferences.get("ambient_level") in {
+                        "off",
+                        "subtle",
+                        "normal",
+                        "vivid",
+                    }:
+                        target_preferences["ambient_level"] = movie_preferences["ambient_level"]
         return defaults
 
     def _write(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -439,6 +482,34 @@ class PreferenceStore:
             retention = str(values.get("retention_days") or "30")
             target["retention_days"] = int(retention) if retention in {"7", "30", "90"} else 30
             target["never_delete_saved"] = bool(values.get("never_delete_saved"))
+        if section.key == "movies":
+            movie_preferences = target["movie_preferences"]
+            for key in (
+                "autoplay_next",
+                "automatic_resume",
+                "reduced_effects",
+            ):
+                movie_preferences[key] = bool(values.get(key))
+            language = str(values.get("default_subtitle_language") or "").strip().lower()
+            movie_preferences["default_subtitle_language"] = (
+                language if not language or re.fullmatch(r"[a-z]{2,3}", language) else ""
+            )
+            source = str(values.get("preferred_source") or "").strip().lower()
+            movie_preferences["preferred_source"] = (
+                source
+                if not source or re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", source)
+                else ""
+            )
+            region = str(values.get("preferred_region") or "US").strip().upper()
+            movie_preferences["preferred_region"] = (
+                region if re.fullmatch(r"[A-Z]{2}", region) else "US"
+            )
+            ambient_level = str(values.get("ambient_level") or "subtle")
+            movie_preferences["ambient_level"] = (
+                ambient_level
+                if ambient_level in {"off", "subtle", "normal", "vivid"}
+                else "subtle"
+            )
         return self._write(payload)
 
     def update_general(self, values: dict[str, Any]) -> dict[str, Any]:

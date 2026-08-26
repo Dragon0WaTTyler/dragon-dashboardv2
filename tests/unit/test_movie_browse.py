@@ -56,6 +56,11 @@ def test_browse_query_is_shareable_and_validates_url_filters():
     assert query.sort == "popular"
     assert set(errors) == {"genre", "sort"}
 
+    query, errors = parse_browse_query("movie", {}, default_region="MA")
+
+    assert errors == {}
+    assert query.region == "MA"
+
 
 def test_browse_catalog_caches_catalog_and_genres_without_personal_state(app):
     provider = StubBrowseProvider()

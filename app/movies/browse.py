@@ -28,7 +28,9 @@ class BrowseQuery:
     page: int
 
 
-def parse_browse_query(media_type: str, values: Any) -> tuple[BrowseQuery, dict[str, str]]:
+def parse_browse_query(
+    media_type: str, values: Any, *, default_region: str = "US"
+) -> tuple[BrowseQuery, dict[str, str]]:
     normalized_type = media_type.strip().lower()
     if normalized_type not in {"movie", "tv"}:
         raise ValueError("Browse media type must be movie or series.")
@@ -42,10 +44,13 @@ def parse_browse_query(media_type: str, values: Any) -> tuple[BrowseQuery, dict[
     provider_id = _bounded_int(
         values.get("provider"), minimum=1, maximum=99999, errors=errors, name="provider"
     )
-    region = str(values.get("region") or "US").strip().upper()
+    normalized_default_region = str(default_region or "US").strip().upper()
+    if len(normalized_default_region) != 2 or not normalized_default_region.isalpha():
+        normalized_default_region = "US"
+    region = str(values.get("region") or normalized_default_region).strip().upper()
     if len(region) != 2 or not region.isalpha():
         errors["region"] = "Use a two-letter region code."
-        region = "US"
+        region = normalized_default_region
     page = (
         _bounded_int(
             values.get("page"), minimum=1, maximum=500, errors=errors, name="page"

@@ -244,6 +244,30 @@ library and labels its signal truthfully. A missing cached detail simply omits
 the rail: Home does not refresh TMDB, add a Movie, or alter personal state to
 make a recommendation appear.
 
+## Verified Phase 18 compact-settings delta
+
+Movies V2 preferences are now persisted through the existing local
+`PreferenceStore` (schema version 3) and deliberately remain separate from
+Playback provider/runtime administration. The active preferences are:
+
+- `autoplay_next`: the default for a new player-local auto-next choice; an
+  already-saved browser choice still takes precedence;
+- `automatic_resume`: passes a saved local position to an explicit local-player
+  launch only when enabled;
+- `default_subtitle_language`: first chooses a matching usable subtitle track,
+  then safely falls back to any usable track when that language is unavailable;
+- `preferred_source`: a default only when no remembered selected source exists;
+- `preferred_region`: the default region for TMDB availability browse; and
+- `reduced_effects` and `ambient_level`: persisted display choices reserved for
+  the following ambient/reduced-effects phase.
+
+`/admin/sections/movies` is the intentionally compact settings surface. It also
+offers an explicit disposable-cache action that removes only the app-scoped
+Movies discovery-rails, browse, and alternate-title caches. It does not touch
+library entries, custom lists, personal state, progress, Playback sources, or
+runtime cache. Trailer autoplay and hiding watched discovery cards are not
+exposed because no truthful/current behavior exists for them yet.
+
 ## Ownership map
 
 ```text
