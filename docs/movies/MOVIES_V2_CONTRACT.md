@@ -424,6 +424,16 @@ reviewed rule that excludes Playback runtime/source responses and personal JSON
 from public/shared caches. Offline playback is not a V2 claim. The isolated
 legacy `/media/` WebTorrent worker is not a reusable Movies PWA foundation.
 
+## 11. Performance baseline — FROZEN
+
+Personal-library and Browse rendering must remain bounded and paginated; a
+Movies page may never materialize an unbounded library just to render a grid.
+Related personal/progress rows must be loaded in bounded batches rather than
+per-card queries. Artwork below the primary hero uses lazy loading. Search must
+debounce input and cancel stale remote requests. Virtualization, infinite
+scroll, new indexes, and background work require a measured problem and a
+separate review; they are not defaults to add speculatively.
+
 ### Runtime-only fields excluded from snapshots — FROZEN
 
 Never serialize API keys, credentials, passwords, auth cookies, provider tokens,

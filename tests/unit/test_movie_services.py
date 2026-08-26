@@ -7,6 +7,7 @@ from app.auth.models import User
 from app.extensions import db
 from app.history.models import HistoryEvent
 from app.movies.models import Movie, MovieProgress
+from app.movies.repositories import MovieRepository
 from app.movies.services import (
     MovieService,
     ProgressConflictError,
@@ -34,6 +35,30 @@ def test_movie_filter_validation():
         {"status": "invalid", "sort": "random", "view": "cinema", "year_min": "x"}
     )
     assert set(errors) == {"status", "sort", "view", "year_min"}
+
+
+def test_movie_repository_keeps_a_500_title_library_page_bounded(app):
+    with app.app_context():
+        db.session.add_all(
+            [
+                Movie(
+                    title=f"Library title {index:03d}",
+                    normalized_title=f"library title {index:03d}",
+                )
+                for index in range(500)
+            ]
+        )
+        db.session.commit()
+
+        items, total = MovieRepository.list(
+            {"sort": "title_asc"},
+            limit=24,
+            offset=24,
+        )
+
+    assert total == 500
+    assert len(items) == 24
+    assert items[0].title == "Library title 024"
 
 
 def test_progress_is_clamped_and_rejects_stale_updates(app):

@@ -392,6 +392,22 @@ provide. The existing cache-first server rendering remains the supported
 offline-failure behavior; no manifest, install prompt, worker or media caching
 was added in this phase.
 
+## Verified Phase 26 performance checkpoint
+
+The local library query has a count query plus a bounded page query with
+`selectinload` for library/progress relationships, avoiding per-card relation
+queries. Default Movies pagination is 24 (capped at 100), discovery rails are
+bounded (normally 12), and TMDB browse is cache-keyed and URL-paginated to a
+maximum page of 500. A 500-title repository regression test confirms the
+second 24-item page remains bounded while returning the correct total.
+
+Movie/TV posters, rails, cast, season and episode artwork use native lazy image
+loading where they are not the primary hero image. Discovery search already
+debounces at 320 ms and cancels stale fetches via `AbortController`. No evidence
+justifies client-side virtualization, infinite-scroll state, or a new index in
+this phase; those are intentionally deferred until profiling demonstrates a
+real bottleneck.
+
 ## Ownership map
 
 ```text
