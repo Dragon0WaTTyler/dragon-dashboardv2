@@ -966,6 +966,14 @@ class MovieService:
                 custom_list_id=custom_list.id, movie_id=movie.id, position=position
             )
         )
+        HistoryService.record(
+            domain="movies",
+            entity_type="movie_list",
+            entity_id=custom_list.id,
+            event_type="list_membership_added",
+            label=f"Added {movie.title} to {custom_list.title}",
+            metadata={"media_key": movie.media_key, "list_id": custom_list.id},
+        )
         db.session.commit()
 
     @staticmethod
@@ -1023,6 +1031,7 @@ class MovieService:
     def set_status(movie: Movie, status: str) -> Movie:
         if status not in MOVIE_STATUSES:
             raise ValueError("Unknown movie status.")
+        previous_status = effective_lifecycle_status(movie)
         movie.status = status
         entry = MovieService.ensure_library_entry(movie)
         now = utc_now()
@@ -1033,13 +1042,20 @@ class MovieService:
             entry.last_watched_at = entry.last_watched_at or now
         elif status in {"want_to_watch", "unknown"}:
             entry.completed_at = None
-        HistoryService.record(
-            domain="movies",
-            entity_type="movie",
-            entity_id=movie.id,
-            event_type="status",
-            label=f"{movie.title}: {status.replace('_', ' ')}",
-        )
+        if entry.lifecycle_status != previous_status:
+            is_completion = entry.lifecycle_status == "watched"
+            HistoryService.record(
+                domain="movies",
+                entity_type="movie",
+                entity_id=movie.id,
+                event_type="movie_completed" if is_completion else "lifecycle_changed",
+                label=(
+                    f"Completed {movie.title}"
+                    if is_completion
+                    else f"{movie.title}: {entry.lifecycle_status.replace('_', ' ')}"
+                ),
+                metadata={"media_key": movie.media_key, "lifecycle_status": entry.lifecycle_status},
+            )
         db.session.commit()
         return movie
 
@@ -1047,8 +1063,10 @@ class MovieService:
     def set_score(movie: Movie, score: float | None, *, label: str | None = None) -> Movie:
         if score is not None and not 0 <= score <= 5:
             raise ValueError("Score must be between 0 and 5.")
-        movie.personal_score = score
         entry = MovieService.ensure_library_entry(movie)
+        previous_score = entry.personal_rating
+        previous_label = entry.personal_label
+        movie.personal_score = score
         entry.personal_rating = score
         if label is not None or score is None:
             metadata_state = dict(movie.metadata_state or {})
@@ -1058,27 +1076,32 @@ class MovieService:
                 metadata_state.pop("personal_score_label", None)
             movie.metadata_state = metadata_state
             entry.personal_label = label or ""
-        HistoryService.record(
-            domain="movies",
-            entity_type="movie",
-            entity_id=movie.id,
-            event_type="rating",
-            label=f"Rated {movie.title}: {score if score is not None else 'cleared'}",
-        )
+        if entry.personal_rating != previous_score or entry.personal_label != previous_label:
+            HistoryService.record(
+                domain="movies",
+                entity_type="movie",
+                entity_id=movie.id,
+                event_type="rating",
+                label=f"Rated {movie.title}: {score if score is not None else 'cleared'}",
+                metadata={"media_key": movie.media_key, "rating": score, "label": entry.personal_label},
+            )
         db.session.commit()
         return movie
 
     @staticmethod
     def set_favorite(movie: Movie, is_favorite: bool) -> Movie:
         entry = MovieService.ensure_library_entry(movie)
+        previous_favorite = entry.is_favorite
         entry.is_favorite = bool(is_favorite)
-        HistoryService.record(
-            domain="movies",
-            entity_type="movie",
-            entity_id=movie.id,
-            event_type="favorite",
-            label=("Favorited " if entry.is_favorite else "Removed favorite ") + movie.title,
-        )
+        if entry.is_favorite != previous_favorite:
+            HistoryService.record(
+                domain="movies",
+                entity_type="movie",
+                entity_id=movie.id,
+                event_type="favorite",
+                label=("Favorited " if entry.is_favorite else "Removed favorite ") + movie.title,
+                metadata={"media_key": movie.media_key, "is_favorite": entry.is_favorite},
+            )
         db.session.commit()
         return movie
 
@@ -1111,6 +1134,7 @@ class MovieService:
                 candidate = candidate.replace(tzinfo=UTC)
             if candidate < stored:
                 raise ProgressConflictError(progress_dict(progress) or {})
+        was_completed = bool(progress.completed)
         progress.current_seconds = current_seconds
         progress.duration_seconds = duration_seconds
         progress.completed = progress_is_completed(
@@ -1140,23 +1164,25 @@ class MovieService:
             elif not progress.completed and entry.lifecycle_status == "want_to_watch":
                 entry.lifecycle_status = "watching"
                 movie.status = "watching"
-        HistoryService.record(
-            domain="movies",
-            entity_type="movie",
-            entity_id=movie.id,
-            event_type="playback_progress",
-            label=(
-                f"Playback progress saved for {movie.title}"
-                if season is None and episode is None
-                else f"Playback progress saved for {movie.title} S{season:02d}E{episode:02d}"
-            ),
-            metadata={
-                "current_seconds": current_seconds,
-                "duration_seconds": duration_seconds,
-                "season": season,
-                "episode": episode,
-            },
-        )
+        if progress.completed and not was_completed:
+            episode_scope = season is not None and episode is not None
+            HistoryService.record(
+                domain="movies",
+                entity_type="episode" if episode_scope else "movie",
+                entity_id=movie.id,
+                event_type="episode_completed" if episode_scope else "movie_completed",
+                label=(
+                    f"Completed {movie.title} S{season:02d}E{episode:02d}"
+                    if episode_scope
+                    else f"Completed {movie.title}"
+                ),
+                metadata={
+                    "media_key": movie.media_key,
+                    "season": season,
+                    "episode": episode,
+                    "duration_seconds": duration_seconds,
+                },
+            )
         db.session.commit()
         return progress
 

@@ -365,6 +365,22 @@ before changes begin. Version `0` is accepted only as the earlier same-shape
 form with optional progress/lists/preferences absent; unknown schema versions
 are rejected without a write.
 
+## Verified Phase 24 activity-facts delta
+
+Movies now contributes only meaningful local facts to the existing History
+timeline: a movie/episode completion transition, a changed personal rating, a
+changed favorite, a lifecycle transition, and a newly added custom-list
+membership. Repeated progress saves below completion and repeated identical
+rating/favorite/list requests produce no event, so playback polling cannot turn
+the timeline into telemetry or noise. Completion facts retain canonical media
+and episode scope metadata; no source, runtime, local path, or provider data is
+recorded.
+
+The current profile projection is the authenticated local History timeline.
+Reliable counts can be derived from canonical library/progress rows later, but
+Phase 24 intentionally does not claim aggregate watch time: the persisted
+playhead is current state, not a trustworthy total-time-watched ledger.
+
 ## Ownership map
 
 ```text

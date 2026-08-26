@@ -3,7 +3,9 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.auth.models import User
 from app.extensions import db
+from app.history.models import HistoryEvent
 from app.movies.models import Movie, MovieProgress
 from app.movies.services import (
     MovieService,
@@ -101,6 +103,32 @@ def test_status_and_score_validation(app):
         assert "personal_score_label" not in movie.metadata_state
         with pytest.raises(ValueError):
             MovieService.set_score(movie, 7)
+
+
+def test_movies_activity_records_only_meaningful_idempotent_facts(app):
+    with app.app_context():
+        owner = User(username="activity-owner", password_hash="unused")
+        movie = _movie()
+        db.session.add_all([owner, movie])
+        db.session.commit()
+
+        MovieService.save_progress(movie, current_seconds=10, duration_seconds=100, completed=False)
+        MovieService.save_progress(movie, current_seconds=20, duration_seconds=100, completed=False)
+        MovieService.save_progress(movie, current_seconds=95, duration_seconds=100, completed=False)
+        MovieService.save_progress(movie, current_seconds=100, duration_seconds=100, completed=False)
+        MovieService.set_score(movie, 4.5, label="great movie")
+        MovieService.set_score(movie, 4.5, label="great movie")
+        custom_list = MovieService.create_custom_list(owner.id, title="Activity list")
+        MovieService.add_to_custom_list(custom_list, movie)
+        MovieService.add_to_custom_list(custom_list, movie)
+
+        events = list(db.session.scalars(db.select(HistoryEvent).order_by(HistoryEvent.event_type)))
+
+    assert [event.event_type for event in events] == [
+        "list_membership_added",
+        "movie_completed",
+        "rating",
+    ]
 
 
 def test_v2_identity_and_library_entry_keep_movie_and_tv_separate(app):

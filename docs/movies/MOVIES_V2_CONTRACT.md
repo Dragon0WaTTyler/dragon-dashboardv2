@@ -401,6 +401,21 @@ restore. The current `MovieLibraryEntry` table is still single-local-library
 rather than owner-keyed; therefore its export/import scope remains the existing
 Dragon local library until a separately approved ownership migration.
 
+## 9. Activity facts — FROZEN
+
+Canonical Movies state remains separate from the local History/profile
+projection. A fact may be emitted only for a meaningful transition: movie or
+episode completed, lifecycle changed, rating changed, favorite changed, or a
+new list membership. Progress saves below completion, duplicate requests, card
+views, search, discovery and cache refreshes emit no fact. Completion facts use
+the typed media key and, when applicable, season/episode scope; they never
+include a playback source, runtime session, path, subtitle, credential or
+provider token.
+
+Watch-time totals remain absent until Dragon has an append-only, reliable watch
+duration ledger. A current playhead or completed duration alone must not be
+presented as historical time watched.
+
 ### Runtime-only fields excluded from snapshots — FROZEN
 
 Never serialize API keys, credentials, passwords, auth cookies, provider tokens,
