@@ -144,6 +144,50 @@ class MovieLibraryEntry(db.Model):
     )
 
 
+class MovieCustomList(db.Model):
+    """A user-owned collection, deliberately independent from lifecycle state."""
+
+    __tablename__ = "movie_custom_lists"
+
+    id: Mapped[str] = mapped_column(
+        String(40), primary_key=True, default=lambda: new_id("mls")
+    )
+    owner_user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    items: Mapped[list[MovieCustomListItem]] = relationship(
+        back_populates="custom_list", cascade="all, delete-orphan", order_by="MovieCustomListItem.position"
+    )
+
+
+class MovieCustomListItem(db.Model):
+    __tablename__ = "movie_custom_list_items"
+    __table_args__ = (Index("ix_movie_custom_list_items_movie", "movie_id"),)
+
+    custom_list_id: Mapped[str] = mapped_column(
+        ForeignKey("movie_custom_lists.id", ondelete="CASCADE"), primary_key=True
+    )
+    movie_id: Mapped[str] = mapped_column(
+        ForeignKey("movies.id", ondelete="CASCADE"), primary_key=True
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    custom_list: Mapped[MovieCustomList] = relationship(back_populates="items")
+    movie: Mapped[Movie] = relationship()
+
+
 class MovieProgress(db.Model):
     __tablename__ = "movie_progress"
     __table_args__ = (
