@@ -341,6 +341,64 @@ def test_movies_home_does_not_hydrate_missing_recommendation_overview_from_tmdb(
         assert db.session.get(Movie, movie_id).overview == ""
 
 
+def test_movies_snapshot_routes_require_preview_and_restore_only_the_previewed_payload(
+    authenticated_client, app
+):
+    movie_id = add_movie(
+        app,
+        external_ids={"tmdb_id": "123", "imdb_id": "tt0123"},
+        media_type="movie",
+    )
+    with app.app_context():
+        movie = db.session.get(Movie, movie_id)
+        MovieService.ensure_library_entry(movie)
+        db.session.commit()
+
+    page = authenticated_client.get("/movies")
+    token = csrf_from(page)
+    exported = authenticated_client.get("/movies/snapshot/export")
+    snapshot = exported.get_json()
+
+    assert exported.status_code == 200
+    assert exported.headers["Content-Disposition"].endswith("dragon-movies-snapshot-v1.json")
+    assert "playback_sources" not in exported.get_data(as_text=True)
+
+    rejected = authenticated_client.post(
+        "/movies/snapshot/import/apply",
+        json={"snapshot": snapshot},
+        headers={"X-CSRFToken": token},
+    )
+    previewed = authenticated_client.post(
+        "/movies/snapshot/import/preview",
+        json={"snapshot": snapshot},
+        headers={"X-CSRFToken": token},
+    )
+
+    assert rejected.status_code == 409
+    assert previewed.status_code == 200
+    digest = previewed.get_json()["preview"]["digest"]
+
+    with app.app_context():
+        movie = db.session.get(Movie, movie_id)
+        movie.status = "watched"
+        movie.library_entry.lifecycle_status = "watched"
+        db.session.commit()
+
+    applied = authenticated_client.post(
+        "/movies/snapshot/import/apply",
+        json={"snapshot": snapshot, "preview_digest": digest},
+        headers={"X-CSRFToken": token},
+    )
+
+    assert applied.status_code == 200
+    with app.app_context():
+        restored = db.session.get(Movie, movie_id)
+        assert (restored.status, restored.library_entry.lifecycle_status) == (
+            "watching",
+            "watching",
+        )
+
+
 def test_movie_status_mutation_requires_csrf(authenticated_client, app):
     movie_id = add_movie(app)
     assert (

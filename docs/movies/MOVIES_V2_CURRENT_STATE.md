@@ -342,6 +342,29 @@ available only through the explicit metadata-refresh boundary until a later
 versioned cache-storage contract exists. Phase 22 introduces no background
 worker: an expired query may revalidate during that explicit browse request.
 
+## Verified Phase 23 Movies snapshot V1 delta
+
+`app/movies/snapshots.py` now owns a portable canonical-state export and a
+strict validation/preview/apply workflow. `GET /movies/snapshot/export` returns
+`schema_version: 1` JSON containing only a minimal typed media seed required to
+restore the personal state, library entries, lifecycle/favorite/rating/label
+fields, movie and episode progress, current user's custom lists/memberships,
+and compact Movies preferences. It deliberately excludes `metadata_state`,
+watch/provider availability cache, Playback sources, selected-source/runtime
+state, subtitles, local paths, credentials, tokens, cookies, buffers and logs.
+
+`POST /movies/snapshot/import/preview` validates the whole payload without any
+write and returns a digest plus create/restore counts. An apply request must
+repeat that exact digest at `POST /movies/snapshot/import/apply`; an unpreviewed
+or changed snapshot returns a conflict. A valid apply is an explicit
+non-deleting merge: it may restore personal fields for matching keys and add
+missing media/list/progress rows, but it never removes a local title, list,
+membership, source, cache, or runtime state. Custom lists remain scoped to the
+current owner, and a conflicting list key owned by someone else is rejected
+before changes begin. Version `0` is accepted only as the earlier same-shape
+form with optional progress/lists/preferences absent; unknown schema versions
+are rejected without a write.
+
 ## Ownership map
 
 ```text

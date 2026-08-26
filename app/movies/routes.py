@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+
 from flask import (
     Blueprint,
+    Response,
     abort,
     current_app,
     flash,
@@ -9,6 +12,7 @@ from flask import (
     redirect,
     render_template,
     request,
+    session,
     url_for,
 )
 from flask_login import current_user, login_required
@@ -44,6 +48,14 @@ from app.movies.services import (
     parse_movie_filters,
     tv_season_workspace,
     tv_show_workspace,
+)
+from app.movies.snapshots import (
+    MoviesSnapshotConflictError,
+    MoviesSnapshotValidationError,
+    apply_movies_snapshot,
+    export_movies_snapshot,
+    movies_snapshot_digest,
+    preview_movies_snapshot,
 )
 from app.playback.providers import (
     ID_CATALOG_EMBED_PROVIDER_SPECS,
@@ -229,6 +241,16 @@ def _movie_score_options() -> list:
     return notion_score_options(labels or None)
 
 
+def _snapshot_request() -> tuple[dict, str]:
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise MoviesSnapshotValidationError("Send a JSON Movies snapshot object.")
+    snapshot = payload.get("snapshot", payload)
+    if not isinstance(snapshot, dict):
+        raise MoviesSnapshotValidationError("snapshot must be an object.")
+    return snapshot, str(payload.get("preview_digest") or "")
+
+
 @bp.get("")
 @login_required
 def index():
@@ -320,6 +342,49 @@ def watch_next():
         movies=[movie_item(movie) for movie in movies],
         library_sync_error=library_sync.error,
     )
+
+
+@bp.get("/snapshot/export")
+@login_required
+def export_snapshot():
+    snapshot = export_movies_snapshot(owner_user_id=current_user.id)
+    return Response(
+        json.dumps(snapshot, ensure_ascii=False, indent=2) + "\n",
+        mimetype="application/json",
+        headers={"Content-Disposition": "attachment; filename=dragon-movies-snapshot-v1.json"},
+    )
+
+
+@bp.post("/snapshot/import/preview")
+@login_required
+def preview_snapshot_import():
+    try:
+        snapshot, _ = _snapshot_request()
+        preview = preview_movies_snapshot(snapshot, owner_user_id=current_user.id)
+    except MoviesSnapshotValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+    session["movies_snapshot_preview_digest"] = preview["digest"]
+    return jsonify({"preview": preview})
+
+
+@bp.post("/snapshot/import/apply")
+@login_required
+def apply_snapshot_import():
+    try:
+        snapshot, preview_digest = _snapshot_request()
+        digest = movies_snapshot_digest(snapshot)
+    except MoviesSnapshotValidationError as exc:
+        return jsonify({"error": str(exc)}), 400
+    if not preview_digest or preview_digest != session.get("movies_snapshot_preview_digest"):
+        return jsonify({"error": "Preview this exact Movies snapshot before applying it."}), 409
+    if digest != preview_digest:
+        return jsonify({"error": "The snapshot changed after preview; preview it again."}), 409
+    try:
+        result = apply_movies_snapshot(snapshot, owner_user_id=current_user.id)
+    except (MoviesSnapshotValidationError, MoviesSnapshotConflictError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    session.pop("movies_snapshot_preview_digest", None)
+    return jsonify({"result": result})
 
 
 @bp.get("/lists")

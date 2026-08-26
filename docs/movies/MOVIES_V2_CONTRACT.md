@@ -372,6 +372,35 @@ It contains canonical keys and data sufficient to restore Dragon personal Movies
 state. Cached TMDB metadata may be exported separately only with freshness/source
 metadata; it cannot override personal state on import.
 
+### Snapshot V1 transport — FROZEN
+
+The implemented portable envelope is `schema_version: 1` with:
+
+```text
+exported_at
+media[]                 # minimal typed identity/title seed, never a metadata cache
+library_entries[]       # lifecycle, favorite, rating, label and lifecycle timestamps
+progress[]              # movie and episode scopes, seconds/duration/completion/timestamps
+custom_lists[]          # current owner's list key, fields and media-key memberships
+preferences             # compact Movies preferences only
+```
+
+The web flow is explicit: export is authenticated; import first validates and
+previews with no writes; apply requires the digest of the exact previewed JSON.
+Unsupported schemas, malformed identities, duplicate media/progress/list scopes,
+invalid timestamps, or invalid preference values are rejected before a database
+write. V0 compatibility accepts the same basic shape when optional progress,
+lists and preferences are absent; it normalizes to V1 defaults. No speculative
+converter exists for an unknown schema.
+
+Apply is a confirmed, non-deleting merge. It may restore an existing canonical
+personal entry/progress/list or add a missing one, but it must not remove local
+titles, list memberships, source configuration, cache data or runtime state.
+List keys are owner-scoped: a key owned by a different local account rejects the
+restore. The current `MovieLibraryEntry` table is still single-local-library
+rather than owner-keyed; therefore its export/import scope remains the existing
+Dragon local library until a separately approved ownership migration.
+
 ### Runtime-only fields excluded from snapshots — FROZEN
 
 Never serialize API keys, credentials, passwords, auth cookies, provider tokens,

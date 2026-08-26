@@ -512,6 +512,19 @@ class PreferenceStore:
             )
         return self._write(payload)
 
+    def set_movie_preferences(self, values: dict[str, Any]) -> dict[str, Any]:
+        """Apply an already-validated portable Movies preference payload."""
+
+        payload = self.read()
+        target = payload["sections"]["movies"]["movie_preferences"]
+        for key in ("autoplay_next", "automatic_resume", "reduced_effects"):
+            target[key] = bool(values[key])
+        target["default_subtitle_language"] = str(values["default_subtitle_language"])
+        target["preferred_source"] = str(values["preferred_source"])
+        target["preferred_region"] = str(values["preferred_region"])
+        target["ambient_level"] = str(values["ambient_level"])
+        return self._write(payload)
+
     def update_general(self, values: dict[str, Any]) -> dict[str, Any]:
         payload = self.read()
         target = payload["general"]
