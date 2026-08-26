@@ -101,6 +101,13 @@ class TmdbCatalogProvider:
         )
         return deduplicated
 
+    def clear_alternate_title_cache(self) -> int:
+        """Clear only disposable search aliases and return the removed count."""
+
+        removed = len(self._alternate_title_cache)
+        self._alternate_title_cache.clear()
+        return removed
+
     def lookup_tmdb_id(self, tmdb_id: int, media_type: str = "all") -> list[dict]:
         """Resolve an explicitly requested TMDB ID without pretending it is text search."""
 

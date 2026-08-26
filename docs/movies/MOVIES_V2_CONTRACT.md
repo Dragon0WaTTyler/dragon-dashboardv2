@@ -297,10 +297,23 @@ it never selects or authorizes a playback source. A browser-local player choice
 may override the account-local auto-next default. Unsupported preferences must
 fail closed to established Dragon behavior.
 
-Discovery metadata caches (rails, browse results, alternate titles, provider
-availability, collections) are disposable and may be cleared independently.
-That action must never delete or rewrite `LibraryEntry`, lists, ratings,
-favorites, progress, Playback sources, or active/runtime playback data.
+Discovery cache ownership is frozen as follows:
+
+| Cache | Key / boundary | Current clear action |
+| --- | --- | --- |
+| Rails | source, media type, query | disposable app memory |
+| Browse | type, genre, year, availability provider, region, sort, page | disposable app memory |
+| Alternate titles | TMDB media type + numeric ID | disposable TMDB-adapter memory |
+| Collections | declarative local definition; pages reuse Browse keys | no separate mutable cache |
+| Detail/provider availability | persisted presentational metadata on `Movie` | **not** included in discovery clear; explicit detail refresh only |
+
+A fresh cache hit must not make a remote request. An expired Browse/rail entry
+may revalidate for the request that needs it; if that request fails, Dragon must
+retain the last cached content rather than replace it with an empty result.
+No background revalidation worker is frozen by this phase. The clear action is
+explicit and may clear only the disposable rows above; it must never delete or
+rewrite `LibraryEntry`, lists, ratings, favorites, progress, Playback sources,
+or active/runtime playback data.
 
 Ambient artwork is presentation-only. It may sample artwork already rendered in
 the browser and retain a bounded browser-session palette cache keyed by artwork

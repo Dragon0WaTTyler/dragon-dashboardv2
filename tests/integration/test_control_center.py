@@ -263,7 +263,11 @@ def test_movies_v2_preferences_and_discovery_cache_are_personal_and_disposable(
 
     app.extensions["dragon_movies_discovery_rails"] = {"fixture": "cache"}
     app.extensions["dragon_movies_browse_cache"] = {"fixture": "cache"}
-    app.extensions["dragon_tmdb_alternate_title_cache"] = {"fixture": "cache"}
+    from app.movies.integrations import TmdbCatalogProvider
+
+    provider = TmdbCatalogProvider(api_key="test")
+    provider._alternate_title_cache[("movie", 42)] = (999999999, ["Answer"])
+    app.extensions["dragon_tmdb_catalog_provider"] = provider
     app.extensions["unrelated_extension"] = object()
     cleared = authenticated_client.post(
         "/admin/sections/movies/discovery-cache/clear",
@@ -275,6 +279,6 @@ def test_movies_v2_preferences_and_discovery_cache_are_personal_and_disposable(
     )
     assert "dragon_movies_discovery_rails" not in app.extensions
     assert "dragon_movies_browse_cache" not in app.extensions
-    assert "dragon_tmdb_alternate_title_cache" not in app.extensions
+    assert provider._alternate_title_cache == {}
     assert "unrelated_extension" in app.extensions
     app.extensions.pop("unrelated_extension")

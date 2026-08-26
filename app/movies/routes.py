@@ -22,7 +22,6 @@ from app.movies.collections import (
 from app.movies.external_library import (
     add_to_library,
     discover_item,
-    hydrate_missing_recommendation_overviews,
     import_release,
     notion_movie_provider,
     refresh_movie_metadata,
@@ -260,7 +259,6 @@ def index():
     per_page = _positive_int(request.args.get("per_page"), 24, 100)
     offset = (page - 1) * per_page
     library_sync = sync_notion_library()
-    hydrate_missing_recommendation_overviews()
     movies, total = MovieRepository.list(
         filters,
         limit=per_page,

@@ -304,14 +304,17 @@ def test_movies_exposes_multiple_recommendations_for_try_another(authenticated_c
     assert "Second pick" in html
 
 
-def test_movies_hydrates_missing_recommendation_overview_from_tmdb(
+def test_movies_home_does_not_hydrate_missing_recommendation_overview_from_tmdb(
     authenticated_client, app
 ):
     class OverviewTmdbProvider:
         configured = True
 
+        def __init__(self):
+            self.detail_calls = []
+
         def details(self, media_type, tmdb_id):
-            assert (media_type, tmdb_id) == ("movie", 123)
+            self.detail_calls.append((media_type, tmdb_id))
             return {"overview": "A synopsis fetched from TMDB."}
 
     movie_id = add_movie(
@@ -326,14 +329,16 @@ def test_movies_hydrates_missing_recommendation_overview_from_tmdb(
         directors=[{"name": "A director"}],
         genres=[{"name": "Drama"}],
     )
+    provider = OverviewTmdbProvider()
     with app.app_context():
-        app.extensions["dragon_tmdb_catalog_provider"] = OverviewTmdbProvider()
+        app.extensions["dragon_tmdb_catalog_provider"] = provider
 
     page = authenticated_client.get("/movies")
 
-    assert "A synopsis fetched from TMDB." in page.get_data(as_text=True)
+    assert "A synopsis fetched from TMDB." not in page.get_data(as_text=True)
+    assert provider.detail_calls == []
     with app.app_context():
-        assert db.session.get(Movie, movie_id).overview == "A synopsis fetched from TMDB."
+        assert db.session.get(Movie, movie_id).overview == ""
 
 
 def test_movie_status_mutation_requires_csrf(authenticated_client, app):

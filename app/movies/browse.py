@@ -87,7 +87,13 @@ def browse_catalog(query: BrowseQuery) -> dict[str, Any]:
     )
     cached = cache.get(query_key)
     if isinstance(cached, dict) and float(cached.get("expires_at") or 0) > now:
-        return {**cached["value"], "genres": genres, "providers": providers, "error": ""}
+        return {
+            **cached["value"],
+            "genres": genres,
+            "providers": providers,
+            "error": "",
+            "stale": False,
+        }
     try:
         discover_kwargs: dict[str, Any] = {
             "genre_id": query.genre_id,
@@ -100,12 +106,21 @@ def browse_catalog(query: BrowseQuery) -> dict[str, Any]:
             discover_kwargs["region"] = query.region
         payload = provider.discover(query.media_type, **discover_kwargs)
     except MediaIntegrationError as exc:
+        if isinstance(cached, dict) and isinstance(cached.get("value"), dict):
+            return {
+                **cached["value"],
+                "genres": genres,
+                "providers": providers,
+                "error": "Showing the last cached results because TMDB could not refresh them.",
+                "stale": True,
+            }
         return {
             "items": [],
             "genres": genres, "providers": providers,
             "page": query.page,
             "total_pages": query.page,
             "error": str(exc),
+            "stale": False,
         }
     value = {
         "items": [
@@ -116,7 +131,13 @@ def browse_catalog(query: BrowseQuery) -> dict[str, Any]:
         "total_pages": int(payload["total_pages"]),
     }
     cache[query_key] = {"expires_at": now + BROWSE_CACHE_TTL_SECONDS, "value": value}
-    return {**value, "genres": genres, "providers": providers, "error": ""}
+    return {
+        **value,
+        "genres": genres,
+        "providers": providers,
+        "error": "",
+        "stale": False,
+    }
 
 
 def _cached_providers(

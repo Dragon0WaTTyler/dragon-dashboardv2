@@ -5,6 +5,7 @@ from app.movies.collections import (
     collection_catalog,
     movie_collection,
 )
+from app.movies.integrations import MediaIntegrationError
 
 
 class StubBrowseProvider:
@@ -76,6 +77,35 @@ def test_browse_catalog_caches_catalog_and_genres_without_personal_state(app):
     ]
     assert second == first
     assert first["items"][0]["detail_url"] == "/movies/discover/movie/603"
+
+
+def test_browse_catalog_keeps_expired_cached_results_when_tmdb_refresh_fails(app):
+    class FailingBrowseProvider(StubBrowseProvider):
+        def __init__(self):
+            super().__init__()
+            self.fail_discovery = False
+
+        def discover(self, media_type, **kwargs):
+            if self.fail_discovery:
+                raise MediaIntegrationError("TMDB is unavailable.")
+            return super().discover(media_type, **kwargs)
+
+    provider = FailingBrowseProvider()
+    query, _ = parse_browse_query("movie", {"genre": "18"})
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = provider
+        fresh = browse_catalog(query)
+        cache = app.extensions["dragon_movies_browse_cache"]
+        cache[next(key for key in cache if key.startswith("browse:"))]["expires_at"] = 0
+        provider.fail_discovery = True
+        stale = browse_catalog(query)
+
+    assert stale["items"] == fresh["items"]
+    assert stale["stale"] is True
+    assert "last cached results" in stale["error"]
+    assert provider.discover_calls == [
+        ("movie", {"genre_id": 18, "year": None, "sort": "popular", "page": 1})
+    ]
 
 
 def test_collections_are_declarative_and_reuse_the_browse_cache(app):

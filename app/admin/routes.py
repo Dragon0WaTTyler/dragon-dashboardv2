@@ -198,6 +198,11 @@ def clear_movies_discovery_cache():
         "dragon_tmdb_alternate_title_cache",
     )
     removed = sum(1 for key in disposable_keys if current_app.extensions.pop(key, None) is not None)
+    from app.movies.external_library import tmdb_catalog_provider
+
+    clear_aliases = getattr(tmdb_catalog_provider(), "clear_alternate_title_cache", None)
+    if callable(clear_aliases):
+        removed += int(clear_aliases())
     flash(
         f"Cleared {removed} disposable Movies cache {'entry' if removed == 1 else 'entries'}. "
         "Your library, lists, progress, and sources were not changed.",

@@ -317,6 +317,31 @@ trigger does the same as it opens or dismisses its controlled region. The
 reduced-motion rules suppress nonessential skeleton/toast motion while retaining
 readable feedback and visible focus states.
 
+## Verified Phase 22 cache-first boundary delta
+
+Opening `GET /movies` no longer invokes the legacy
+`hydrate_missing_recommendation_overviews()` helper. Home is therefore not an
+implicit TMDB detail refresh or metadata write path: cached personal detail
+metadata is rendered as-is, and an absent cache simply omits the dependent
+presentation. `POST /movies/<movie_id>/refresh-metadata` remains the explicit
+metadata-refresh action.
+
+The shared Browse engine uses an app-scoped cache keyed by media type, genre,
+year, availability provider, region, sort, and page. A fresh entry makes no
+remote call. When an expired entry cannot be refreshed, Dragon preserves and
+labels the last cached result instead of replacing it with an empty catalog;
+genre/provider metadata has the same stale fallback. Discovery rails already
+follow this retained-stale-on-failure behavior. This cache is presentational:
+neither a hit, a refresh, a failure, nor cache clear creates or changes a
+library, list, favorite, rating, progress, source, or Playback session.
+
+The explicit Movies discovery-cache control clears app-scoped rails and Browse
+entries plus the TMDB adapter's alternate-title cache. It does not clear cached
+detail/provider-availability fields persisted with a `Movie`; those remain
+available only through the explicit metadata-refresh boundary until a later
+versioned cache-storage contract exists. Phase 22 introduces no background
+worker: an expired query may revalidate during that explicit browse request.
+
 ## Ownership map
 
 ```text
