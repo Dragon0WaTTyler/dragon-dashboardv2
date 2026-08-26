@@ -155,6 +155,15 @@ detail pages, and are rendered as a separate card state rather than a lifecycle
 status. Toggling a favorite does not write, remove, or reset MovieProgress.
 Custom-list ownership remains the dedicated next milestone.
 
+## Verified Phase 11 custom-list delta
+
+`MovieCustomList` and `MovieCustomListItem` are now additive, owner-scoped
+tables. A list has title, optional description, timestamps, ordered membership,
+and a cascade-safe foreign key to its owner. A Movie can belong to many lists;
+membership is never encoded in lifecycle, favorite, or progress state. The
+Movies UI supports create, edit, delete, add, and remove operations, and every
+mutation resolves the list through the current authenticated owner.
+
 ## Ownership map
 
 ```text

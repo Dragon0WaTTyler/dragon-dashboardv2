@@ -11,7 +11,7 @@ from flask import (
     request,
     url_for,
 )
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from app.movies.browse import browse_catalog, parse_browse_query
 from app.movies.external_library import (
@@ -287,6 +287,99 @@ def watch_next():
     )
 
 
+@bp.get("/lists")
+@login_required
+def custom_lists():
+    return render_template(
+        "movies/custom_lists.html",
+        active_module="movies",
+        custom_lists=MovieService.custom_lists(current_user.id),
+    )
+
+
+@bp.post("/lists")
+@login_required
+def create_custom_list():
+    try:
+        MovieService.create_custom_list(
+            current_user.id,
+            title=str(request.form.get("title") or ""),
+            description=str(request.form.get("description") or ""),
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
+    else:
+        flash("Custom list created.", "success")
+    return redirect(url_for("movies.custom_lists"))
+
+
+@bp.post("/lists/<custom_list_id>")
+@login_required
+def update_custom_list(custom_list_id: str):
+    custom_list = MovieService.custom_list_for_owner(current_user.id, custom_list_id)
+    if custom_list is None:
+        abort(404)
+    try:
+        MovieService.update_custom_list(
+            custom_list,
+            title=str(request.form.get("title") or ""),
+            description=str(request.form.get("description") or ""),
+        )
+    except ValueError as exc:
+        flash(str(exc), "error")
+    else:
+        flash("Custom list updated.", "success")
+    return redirect(url_for("movies.custom_lists"))
+
+
+@bp.post("/lists/<custom_list_id>/delete")
+@login_required
+def delete_custom_list(custom_list_id: str):
+    custom_list = MovieService.custom_list_for_owner(current_user.id, custom_list_id)
+    if custom_list is None:
+        abort(404)
+    MovieService.delete_custom_list(custom_list)
+    flash("Custom list deleted.", "success")
+    return redirect(url_for("movies.custom_lists"))
+
+
+@bp.post("/lists/<custom_list_id>/items/<movie_id>")
+@login_required
+def add_custom_list_item(custom_list_id: str, movie_id: str):
+    custom_list = MovieService.custom_list_for_owner(current_user.id, custom_list_id)
+    movie = MovieRepository.get(movie_id)
+    if custom_list is None or movie is None:
+        abort(404)
+    MovieService.add_to_custom_list(custom_list, movie)
+    flash("Added to custom list.", "success")
+    return redirect(url_for("movies.detail", movie_id=movie_id))
+
+
+@bp.post("/items/<movie_id>/lists")
+@login_required
+def add_movie_to_selected_custom_list(movie_id: str):
+    custom_list = MovieService.custom_list_for_owner(
+        current_user.id, str(request.form.get("custom_list_id") or "")
+    )
+    movie = MovieRepository.get(movie_id)
+    if custom_list is None or movie is None:
+        abort(404)
+    MovieService.add_to_custom_list(custom_list, movie)
+    flash("Added to custom list.", "success")
+    return redirect(url_for("movies.detail", movie_id=movie_id))
+
+
+@bp.post("/lists/<custom_list_id>/items/<movie_id>/delete")
+@login_required
+def remove_custom_list_item(custom_list_id: str, movie_id: str):
+    custom_list = MovieService.custom_list_for_owner(current_user.id, custom_list_id)
+    if custom_list is None:
+        abort(404)
+    MovieService.remove_from_custom_list(custom_list, movie_id)
+    flash("Removed from custom list.", "success")
+    return redirect(url_for("movies.custom_lists"))
+
+
 @bp.get("/browse/<media_type>")
 @login_required
 def browse(media_type: str):
@@ -482,6 +575,7 @@ def detail(movie_id: str):
             active_module="movies",
             movie=movie_detail(movie),
             workspace=tv_show_workspace(movie),
+            custom_lists=MovieService.custom_lists(current_user.id),
         )
     local_player_enabled = (
         current_app.config["DRAGON_PLAYBACK_ENABLED"]
@@ -525,6 +619,7 @@ def detail(movie_id: str):
             player_sources=player_sources,
         ),
         jackett_search_available=_jackett_search_available(movie),
+        custom_lists=MovieService.custom_lists(current_user.id),
     )
 
 

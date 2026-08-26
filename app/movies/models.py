@@ -165,7 +165,9 @@ class MovieCustomList(db.Model):
     )
 
     items: Mapped[list[MovieCustomListItem]] = relationship(
-        back_populates="custom_list", cascade="all, delete-orphan", order_by="MovieCustomListItem.position"
+        back_populates="custom_list",
+        cascade="all, delete-orphan",
+        order_by="MovieCustomListItem.position",
     )
 
 

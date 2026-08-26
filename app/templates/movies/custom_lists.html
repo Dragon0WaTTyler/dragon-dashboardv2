@@ -1,0 +1,26 @@
+{% extends "layouts/app.html" %}
+{% block title %}Custom Lists · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-lists-1">{% endblock %}
+{% block content %}
+<div class="movies-v2 movies-v2--lists">
+  <div class="movies-v2__atmosphere" aria-hidden="true"></div>
+  <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
+  <header class="page-header movie-v2-masthead"><div><span class="eyebrow">Your library</span><h1>Custom lists</h1><p>Keep any title in more than one personal collection without changing its watch state.</p></div></header>
+  <section class="detail-section">
+    <h2>New list</h2>
+    <form class="detail-actions" method="post" action="{{ url_for('movies.create_custom_list') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="field"><span>Title</span><input name="title" maxlength="160" required></label>
+      <label class="field"><span>Description (optional)</span><input name="description" maxlength="2000"></label>
+      <button class="button button--primary" type="submit">Create list</button>
+    </form>
+  </section>
+  {% if custom_lists %}<div class="movie-grid">{% for custom_list in custom_lists %}
+  <article class="movie-tile movie-custom-list">
+    <div class="movie-tile__body"><span class="eyebrow">{{ custom_list.items|length }} titles</span><h2>{{ custom_list.title }}</h2>{% if custom_list.description %}<p>{{ custom_list.description }}</p>{% endif %}
+      <div class="movie-custom-list__items">{% for item in custom_list.items %}<div><a href="{{ url_for('movies.detail', movie_id=item.movie.id) }}">{{ item.movie.title }}</a><form method="post" action="{{ url_for('movies.remove_custom_list_item', custom_list_id=custom_list.id, movie_id=item.movie_id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Remove</button></form></div>{% endfor %}</div>
+      <details><summary>Edit list</summary><form class="detail-actions" method="post" action="{{ url_for('movies.update_custom_list', custom_list_id=custom_list.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input name="title" maxlength="160" value="{{ custom_list.title }}" required><input name="description" maxlength="2000" value="{{ custom_list.description }}"><button class="button button--secondary" type="submit">Save</button></form><form method="post" action="{{ url_for('movies.delete_custom_list', custom_list_id=custom_list.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Delete list</button></form></details>
+    </div>
+  </article>{% endfor %}</div>{% else %}<p class="movie-now__empty">Create a list, then add titles from their detail page.</p>{% endif %}
+</div>
+{% endblock %}

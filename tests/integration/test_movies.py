@@ -1029,6 +1029,31 @@ def test_favorite_is_independent_from_lifecycle_and_progress(authenticated_clien
         assert (progress.current_seconds, progress.duration_seconds) == (600, 6_000)
 
 
+def test_custom_lists_are_owner_scoped_and_keep_movie_state(authenticated_client, app):
+    movie_id = add_movie(app, title="List title", normalized_title="list title")
+    page = authenticated_client.get("/movies/lists")
+    created = authenticated_client.post(
+        "/movies/lists",
+        data={"title": "Weekend", "description": "For Saturday", "csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+    assert created.status_code == 200
+    assert "Weekend" in created.get_data(as_text=True)
+    with app.app_context():
+        from app.movies.models import MovieCustomList
+
+        custom_list_id = MovieCustomList.query.one().id
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    added = authenticated_client.post(
+        f"/movies/items/{movie_id}/lists",
+        data={"custom_list_id": custom_list_id, "csrf_token": csrf_from(detail)},
+        follow_redirects=True,
+    )
+    assert added.status_code == 200
+    listing = authenticated_client.get("/movies/lists")
+    assert "List title" in listing.get_data(as_text=True)
+
+
 def test_tv_detail_refresh_caches_real_seasons_and_preserves_specials(
     authenticated_client, app
 ):

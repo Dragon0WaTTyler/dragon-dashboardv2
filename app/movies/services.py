@@ -5,12 +5,19 @@ from datetime import UTC, datetime
 from random import SystemRandom
 from typing import Any
 
-from sqlalchemy import case
+from sqlalchemy import case, func
 from sqlalchemy.orm import selectinload
 
 from app.extensions import db
 from app.history.services import HistoryService
-from app.movies.models import Movie, MovieLibraryEntry, MovieProgress, canonical_media_key
+from app.movies.models import (
+    Movie,
+    MovieCustomList,
+    MovieCustomListItem,
+    MovieLibraryEntry,
+    MovieProgress,
+    canonical_media_key,
+)
 from app.movies.scoring import score_option_for_input
 from app.playback.models import PlaybackSource
 from app.shared.time import utc_now
@@ -878,6 +885,96 @@ def parse_movie_filters(values) -> tuple[dict[str, Any], dict[str, str]]:
 
 
 class MovieService:
+    @staticmethod
+    def custom_lists(owner_user_id: int) -> list[MovieCustomList]:
+        return list(
+            db.session.scalars(
+                db.select(MovieCustomList)
+                .where(MovieCustomList.owner_user_id == owner_user_id)
+                .options(
+                    selectinload(MovieCustomList.items).selectinload(MovieCustomListItem.movie)
+                )
+                .order_by(MovieCustomList.updated_at.desc(), MovieCustomList.title.asc())
+            )
+        )
+
+    @staticmethod
+    def create_custom_list(
+        owner_user_id: int, *, title: str, description: str = ""
+    ) -> MovieCustomList:
+        name = " ".join(str(title or "").split())
+        if not name:
+            raise ValueError("A custom list needs a title.")
+        custom_list = MovieCustomList(
+            owner_user_id=int(owner_user_id),
+            title=name[:160],
+            description=str(description or "").strip()[:2000],
+        )
+        db.session.add(custom_list)
+        db.session.commit()
+        return custom_list
+
+    @staticmethod
+    def custom_list_for_owner(
+        owner_user_id: int, custom_list_id: str
+    ) -> MovieCustomList | None:
+        return db.session.scalar(
+            db.select(MovieCustomList)
+            .where(
+                MovieCustomList.id == custom_list_id,
+                MovieCustomList.owner_user_id == owner_user_id,
+            )
+            .options(
+                selectinload(MovieCustomList.items).selectinload(MovieCustomListItem.movie)
+            )
+        )
+
+    @staticmethod
+    def update_custom_list(
+        custom_list: MovieCustomList, *, title: str, description: str
+    ) -> MovieCustomList:
+        name = " ".join(str(title or "").split())
+        if not name:
+            raise ValueError("A custom list needs a title.")
+        custom_list.title = name[:160]
+        custom_list.description = str(description or "").strip()[:2000]
+        db.session.commit()
+        return custom_list
+
+    @staticmethod
+    def delete_custom_list(custom_list: MovieCustomList) -> None:
+        db.session.delete(custom_list)
+        db.session.commit()
+
+    @staticmethod
+    def add_to_custom_list(custom_list: MovieCustomList, movie: Movie) -> None:
+        existing = db.session.get(MovieCustomListItem, (custom_list.id, movie.id))
+        if existing is not None:
+            return
+        position = int(
+            db.session.scalar(
+                db.select(func.coalesce(func.max(MovieCustomListItem.position), -1)).where(
+                    MovieCustomListItem.custom_list_id == custom_list.id
+                )
+            )
+            or -1
+        ) + 1
+        db.session.add(
+            MovieCustomListItem(
+                custom_list_id=custom_list.id, movie_id=movie.id, position=position
+            )
+        )
+        db.session.commit()
+
+    @staticmethod
+    def remove_from_custom_list(custom_list: MovieCustomList, movie_id: str) -> bool:
+        item = db.session.get(MovieCustomListItem, (custom_list.id, movie_id))
+        if item is None:
+            return False
+        db.session.delete(item)
+        db.session.commit()
+        return True
+
     @staticmethod
     def ensure_library_entry(movie: Movie) -> MovieLibraryEntry:
         """Create V2 personal state without discarding legacy Movie fields."""

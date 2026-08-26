@@ -141,7 +141,7 @@
   {% endif %}
 </section>
 <div id="movie-library" class="movie-actions">
-  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index') }}">All</a><a href="{{ url_for('movies.index', status='want_to_watch') }}">Want to watch</a><a href="{{ url_for('movies.index', status='watching') }}">Watching</a><a href="{{ url_for('movies.index', status='watched') }}">Watched</a><a href="{{ url_for('movies.index', favorite='1') }}">Favorites</a><a href="{{ url_for('movies.watch_next') }}">Watch next</a></nav>
+  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index') }}">All</a><a href="{{ url_for('movies.index', status='want_to_watch') }}">Want to watch</a><a href="{{ url_for('movies.index', status='watching') }}">Watching</a><a href="{{ url_for('movies.index', status='watched') }}">Watched</a><a href="{{ url_for('movies.index', favorite='1') }}">Favorites</a><a href="{{ url_for('movies.custom_lists') }}">Custom lists</a><a href="{{ url_for('movies.watch_next') }}">Watch next</a></nav>
   <div class="movie-actions__controls">
     {% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary movie-actions__recommend" type="button" data-recommendation-open aria-controls="movie-recommendation">What should I watch?</button>{% endif %}
     <a class="button button--secondary movie-actions__add" href="#movie-discovery">+ Add title</a>
