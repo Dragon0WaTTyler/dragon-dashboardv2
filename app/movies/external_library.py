@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from typing import Any
 
@@ -118,14 +120,22 @@ def search_catalog(query: str, media_type: str) -> dict[str, Any]:
     sync = sync_notion_library()
     library_ids = sync.library_ids
     local_movies = _library_movies(library_ids)
-    needle = _normalized(query)
-    local_matches = [
-        movie
-        for movie in local_movies
-        if needle in movie.normalized_title
-        and (media_type == "all" or movie.media_type == media_type)
-    ]
-    discovery = tmdb_catalog_provider().search(query, media_type)
+    needle, requested_year, requested_tmdb_id = _search_query_parts(query)
+    local_matches = sorted(
+        (
+            movie
+            for movie in local_movies
+            if (media_type == "all" or movie.media_type == media_type)
+            and _local_search_score(movie, needle, requested_year, requested_tmdb_id) > 0
+        ),
+        key=lambda movie: _local_search_score(movie, needle, requested_year, requested_tmdb_id),
+        reverse=True,
+    )
+    provider = tmdb_catalog_provider()
+    if requested_tmdb_id and hasattr(provider, "lookup_tmdb_id"):
+        discovery = provider.lookup_tmdb_id(requested_tmdb_id, media_type)
+    else:
+        discovery = provider.search(query, media_type)
     by_tmdb = {
         (
             str((movie.external_ids or {}).get("tmdb_type") or movie.media_type),
@@ -133,16 +143,11 @@ def search_catalog(query: str, media_type: str) -> dict[str, Any]:
         ): movie
         for movie in local_movies
     }
-    by_title = {
-        (movie.media_type, movie.normalized_title, movie.year): movie for movie in local_movies
-    }
     results = []
     for item in discovery:
         movie = by_tmdb.get((item["media_type"], str(item["tmdb_id"])))
         if movie is None:
-            movie = by_title.get(
-                (item["media_type"], _normalized(item["title"]), item.get("year"))
-            )
+            movie = _match_local_search_result(local_movies, item)
         results.append(
             {
                 **item,
@@ -156,9 +161,15 @@ def search_catalog(query: str, media_type: str) -> dict[str, Any]:
                 ),
             }
         )
+    merged = _dedupe_search_results(
+        [_search_item(movie) for movie in local_matches],
+        results,
+        needle=needle,
+        requested_year=requested_year,
+    )
     return {
-        "library": [_search_item(movie) for movie in local_matches],
-        "discovery": results,
+        "library": [item for item in merged if item["in_library"]],
+        "discovery": [item for item in merged if not item["in_library"]],
         "library_error": sync.error,
     }
 
@@ -558,16 +569,134 @@ def _library_movies(library_ids: list[str] | None) -> list[Movie]:
 def _search_item(movie: Movie) -> dict:
     return {
         "local_id": movie.id,
+        "media_key": movie.media_key,
         "tmdb_id": (movie.external_ids or {}).get("tmdb_id"),
         "media_type": movie.media_type,
         "title": movie.title,
         "year": movie.year,
         "poster_url": movie.poster_url,
         "overview": movie.overview,
+        "original_title": movie.original_title or "",
+        "alternate_titles": _movie_aliases(movie),
         "in_library": True,
         "has_playback": _has_playback_source(movie),
         "detail_url": f"/movies/{movie.id}",
     }
+
+
+def _search_query_parts(query: str) -> tuple[str, int | None, int | None]:
+    raw = str(query or "").strip()
+    tmdb_match = re.fullmatch(r"tmdb\s*:\s*(\d+)", raw, flags=re.IGNORECASE)
+    if tmdb_match:
+        return "", None, int(tmdb_match.group(1))
+    year_match = re.search(r"(?:^|\s)((?:18|19|20)\d{2})(?:$|\s)", raw)
+    year = int(year_match.group(1)) if year_match else None
+    title_query = raw.replace(year_match.group(1), " ") if year_match else raw
+    return _search_normalized(title_query), year, None
+
+
+def _movie_aliases(movie: Movie) -> list[str]:
+    metadata = dict(movie.metadata_state or {})
+    aliases = [movie.title, movie.original_title or ""]
+    for key in ("alternate_titles", "title_aliases", "transliterations"):
+        value = metadata.get(key) or []
+        aliases.extend(str(item) for item in value if str(item).strip())
+    return list(dict.fromkeys(alias.strip() for alias in aliases if alias.strip()))
+
+
+def _local_search_score(
+    movie: Movie,
+    needle: str,
+    requested_year: int | None,
+    requested_tmdb_id: int | None,
+) -> int:
+    external_ids = dict(movie.external_ids or {})
+    if requested_tmdb_id:
+        return 1_000 if str(external_ids.get("tmdb_id") or "") == str(requested_tmdb_id) else 0
+    aliases = [_search_normalized(alias) for alias in _movie_aliases(movie)]
+    title = _search_normalized(movie.title)
+    original_title = _search_normalized(movie.original_title)
+    score = 0
+    if needle:
+        if title == needle:
+            score += 500
+        elif original_title == needle:
+            score += 440
+        elif needle in aliases:
+            score += 400
+        elif title.startswith(needle) or original_title.startswith(needle):
+            score += 260
+        elif any(alias.startswith(needle) for alias in aliases):
+            score += 220
+        elif any(needle in alias for alias in aliases):
+            score += 120
+        else:
+            return 0
+    if requested_year and movie.year == requested_year:
+        score += 80
+    elif requested_year:
+        score -= 30
+    return score or (80 if requested_year else 0)
+
+
+def _match_local_search_result(local_movies: list[Movie], item: dict[str, Any]) -> Movie | None:
+    tmdb_id = str(item.get("tmdb_id") or "")
+    item_type = str(item.get("media_type") or "")
+    for movie in local_movies:
+        external_ids = dict(movie.external_ids or {})
+        if tmdb_id and str(external_ids.get("tmdb_id") or "") == tmdb_id and (
+            str(external_ids.get("tmdb_type") or movie.media_type) == item_type
+        ):
+            return movie
+    candidates = [
+        movie
+        for movie in local_movies
+        if movie.media_type == item_type
+        and _local_search_score(
+            movie, _search_normalized(item.get("title")), item.get("year"), None
+        )
+    ]
+    return max(candidates, key=lambda movie: _local_search_score(
+        movie, _search_normalized(item.get("title")), item.get("year"), None
+    ), default=None)
+
+
+def _dedupe_search_results(
+    library: list[dict[str, Any]],
+    discovery: list[dict[str, Any]],
+    *,
+    needle: str,
+    requested_year: int | None,
+) -> list[dict[str, Any]]:
+    unique: dict[str, tuple[int, dict[str, Any]]] = {}
+    for position, item in enumerate([*library, *discovery]):
+        media_key = str(item.get("media_key") or "")
+        if not media_key:
+            media_key = f"{item.get('media_type')}:{item.get('tmdb_id')}"
+        aliases = [
+            item.get("title"),
+            item.get("original_title"),
+            *(item.get("alternate_titles") or []),
+        ]
+        normalized_aliases = [_search_normalized(value) for value in aliases if value]
+        score = 0
+        if needle in normalized_aliases:
+            score += 500
+        elif any(alias.startswith(needle) for alias in normalized_aliases if needle):
+            score += 260
+        elif any(needle in alias for alias in normalized_aliases if needle):
+            score += 120
+        if requested_year and item.get("year") == requested_year:
+            score += 80
+        score -= position
+        existing = unique.get(media_key)
+        if existing is None or score > existing[0]:
+            unique[media_key] = (score, item)
+    ordered = sorted(
+        unique.values(),
+        key=lambda entry: (-entry[0], str(entry[1].get("title") or "").casefold()),
+    )
+    return [item for _score, item in ordered]
 
 
 def _has_playback_source(movie: Movie | None) -> bool:
@@ -632,6 +761,12 @@ def _invalidate_sync_cache(movie_id: str) -> None:
 
 def _normalized(value: Any) -> str:
     return " ".join(str(value or "").casefold().split())
+
+
+def _search_normalized(value: Any) -> str:
+    text = unicodedata.normalize("NFKD", str(value or "")).casefold()
+    text = "".join(character for character in text if not unicodedata.combining(character))
+    return " ".join(re.sub(r"[^\w]+", " ", text, flags=re.UNICODE).split())
 
 
 def _optional_int(value: Any) -> int | None:

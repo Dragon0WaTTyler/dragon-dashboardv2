@@ -87,6 +87,18 @@ they do not mutate the personal library, playback state, or acquisition data.
 Language, country, availability provider, rating, and runtime filters are
 explicitly deferred until their metadata/source contracts are implemented.
 
+## Verified Phase 6 multilingual-search delta
+
+The existing `/movies/api/search` pipeline now normalizes Unicode and
+punctuation only within its search path, leaving legacy catalog identity/import
+normalization untouched. It ranks Dragon title, original title, locally retained
+alternate/transliterated title metadata, year, type, and explicit `tmdb:<id>`
+matches before remote popularity. TMDB text results are enriched with cached
+alternate titles, then deduplicated against `media_key`/TMDB identity so a local
+title is not rendered twice. The search UI adds debounced requests, cancellation
+of stale requests, a lightweight loading skeleton, and session-local recent
+searches. It intentionally makes no claim to actor/director/people search.
+
 ## Ownership map
 
 ```text

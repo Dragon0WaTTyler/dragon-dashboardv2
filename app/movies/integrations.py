@@ -33,6 +33,7 @@ class TmdbCatalogProvider:
         self.session = session or requests.Session()
         self.timeout_seconds = timeout_seconds
         self._release_alias_cache: dict[tuple[str, int], tuple[float, dict[str, Any]]] = {}
+        self._alternate_title_cache: dict[tuple[str, int], tuple[float, list[str]]] = {}
 
     @property
     def configured(self) -> bool:
@@ -43,7 +44,7 @@ class TmdbCatalogProvider:
             "/search/multi",
             {"query": query, "include_adult": "false", "language": "en-US", "page": 1},
         )
-        ranked: list[tuple[float, dict]] = []
+        ranked: list[tuple[float, dict, dict]] = []
         normalized_query = _normalize_title(query)
         for item in payload.get("results") or []:
             item_type = str(item.get("media_type") or "")
@@ -52,7 +53,7 @@ class TmdbCatalogProvider:
             if media_type in {"movie", "tv"} and item_type != media_type:
                 continue
             summary = self._summary(item, item_type)
-            ranked.append((self._search_score(summary, normalized_query, item), summary))
+            ranked.append((self._search_score(summary, normalized_query, item), summary, item))
         ranked.sort(
             key=lambda pair: (
                 -pair[0],
@@ -60,10 +61,57 @@ class TmdbCatalogProvider:
                 -(pair[1].get("year") or 0),
             )
         )
-        return [
-            summary
-            for _, summary in ranked[: max(1, min(limit, 40))]
-        ]
+        enriched: list[tuple[float, dict, dict]] = []
+        for _score, summary, source in ranked[: max(1, min(limit, 12))]:
+            aliases = self.alternative_titles(summary["media_type"], summary["tmdb_id"])
+            if aliases:
+                summary = {**summary, "alternate_titles": aliases}
+            enriched.append(
+                (self._search_score(summary, normalized_query, source), summary, source)
+            )
+        enriched.sort(
+            key=lambda pair: (
+                -pair[0],
+                pair[1]["title"].casefold(),
+                -(pair[1].get("year") or 0),
+            )
+        )
+        return [summary for _, summary, _ in enriched[: max(1, min(limit, 40))]]
+
+    def alternative_titles(self, media_type: str, tmdb_id: int) -> list[str]:
+        """Return cached alternate titles; failure never makes a search fail."""
+
+        key = (media_type, int(tmdb_id))
+        cached = self._alternate_title_cache.get(key)
+        if cached and cached[0] > time.monotonic():
+            return list(cached[1])
+        try:
+            payload = self._request(f"/{media_type}/{int(tmdb_id)}/alternative_titles")
+            aliases = [
+                str(item.get("title") or "").strip()
+                for item in payload.get("titles") or []
+                if isinstance(item, dict) and str(item.get("title") or "").strip()
+            ]
+        except MediaIntegrationError:
+            aliases = []
+        deduplicated = list(dict.fromkeys(aliases))
+        self._alternate_title_cache[key] = (
+            time.monotonic() + self.RELEASE_ALIAS_CACHE_TTL_SECONDS,
+            deduplicated,
+        )
+        return deduplicated
+
+    def lookup_tmdb_id(self, tmdb_id: int, media_type: str = "all") -> list[dict]:
+        """Resolve an explicitly requested TMDB ID without pretending it is text search."""
+
+        types = (media_type,) if media_type in {"movie", "tv"} else ("movie", "tv")
+        matches = []
+        for item_type in types:
+            try:
+                matches.append(self.details(item_type, int(tmdb_id)))
+            except MediaIntegrationError:
+                continue
+        return matches
 
     def trending(self, media_type: str, *, limit: int = 20) -> list[dict]:
         """Return a ranked TMDB trend snapshot without mutating Dragon state."""
@@ -130,9 +178,10 @@ class TmdbCatalogProvider:
         if genre_id:
             params["with_genres"] = int(genre_id)
         if year:
-            params["primary_release_year" if media_type == "movie" else "first_air_date_year"] = int(
-                year
+            year_key = (
+                "primary_release_year" if media_type == "movie" else "first_air_date_year"
             )
+            params[year_key] = int(year)
         payload = self._request(f"/discover/{media_type}", params)
         return {
             "items": [
@@ -422,6 +471,7 @@ class TmdbCatalogProvider:
     def _search_score(self, summary: dict, normalized_query: str, payload: dict) -> float:
         title = _normalize_title(summary.get("title"))
         original_title = _normalize_title(summary.get("original_title"))
+        aliases = [_normalize_title(alias) for alias in summary.get("alternate_titles") or []]
         query_tokens = set(normalized_query.split())
         title_tokens = set(title.split())
         shared = len(query_tokens & title_tokens)
@@ -430,8 +480,12 @@ class TmdbCatalogProvider:
             score += 420
         elif original_title and original_title == normalized_query:
             score += 320
+        elif normalized_query in aliases:
+            score += 280
         elif title.startswith(normalized_query):
             score += 180
+        elif any(alias.startswith(normalized_query) for alias in aliases if normalized_query):
+            score += 160
         elif normalized_query and normalized_query in title:
             score += 120
         if query_tokens and query_tokens.issubset(title_tokens):

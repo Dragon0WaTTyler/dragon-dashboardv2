@@ -170,11 +170,12 @@
     </div>
   </div>
   <form class="movie-discovery__form" data-discovery-form>
-    <label class="field movie-discovery__query"><span>Title</span><input type="search" data-discovery-query minlength="2" maxlength="160" placeholder="Search a movie or series" autocomplete="off" required></label>
+    <label class="field movie-discovery__query"><span>Title, original title, alias, year, or tmdb:ID</span><input type="search" data-discovery-query minlength="2" maxlength="160" placeholder="Search a movie or series" autocomplete="off" required></label>
     <label class="field"><span>Type</span><select data-discovery-type><option value="all">Movies &amp; series</option><option value="movie">Movies</option><option value="tv">Series</option></select></label>
     <button class="button button--primary" type="submit" data-discovery-submit>Search</button>
   </form>
   <p class="movie-discovery__status" data-discovery-status role="status" aria-live="polite">Searches stay server-side, so your API keys never enter the browser.</p>
+  <div class="movie-discovery__recent" data-discovery-recent hidden><span>Recent searches</span><div data-discovery-recent-items></div><button class="button button--quiet" type="button" data-discovery-recent-clear>Clear</button></div>
   <div class="movie-discovery__results" data-discovery-results hidden></div>
 </section>
 

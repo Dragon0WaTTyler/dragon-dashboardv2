@@ -190,7 +190,14 @@
   const submitButton = discovery.querySelector("[data-discovery-submit]");
   const searchStatus = discovery.querySelector("[data-discovery-status]");
   const results = discovery.querySelector("[data-discovery-results]");
+  const recent = discovery.querySelector("[data-discovery-recent]");
+  const recentItems = discovery.querySelector("[data-discovery-recent-items]");
+  const clearRecent = discovery.querySelector("[data-discovery-recent-clear]");
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  const recentStorageKey = "dragon:movies:recent-searches";
+  let searchController = null;
+  let debounceTimer = null;
+  let searchVersion = 0;
 
   const element = (tag, className = "", text = "") => {
     const node = document.createElement(tag);
@@ -322,6 +329,7 @@
   };
 
   const renderSearchResults = (payload) => {
+    results.classList.remove("is-loading");
     results.replaceChildren();
     const merged = [...(payload.library || []), ...(payload.discovery || [])];
     const seen = new Set();
@@ -337,33 +345,70 @@
       results.hidden = true;
       return;
     }
-    searchStatus.textContent = `${seen.size} result${seen.size === 1 ? "" : "s"}. Notion titles open directly; missing titles can be added through Jackett.`;
+    searchStatus.textContent = `${seen.size} result${seen.size === 1 ? "" : "s"}. Local titles open directly; missing titles can be previewed before you add them.`;
   };
 
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  const readRecent = () => {
+    try { return JSON.parse(sessionStorage.getItem(recentStorageKey) || "[]"); } catch { return []; }
+  };
+  const renderRecent = () => {
+    const values = readRecent();
+    recent.hidden = !values.length;
+    recentItems.replaceChildren();
+    values.forEach((value) => {
+      const button = element("button", "", value);
+      button.type = "button";
+      button.addEventListener("click", () => { queryInput.value = value; performSearch(); });
+      recentItems.append(button);
+    });
+  };
+  const rememberQuery = (query) => {
+    const values = [query, ...readRecent().filter((value) => value !== query)].slice(0, 6);
+    sessionStorage.setItem(recentStorageKey, JSON.stringify(values));
+    renderRecent();
+  };
+  const performSearch = async () => {
     const query = queryInput.value.trim();
     if (query.length < 2) {
-      queryInput.focus();
       searchStatus.textContent = "Enter at least two characters.";
       return;
     }
+    searchController?.abort();
+    searchController = new AbortController();
+    const version = ++searchVersion;
     submitButton.disabled = true;
     submitButton.setAttribute("aria-busy", "true");
-    searchStatus.textContent = "Checking Notion, then TMDB…";
-    results.hidden = true;
+    searchStatus.textContent = "Searching your library, then TMDB title variants…";
+    results.hidden = false;
+    results.replaceChildren();
+    results.classList.add("is-loading");
     const endpoint = new URL(discovery.dataset.searchEndpoint, window.location.origin);
     endpoint.searchParams.set("q", query);
     endpoint.searchParams.set("type", typeInput.value);
     try {
-      renderSearchResults(await api(endpoint));
+      const payload = await api(endpoint, { signal: searchController.signal });
+      if (version !== searchVersion) return;
+      renderSearchResults(payload);
+      rememberQuery(query);
     } catch (error) {
+      if (error.name === "AbortError" || version !== searchVersion) return;
+      results.classList.remove("is-loading");
       searchStatus.textContent = error.message;
     } finally {
+      if (version !== searchVersion) return;
       submitButton.disabled = false;
       submitButton.removeAttribute("aria-busy");
     }
+  };
+
+  form.addEventListener("submit", (event) => { event.preventDefault(); performSearch(); });
+  queryInput.addEventListener("input", () => {
+    clearTimeout(debounceTimer);
+    if (queryInput.value.trim().length < 2) return;
+    debounceTimer = window.setTimeout(performSearch, 320);
   });
+  clearRecent?.addEventListener("click", () => { sessionStorage.removeItem(recentStorageKey); renderRecent(); });
+  renderRecent();
 })();
 
 (() => {

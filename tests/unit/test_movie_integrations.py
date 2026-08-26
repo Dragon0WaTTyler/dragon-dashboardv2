@@ -116,6 +116,39 @@ class TmdbTrendingSession:
         )
 
 
+class TmdbSearchSession:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, *, params, headers, timeout):
+        self.calls.append(url)
+        if url.endswith("/49964/alternative_titles"):
+            return JsonResponse({"titles": [{"title": "Khane-ye doost kojast?"}]})
+        if url.endswith("/999/alternative_titles"):
+            return JsonResponse({"titles": []})
+        return JsonResponse(
+            {
+                "results": [
+                    {
+                        "id": 999,
+                        "media_type": "movie",
+                        "title": "Popular unrelated title",
+                        "release_date": "2025-01-01",
+                        "popularity": 900,
+                    },
+                    {
+                        "id": 49964,
+                        "media_type": "movie",
+                        "title": "Where Is the Friend's House?",
+                        "original_title": "خانه‌ی دوست کجاست؟",
+                        "release_date": "1987-01-01",
+                        "popularity": 1,
+                    },
+                ]
+            }
+        )
+
+
 class TorznabResponse:
     ok = True
     status_code = 200
@@ -248,6 +281,17 @@ def test_tmdb_discover_maps_shareable_browse_filters_to_tmdb_parameters():
         "first_air_date_year": 2024,
         "api_key": "key",
     }
+
+
+def test_tmdb_search_ranks_cached_alternate_titles_above_popularity():
+    session = TmdbSearchSession()
+    provider = TmdbCatalogProvider(api_key="key", session=session)
+
+    results = provider.search("Khane-ye doost kojast?", "movie")
+
+    assert [item["tmdb_id"] for item in results] == [49964, 999]
+    assert results[0]["alternate_titles"] == ["Khane-ye doost kojast?"]
+    assert sum(url.endswith("/49964/alternative_titles") for url in session.calls) == 1
 
 
 def test_jackett_search_plan_uses_advertised_ids_then_dedupes_alias_results():

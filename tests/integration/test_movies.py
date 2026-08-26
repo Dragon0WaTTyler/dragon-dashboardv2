@@ -1,5 +1,6 @@
 from app.extensions import db
 from app.movies import routes as movie_routes
+from app.movies.external_library import search_catalog
 from app.movies.models import Movie, MovieProgress
 from app.movies.services import MovieService
 from app.playback.models import PlaybackSource
@@ -871,3 +872,54 @@ def test_movies_browse_route_restores_movie_filter_url_state(authenticated_clien
 
     assert shows.status_code == 302
     assert shows.headers["Location"].endswith("/movies/browse/tv?sort=title")
+
+
+def test_multilingual_search_matches_original_and_transliterated_local_titles(app):
+    class MultilingualProvider:
+        def __init__(self):
+            self.search_calls = []
+            self.id_calls = []
+
+        def search(self, query, media_type):
+            self.search_calls.append((query, media_type))
+            return [
+                {
+                    "tmdb_id": 49964,
+                    "media_type": "movie",
+                    "title": "Where Is the Friend's House?",
+                    "original_title": "خانه‌ی دوست کجاست؟",
+                    "alternate_titles": ["Khane-ye doost kojast?"],
+                    "year": 1987,
+                    "poster_url": "",
+                    "overview": "",
+                }
+            ]
+
+        def lookup_tmdb_id(self, tmdb_id, media_type):
+            self.id_calls.append((tmdb_id, media_type))
+            return self.search("tmdb result", media_type)
+
+    provider = MultilingualProvider()
+    with app.app_context():
+        movie = Movie(
+            title="Where Is the Friend's House?",
+            normalized_title="where is the friend s house",
+            original_title="خانه‌ی دوست کجاست؟",
+            year=1987,
+            external_ids={"tmdb_id": "49964", "tmdb_type": "movie"},
+            metadata_state={"transliterations": ["Khane-ye doost kojast?"]},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        app.extensions["dragon_tmdb_catalog_provider"] = provider
+
+        transliterated = search_catalog("Khane-ye doost kojast? 1987", "all")
+        native = search_catalog("خانه‌ی دوست کجاست؟", "movie")
+        by_id = search_catalog("tmdb:49964", "movie")
+
+    assert [item["local_id"] for item in transliterated["library"]] == [movie.id]
+    assert transliterated["discovery"] == []
+    assert [item["local_id"] for item in native["library"]] == [movie.id]
+    assert [item["local_id"] for item in by_id["library"]] == [movie.id]
+    assert by_id["discovery"] == []
+    assert provider.id_calls == [(49964, "movie")]
