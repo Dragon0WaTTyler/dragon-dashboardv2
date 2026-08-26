@@ -1408,6 +1408,10 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 
 /* Movies V2 shell: cinematic hierarchy without changing the player/data hooks. */
 .movies-v2 {
+  --movie-ambient-primary: 121 35 58;
+  --movie-ambient-secondary: 37 68 91;
+  --movie-ambient-strength: .32;
+  --movie-ambient-filter: saturate(112%);
   position: relative;
   isolation: isolate;
   overflow-x: clip;
@@ -1423,12 +1427,16 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   overflow: hidden;
   pointer-events: none;
   background:
-    radial-gradient(ellipse 50% 46% at 74% 12%, rgb(121 35 58 / 32%), transparent 72%),
-    radial-gradient(ellipse 45% 44% at 27% 9%, rgb(37 68 91 / 30%), transparent 70%),
+    radial-gradient(ellipse 50% 46% at 74% 12%, rgb(var(--movie-ambient-primary) / var(--movie-ambient-strength)), transparent 72%),
+    radial-gradient(ellipse 45% 44% at 27% 9%, rgb(var(--movie-ambient-secondary) / calc(var(--movie-ambient-strength) * .94)), transparent 70%),
     linear-gradient(180deg, rgb(9 10 14 / 82%), rgb(9 10 14 / 18%) 74%, transparent);
-  filter: saturate(112%);
+  filter: var(--movie-ambient-filter);
   transform: translateX(-50%);
 }
+.movies-v2[data-ambient-level="normal"] { --movie-ambient-strength: .42; --movie-ambient-filter: saturate(120%); }
+.movies-v2[data-ambient-level="vivid"] { --movie-ambient-strength: .54; --movie-ambient-filter: saturate(132%); }
+.movies-v2[data-ambient-level="off"] .movies-v2__atmosphere { display: none; }
+.movies-v2[data-reduced-effects="true"] { --movie-ambient-strength: .14; --movie-ambient-filter: none; }
 .movies-v2__atmosphere::after {
   position: absolute;
   inset: 0;
@@ -1851,6 +1859,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movies-v2 .movie-now__item { grid-template-columns: 92px minmax(175px, 1fr); }
 }
 @media (prefers-reduced-motion: reduce) {
+  .movies-v2 { --movie-ambient-strength: .14; --movie-ambient-filter: none; }
   .movies-v2 .movie-tile__poster,
   .movies-v2 .movie-tile__poster::after { transition: none; }
   .movies-v2 .movie-tile:hover .movie-tile__poster,

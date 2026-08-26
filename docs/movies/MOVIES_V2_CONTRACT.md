@@ -302,6 +302,14 @@ availability, collections) are disposable and may be cleared independently.
 That action must never delete or rewrite `LibraryEntry`, lists, ratings,
 favorites, progress, Playback sources, or active/runtime playback data.
 
+Ambient artwork is presentation-only. It may sample artwork already rendered in
+the browser and retain a bounded browser-session palette cache keyed by artwork
+URL; it must not fetch an image solely to derive a color. A canvas/CORS failure
+must keep the static Dragon fallback with no user-visible error. Ambient output,
+palette cache, and reduced-motion state never enter a Movies snapshot. `off` and
+reduced-effects settings must suppress the dynamic treatment; operating-system
+reduced-motion remains an independent safety override.
+
 ## 7. Snapshot contract
 
 ### Canonical Movies snapshot — FROZEN

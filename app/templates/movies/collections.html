@@ -1,9 +1,10 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import empty_state %}
 {% block title %}Collections · Movies · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-collections-1">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-ambient-1">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script>{% endblock %}
 {% block content %}
-<main class="movies-v2 movie-collections">
+<main class="movies-v2 movie-collections" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
   <div class="movies-v2__atmosphere" aria-hidden="true"></div>
   <a class="back-link" href="{{ url_for('movies.index') }}">← Movies home</a>
   <header class="page-header movie-v2-masthead">

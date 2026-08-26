@@ -61,6 +61,12 @@ def _movie_preferences() -> dict:
     return dict(preference_store().read()["sections"]["movies"]["movie_preferences"])
 
 
+@bp.context_processor
+def movie_template_preferences() -> dict:
+    """Provide the compact Movies display defaults to every Movies template."""
+    return {"movie_preferences": _movie_preferences()}
+
+
 def _playback_is_enabled() -> bool:
     """Return the single server-side gate for every playable surface."""
     return bool(current_app.config["DRAGON_PLAYBACK_ENABLED"])

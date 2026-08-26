@@ -268,6 +268,23 @@ library entries, custom lists, personal state, progress, Playback sources, or
 runtime cache. Trailer autoplay and hiding watched discovery cards are not
 exposed because no truthful/current behavior exists for them yet.
 
+## Verified Phase 19 ambient-artwork delta
+
+Movies V2 now carries the saved `ambient_level` and `reduced_effects` choices on
+each cinematic Movies surface. `movies-ambient.js` samples an already-rendered
+backdrop or poster at most once, after browser idle, at 16×16 pixels. A small
+session-local cache can reuse that palette for the same artwork URL. It makes no
+network request and writes no Movie, metadata, progress, source, snapshot, or
+Playback record.
+
+The CSS fallback remains Dragon Noir when artwork cannot be sampled (including
+cross-origin canvas restrictions). `off` removes the atmosphere layer;
+`subtle`, `normal`, and `vivid` increase only the restrained color intensity.
+Either the Movies reduced-effects preference or the operating-system reduced
+motion preference prevents palette extraction and uses the low-intensity static
+fallback. There is no parallax, auto-playing carousel, large-area animation, or
+new Dragon theme.
+
 ## Ownership map
 
 ```text

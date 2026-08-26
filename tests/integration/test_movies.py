@@ -122,9 +122,15 @@ def test_movie_pages_are_protected_and_render_local_data(authenticated_client, a
     listing = authenticated_client.get("/movies?q=arrival&genre=Science+Fiction")
     detail = authenticated_client.get(f"/movies/{movie_id}")
     assert listing.status_code == 200
-    assert "Arrival" in listing.get_data(as_text=True)
+    listing_html = listing.get_data(as_text=True)
+    assert "Arrival" in listing_html
+    assert 'data-ambient-level="subtle"' in listing_html
+    assert "js/movies-ambient.js" in listing_html
     assert detail.status_code == 200
-    assert "Science Fiction" in detail.get_data(as_text=True)
+    detail_html = detail.get_data(as_text=True)
+    assert "Science Fiction" in detail_html
+    assert 'data-ambient-level="subtle"' in detail_html
+    assert "js/movies-ambient.js" in detail_html
 
 
 def test_movie_collections_are_authenticated_and_do_not_require_tmdb_for_the_index(

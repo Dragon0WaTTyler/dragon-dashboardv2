@@ -135,6 +135,17 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
     page.set_viewport_size({"width": 1280, "height": 800})
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies/{movie_id}")
+    ambient_root = page.locator(".movies-v2[data-ambient-level]")
+    assert ambient_root.get_attribute("data-ambient-level") == "subtle"
+    assert ambient_root.get_attribute("data-reduced-effects") == "false"
+    assert ambient_root.evaluate(
+        "node => getComputedStyle(node).getPropertyValue('--movie-ambient-strength').trim()"
+    ) == ".32"
+    page.emulate_media(reduced_motion="reduce")
+    assert ambient_root.evaluate(
+        "node => getComputedStyle(node).getPropertyValue('--movie-ambient-strength').trim()"
+    ) == ".14"
+    page.emulate_media(reduced_motion="no-preference")
     assert page.get_by_role("link", name="Provider settings").count() == 0
     assert page.locator("[data-subtitle-status]").is_hidden()
     page.set_viewport_size({"width": 390, "height": 844})
