@@ -236,6 +236,37 @@ def resolve_missing_tmdb_identity(movie: Movie) -> Movie:
     return movie
 
 
+def refresh_movie_metadata(movie: Movie) -> Movie:
+    """Cache an explicit TMDB detail refresh without touching sources or progress."""
+
+    movie = resolve_missing_tmdb_identity(movie)
+    external_ids = dict(movie.external_ids or {})
+    tmdb_id = _optional_int(external_ids.get("tmdb_id"))
+    if not tmdb_id:
+        raise MediaIntegrationError("This title has no TMDB identity to refresh yet.")
+    details = tmdb_catalog_provider().details(movie.media_type, tmdb_id)
+    if details.get("overview"):
+        movie.overview = str(details["overview"])
+    if details.get("poster_url"):
+        movie.poster_url = str(details["poster_url"])
+    if details.get("genres"):
+        movie.genres = list(details["genres"])
+    if details.get("directors"):
+        movie.directors = list(details["directors"])
+    if details.get("cast"):
+        movie.cast = list(details["cast"])
+    if details.get("runtime_minutes"):
+        movie.runtime_minutes = int(details["runtime_minutes"])
+    metadata = dict(movie.metadata_state or {})
+    metadata["tmdb_detail"] = dict(details.get("tmdb_detail") or {})
+    movie.metadata_state = metadata
+    trailers = list(metadata["tmdb_detail"].get("trailers") or [])
+    if trailers:
+        movie.trailer_url = str(trailers[0].get("url") or movie.trailer_url or "")
+    db.session.commit()
+    return movie
+
+
 def hydrate_missing_recommendation_overviews() -> int:
     """Fill missing local recommendation synopses from TMDB when available.
 

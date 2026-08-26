@@ -191,6 +191,9 @@ def movie_item(movie: Movie) -> dict[str, Any]:
 
 
 def movie_detail(movie: Movie) -> dict[str, Any]:
+    metadata_state = dict(movie.metadata_state or {})
+    tmdb_detail = metadata_state.get("tmdb_detail")
+    tmdb_detail = dict(tmdb_detail) if isinstance(tmdb_detail, dict) else {}
     return {
         **movie_item(movie),
         "original_title": movie.original_title,
@@ -205,7 +208,17 @@ def movie_detail(movie: Movie) -> dict[str, Any]:
         "cast": list(movie.cast or []),
         "watch_history": list(movie.watch_history or []),
         "external_ids": dict(movie.external_ids or {}),
-        "metadata_state": dict(movie.metadata_state or {}),
+        "metadata_state": metadata_state,
+        "backdrop_url": str(tmdb_detail.get("backdrop_url") or ""),
+        "tagline": str(tmdb_detail.get("tagline") or ""),
+        "original_language": str(tmdb_detail.get("original_language") or ""),
+        "countries": list(tmdb_detail.get("countries") or []),
+        "certification": str(tmdb_detail.get("certification") or ""),
+        "tmdb_rating": tmdb_detail.get("tmdb_rating"),
+        "trailers": list(tmdb_detail.get("trailers") or []),
+        "reviews": list(tmdb_detail.get("reviews") or []),
+        "similar": list(tmdb_detail.get("similar") or []),
+        "recommendations": list(tmdb_detail.get("recommendations") or []),
         "updated_at": _utc_json(movie.updated_at),
     }
 

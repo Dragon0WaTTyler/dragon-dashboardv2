@@ -208,7 +208,12 @@ class TmdbCatalogProvider:
             raise MediaIntegrationError("Media type must be movie or series.")
         payload = self._request(
             f"/{media_type}/{int(tmdb_id)}",
-            {"language": "en-US", "append_to_response": "credits,external_ids"},
+            {
+                "language": "en-US",
+                "append_to_response": (
+                    "credits,external_ids,videos,recommendations,similar,reviews,release_dates"
+                ),
+            },
         )
         item = self._summary(payload, media_type)
         credits = payload.get("credits") or {}
@@ -227,10 +232,32 @@ class TmdbCatalogProvider:
                     if member.get("job") == "Director" and member.get("name")
                 ],
                 "cast": [
-                    {"name": str(member.get("name"))}
+                    {
+                        "name": str(member.get("name")),
+                        "character": str(member.get("character") or ""),
+                        "profile_url": self._image_url(member.get("profile_path"), size="w185"),
+                    }
                     for member in (credits.get("cast") or [])[:12]
                     if member.get("name")
                 ],
+                "tmdb_detail": {
+                    "backdrop_url": self._image_url(payload.get("backdrop_path"), size="w1280"),
+                    "tagline": str(payload.get("tagline") or ""),
+                    "original_language": str(payload.get("original_language") or ""),
+                    "countries": [
+                        str(country.get("name"))
+                        for country in payload.get("production_countries") or []
+                        if country.get("name")
+                    ],
+                    "certification": _tmdb_certification(payload, media_type),
+                    "tmdb_rating": payload.get("vote_average"),
+                    "trailers": _tmdb_trailers(payload),
+                    "reviews": _tmdb_reviews(payload),
+                    "similar": _tmdb_related(payload.get("similar") or {}, media_type),
+                    "recommendations": _tmdb_related(
+                        payload.get("recommendations") or {}, media_type
+                    ),
+                },
                 "external_ids": {
                     "tmdb_id": str(payload["id"]),
                     "tmdb_type": media_type,
@@ -561,6 +588,67 @@ class TmdbCatalogProvider:
     @staticmethod
     def _image_url(path: str | None, *, size: str = "w500") -> str:
         return f"https://image.tmdb.org/t/p/{size}{path}" if path else ""
+
+
+def _tmdb_certification(payload: dict, media_type: str) -> str:
+    if media_type != "movie":
+        return ""
+    for country in payload.get("release_dates", {}).get("results") or []:
+        releases = country.get("release_dates") or []
+        certification = next(
+            (
+                str(item.get("certification") or "").strip()
+                for item in releases
+                if item.get("certification")
+            ),
+            "",
+        )
+        if certification and country.get("iso_3166_1") == "US":
+            return certification
+    return ""
+
+
+def _tmdb_trailers(payload: dict) -> list[dict[str, str]]:
+    return [
+        {
+            "name": str(video.get("name") or "Trailer"),
+            "url": f"https://www.youtube.com/watch?v={video['key']}",
+            "official": bool(video.get("official")),
+        }
+        for video in payload.get("videos", {}).get("results") or []
+        if video.get("site") == "YouTube"
+        and video.get("type") == "Trailer"
+        and video.get("key")
+    ][:4]
+
+
+def _tmdb_reviews(payload: dict) -> list[dict[str, str]]:
+    return [
+        {
+            "author": str(review.get("author") or "TMDB member"),
+            "content": str(review.get("content") or "")[:1600],
+            "url": str(review.get("url") or ""),
+        }
+        for review in payload.get("reviews", {}).get("results") or []
+        if str(review.get("content") or "").strip()
+    ][:3]
+
+
+def _tmdb_related(payload: dict, media_type: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "tmdb_id": int(item["id"]),
+            "media_type": media_type,
+            "title": str(item.get("title") or item.get("name") or "Untitled"),
+            "year": _optional_int(
+                str(item.get("release_date") or item.get("first_air_date") or "")[:4]
+            ),
+            "poster_url": TmdbCatalogProvider._image_url(item.get("poster_path")),
+            "rating": item.get("vote_average"),
+        }
+        for item in payload.get("results") or []
+        if item.get("id")
+    ][:12]
 
 
 class JackettReleaseProvider:

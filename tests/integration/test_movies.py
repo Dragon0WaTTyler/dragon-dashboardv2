@@ -923,3 +923,77 @@ def test_multilingual_search_matches_original_and_transliterated_local_titles(ap
     assert [item["local_id"] for item in by_id["library"]] == [movie.id]
     assert by_id["discovery"] == []
     assert provider.id_calls == [(49964, "movie")]
+
+
+def test_explicit_detail_refresh_caches_tmdb_sections_without_touching_playback(
+    authenticated_client, app
+):
+    class DetailProvider:
+        def details(self, media_type, tmdb_id):
+            assert (media_type, tmdb_id) == ("movie", 603)
+            return {
+                "overview": "A cached synopsis.",
+                "poster_url": "https://image.test/poster.jpg",
+                "genres": [{"name": "Science Fiction"}],
+                "directors": [{"name": "Lana Wachowski"}],
+                "cast": [{"name": "Keanu Reeves", "character": "Neo", "profile_url": ""}],
+                "runtime_minutes": 136,
+                "tmdb_detail": {
+                    "backdrop_url": "https://image.test/backdrop.jpg",
+                    "tagline": "Welcome to the real world.",
+                    "original_language": "en",
+                    "countries": ["United States"],
+                    "certification": "R",
+                    "tmdb_rating": 8.2,
+                    "trailers": [
+                        {
+                            "name": "Official Trailer",
+                            "url": "https://youtube.test/x",
+                            "official": True,
+                        }
+                    ],
+                    "reviews": [{"author": "TMDB member", "content": "Real review", "url": ""}],
+                    "similar": [],
+                    "recommendations": [],
+                },
+            }
+
+    with app.app_context():
+        movie = Movie(
+            title="The Matrix",
+            normalized_title="the matrix",
+            external_ids={"tmdb_id": "603", "tmdb_type": "movie"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        db.session.add(
+            MovieProgress(
+                movie_id=movie.id,
+                current_seconds=720,
+                duration_seconds=7_200,
+                completed=False,
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+        app.extensions["dragon_tmdb_catalog_provider"] = DetailProvider()
+
+    page = authenticated_client.get(f"/movies/{movie_id}")
+    response = authenticated_client.post(
+        f"/movies/{movie_id}/refresh-metadata",
+        data={"csrf_token": csrf_from(page)},
+        follow_redirects=True,
+    )
+
+    assert response.status_code == 200
+    assert "TMDB detail metadata refreshed locally." in response.get_data(as_text=True)
+    with app.app_context():
+        refreshed = db.session.get(Movie, movie_id)
+        assert refreshed.runtime_minutes == 136
+        assert refreshed.metadata_state["tmdb_detail"]["tmdb_rating"] == 8.2
+        progress = MovieProgress.query.filter_by(movie_id=movie_id, scope_key="movie").one()
+        assert (progress.current_seconds, progress.duration_seconds, progress.completed) == (
+            720,
+            7_200,
+            False,
+        )

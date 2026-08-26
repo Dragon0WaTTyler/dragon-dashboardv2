@@ -20,6 +20,7 @@ from app.movies.external_library import (
     hydrate_missing_recommendation_overviews,
     import_release,
     notion_movie_provider,
+    refresh_movie_metadata,
     release_lookup,
     resolve_missing_tmdb_identity,
     search_catalog,
@@ -737,6 +738,21 @@ def update_score(movie_id: str):
                 flash("Personal score and Notion were updated.", "success")
         else:
             flash("Personal score updated.", "success")
+    return redirect(url_for("movies.detail", movie_id=movie_id))
+
+
+@bp.post("/<movie_id>/refresh-metadata")
+@login_required
+def refresh_metadata(movie_id: str):
+    movie = MovieRepository.get(movie_id)
+    if movie is None:
+        abort(404)
+    try:
+        refresh_movie_metadata(movie)
+    except MediaIntegrationError as exc:
+        flash(str(exc), "error")
+    else:
+        flash("TMDB detail metadata refreshed locally.", "success")
     return redirect(url_for("movies.detail", movie_id=movie_id))
 
 

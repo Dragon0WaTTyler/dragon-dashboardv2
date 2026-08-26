@@ -149,6 +149,82 @@ class TmdbSearchSession:
         )
 
 
+class TmdbDetailSession:
+    def get(self, _url, *, params, headers, timeout):
+        assert params["append_to_response"] == (
+            "credits,external_ids,videos,recommendations,similar,reviews,release_dates"
+        )
+        assert headers["Accept"] == "application/json"
+        assert timeout == 15
+        return JsonResponse(
+            {
+                "id": 603,
+                "title": "The Matrix",
+                "original_title": "The Matrix",
+                "release_date": "1999-03-30",
+                "runtime": 136,
+                "backdrop_path": "/matrix-backdrop.jpg",
+                "tagline": "Welcome to the real world.",
+                "original_language": "en",
+                "production_countries": [{"name": "United States"}],
+                "vote_average": 8.2,
+                "genres": [{"id": 878, "name": "Science Fiction"}],
+                "external_ids": {"imdb_id": "tt0133093"},
+                "credits": {
+                    "crew": [{"job": "Director", "name": "Lana Wachowski"}],
+                    "cast": [
+                        {
+                            "name": "Keanu Reeves",
+                            "character": "Neo",
+                            "profile_path": "/neo.jpg",
+                        }
+                    ],
+                },
+                "videos": {
+                    "results": [
+                        {
+                            "site": "YouTube",
+                            "type": "Trailer",
+                            "key": "matrix-trailer",
+                            "name": "Official Trailer",
+                            "official": True,
+                        },
+                        {"site": "Vimeo", "type": "Trailer", "key": "ignored"},
+                    ]
+                },
+                "reviews": {
+                    "results": [
+                        {
+                            "author": "TMDB member",
+                            "content": "A real TMDB review.",
+                            "url": "https://www.themoviedb.org/review/1",
+                        }
+                    ]
+                },
+                "similar": {
+                    "results": [
+                        {
+                            "id": 604,
+                            "title": "The Matrix Reloaded",
+                            "release_date": "2003-05-15",
+                            "poster_path": "/reloaded.jpg",
+                            "vote_average": 7.1,
+                        }
+                    ]
+                },
+                "recommendations": {"results": []},
+                "release_dates": {
+                    "results": [
+                        {
+                            "iso_3166_1": "US",
+                            "release_dates": [{"certification": "R"}],
+                        }
+                    ]
+                },
+            }
+        )
+
+
 class TorznabResponse:
     ok = True
     status_code = 200
@@ -292,6 +368,53 @@ def test_tmdb_search_ranks_cached_alternate_titles_above_popularity():
     assert [item["tmdb_id"] for item in results] == [49964, 999]
     assert results[0]["alternate_titles"] == ["Khane-ye doost kojast?"]
     assert sum(url.endswith("/49964/alternative_titles") for url in session.calls) == 1
+
+
+def test_tmdb_details_maps_only_cached_real_detail_sections():
+    provider = TmdbCatalogProvider(api_key="key", session=TmdbDetailSession())
+
+    details = provider.details("movie", 603)
+
+    assert details["cast"] == [
+        {
+            "name": "Keanu Reeves",
+            "character": "Neo",
+            "profile_url": "https://image.tmdb.org/t/p/w185/neo.jpg",
+        }
+    ]
+    assert details["tmdb_detail"] == {
+        "backdrop_url": "https://image.tmdb.org/t/p/w1280/matrix-backdrop.jpg",
+        "tagline": "Welcome to the real world.",
+        "original_language": "en",
+        "countries": ["United States"],
+        "certification": "R",
+        "tmdb_rating": 8.2,
+        "trailers": [
+            {
+                "name": "Official Trailer",
+                "url": "https://www.youtube.com/watch?v=matrix-trailer",
+                "official": True,
+            }
+        ],
+        "reviews": [
+            {
+                "author": "TMDB member",
+                "content": "A real TMDB review.",
+                "url": "https://www.themoviedb.org/review/1",
+            }
+        ],
+        "similar": [
+            {
+                "tmdb_id": 604,
+                "media_type": "movie",
+                "title": "The Matrix Reloaded",
+                "year": 2003,
+                "poster_url": "https://image.tmdb.org/t/p/w500/reloaded.jpg",
+                "rating": 7.1,
+            }
+        ],
+        "recommendations": [],
+    }
 
 
 def test_jackett_search_plan_uses_advertised_ids_then_dedupes_alias_results():

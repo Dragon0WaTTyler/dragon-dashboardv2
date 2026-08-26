@@ -99,6 +99,23 @@ title is not rendered twice. The search UI adds debounced requests, cancellation
 of stale requests, a lightweight loading skeleton, and session-local recent
 searches. It intentionally makes no claim to actor/director/people search.
 
+## Verified Phase 7 cached-detail delta
+
+Movie detail pages remain cache-first. An authenticated, CSRF-protected
+`POST /movies/<movie_id>/refresh-metadata` is the only new explicit refresh
+path; it resolves a TMDB identity and stores normalized presentational metadata
+under `Movie.metadata_state.tmdb_detail`. It never selects or resolves a source,
+starts playback, writes `MovieProgress`, or changes a lifecycle state.
+
+When that cache exists, the Dragon detail template renders only real TMDB data:
+backdrop, tagline, original language, production countries, US movie
+certification when supplied, TMDB rating, YouTube trailer links, cast/character
+credits, member reviews, and similar/recommended title cards. A missing field
+removes its section rather than producing filler. Trailers open as external
+links and remain outside the Dragon player. Provider availability, favorites,
+custom-list controls, and acquisition claims are intentionally not represented
+by this metadata cache.
+
 ## Ownership map
 
 ```text
@@ -234,12 +251,12 @@ documented prior design direction, not an excuse to change it in this phase.
 
 - `external_library.py` orchestrates TMDB catalog search/detail and Notion library
   import/synchronization/write-back adapters.
-- `integrations.py` normalizes TMDB movie/TV details, credits, videos, similar and
-  recommendation candidates, and can request TMDB alternative titles for release
-  matching.
-- The current local `MovieRepository.list()` search matches only normalized title
-  and original title. It does not persist or query the full alternate/localized/
-  transliterated-title target contract.
+- `integrations.py` normalizes TMDB movie/TV details, credits, actual YouTube
+  trailers, member reviews, similar/recommendation candidates, and can request
+  TMDB alternative titles for matching/search ranking.
+- The current `/movies/api/search` path ranks normalized title, original title,
+  retained localized/transliterated aliases, year/type, and explicit TMDB IDs.
+  This search-only normalization does not alter legacy import identity.
 - Discovery and release search are external/explicit flows. Normal library GETs
   operate on local persisted Movies; they should not become a hidden refresh path.
 
@@ -336,10 +353,12 @@ claim that every Jackett/provider setup is available locally.
 | Status | Current capability |
 | --- | --- |
 | Confirmed working | local Movie/status/score records; persisted progress; library filtering; watch-next; TMDB discovery; TV workspace; source selection; feature-gated local player; subtitle/browser flows covered by tests |
-| Partial / requires a contract | canonical identity; multilingual local search; separate library entry/favorite/list models; canonical Movies snapshot; deterministic progress uniqueness; target collections/rails/reviews/provider-availability discovery |
+| Partial / requires a contract | canonical Movies snapshot; custom-list ownership; provider-availability discovery; TV season/episode cache/detail; source-selector UX and next-episode policy |
 | Legacy / preserve during migration | app-generated Movie IDs, JSON metadata containers, existing status vocabulary (`finished` and `watched`), score label in `metadata_state`, `watch_history`, imported Notion identifiers and historical import records |
 
-## Phase 0 non-goals observed
+## Historical Phase 0 boundary
 
-This audit made no code, schema, route, provider, Jackett, playback, source, or
-existing-state change. It does not authorize Phase 1.
+The initial audit itself made no code, schema, route, provider, Jackett,
+playback, source, or existing-state change. Subsequent sections record the
+separately verified, incremental V2 milestones above; they do not authorize the
+remaining milestones.

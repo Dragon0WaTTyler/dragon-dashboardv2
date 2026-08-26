@@ -6,6 +6,7 @@
 {% block content %}
 <div class="movies-v2 movies-v2--detail">
 <div class="movies-v2__atmosphere" aria-hidden="true"></div>
+{% if movie.backdrop_url %}<div class="movie-detail__backdrop" aria-hidden="true"><img src="{{ movie.backdrop_url }}" alt=""></div>{% endif %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
   <div class="movie-detail__poster" data-media-frame>
@@ -13,15 +14,17 @@
   </div>
   <div class="movie-detail__content movie-detail__content--hero">
     <header>
-      <span class="eyebrow">{{ movie.media_type|title }}{% if movie.year %} · {{ movie.year }}{% endif %}</span>
+      <span class="eyebrow">{{ movie.media_type|title }}{% if movie.year %} · {{ movie.year }}{% endif %}{% if movie.certification %} · {{ movie.certification }}{% endif %}</span>
       <h1>{{ movie.title }}</h1>
       {% if movie.original_title and movie.original_title != movie.title %}<p class="muted">{{ movie.original_title }}</p>{% endif %}
+      {% if movie.tagline %}<p class="movie-detail__tagline">{{ movie.tagline }}</p>{% endif %}
       {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
       <div class="movie-detail__quick-actions" aria-label="Primary movie actions">
-        {% if embed_player_sources or player_sources %}<a class="button button--primary" href="#movie-player">Watch</a>{% endif %}
+        {% if embed_player_sources or player_sources %}<a class="button button--primary" href="#movie-player">{{ 'Resume' if movie.progress and movie.progress.current_seconds else 'Watch' }}</a>{% endif %}
         <a class="button button--secondary" href="#actions-title">Status &amp; score</a>
         {% if movie.trailer_url %}<a class="button button--quiet" href="{{ movie.trailer_url }}" rel="noreferrer">Trailer</a>{% endif %}
         <a class="button button--quiet" href="{{ url_for('ai.workspace', mode='film_analysis', context_type='movie', context_id=movie.id) }}">Ask AI</a>
+        <form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh details</button></form>
       </div>
     </header>
     {% if movie.overview %}<p class="movie-detail__overview">{{ movie.overview }}</p>{% endif %}
@@ -30,6 +33,9 @@
       <div><dt>Runtime</dt><dd>{{ movie.runtime_minutes ~ ' min' if movie.runtime_minutes else 'Unknown' }}</dd></div>
       <div><dt>Genres</dt><dd>{{ movie.genres|map(attribute='name')|join(', ') if movie.genres else 'Unknown' }}</dd></div>
       <div><dt>Source</dt><dd>{{ movie.source }}</dd></div>
+      {% if movie.tmdb_rating is not none %}<div><dt>TMDB rating</dt><dd>{{ '%.1f / 10'|format(movie.tmdb_rating) }}</dd></div>{% endif %}
+      {% if movie.original_language %}<div><dt>Original language</dt><dd>{{ movie.original_language|upper }}</dd></div>{% endif %}
+      {% if movie.countries %}<div><dt>Country</dt><dd>{{ movie.countries|join(', ') }}</dd></div>{% endif %}
     </dl>
   </div>
   {% if embed_player_sources or player_sources %}
@@ -319,6 +325,11 @@
     </details>
     {% endif %}
     {% if movie.progress %}<section class="detail-section"><h2>Playback progress</h2><progress class="progress-track" value="{{ movie.progress.percent }}" max="100">{{ movie.progress.percent }}%</progress><p class="muted">{{ movie.progress.percent }}% watched</p></section>{% endif %}
+    {% if movie.trailers %}<section class="detail-section movie-detail__media-rail"><span class="eyebrow">TMDB videos</span><h2>Trailers</h2><div class="movie-detail__trailer-list">{% for trailer in movie.trailers %}<a class="movie-detail__trailer" href="{{ trailer.url }}" rel="noreferrer"><span aria-hidden="true">▶</span><strong>{{ trailer.name }}</strong><small>{{ 'Official trailer' if trailer.official else 'Trailer' }}</small></a>{% endfor %}</div></section>{% endif %}
+    {% if movie.cast %}<section class="detail-section movie-detail__cast"><span class="eyebrow">Credits</span><h2>Cast</h2><div class="movie-detail__cast-rail">{% for person in movie.cast %}<article>{% if person.profile_url %}<img src="{{ person.profile_url }}" alt="{{ person.name }}" loading="lazy" width="120" height="120">{% else %}<span aria-hidden="true">{{ person.name[:1]|upper }}</span>{% endif %}<strong>{{ person.name }}</strong>{% if person.character %}<small>{{ person.character }}</small>{% endif %}</article>{% endfor %}</div></section>{% endif %}
+    {% if movie.reviews %}<section class="detail-section movie-detail__reviews"><span class="eyebrow">TMDB member reviews</span><h2>Reviews</h2>{% for review in movie.reviews %}<article><strong>{{ review.author }}</strong><p>{{ review.content }}</p>{% if review.url %}<a href="{{ review.url }}" rel="noreferrer">Read on TMDB</a>{% endif %}</article>{% endfor %}</section>{% endif %}
+    {% set related = movie.similar or movie.recommendations %}
+    {% if related %}<section class="detail-section movie-detail__related"><span class="eyebrow">TMDB catalog</span><h2>More like this</h2><div class="movie-detail__related-rail">{% for item in related %}<a href="{{ url_for('movies.discover', media_type=item.media_type, tmdb_id=item.tmdb_id) }}">{% if item.poster_url %}<img src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="160" height="240">{% else %}<span aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}<strong>{{ item.title }}</strong><small>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</small></a>{% endfor %}</div></section>{% endif %}
     <section class="detail-section" aria-labelledby="actions-title">
       <h2 id="actions-title">Your library</h2>
       <div class="detail-actions">
@@ -334,7 +345,7 @@
         </form>
       </div>
     </section>
-    {% if movie.directors or movie.cast %}<section class="detail-section"><h2>Credits</h2>{% if movie.directors %}<p><strong>Directed by</strong> {{ movie.directors|map(attribute='name')|join(', ') }}</p>{% endif %}{% if movie.cast %}<p><strong>Cast</strong> {{ movie.cast|map(attribute='name')|join(', ') }}</p>{% endif %}</section>{% endif %}
+    {% if movie.directors %}<section class="detail-section"><h2>Direction</h2><p><strong>Directed by</strong> {{ movie.directors|map(attribute='name')|join(', ') }}</p></section>{% endif %}
     <div class="detail-actions">
       {% if movie.trailer_url %}<a class="button button--secondary" href="{{ movie.trailer_url }}" rel="noreferrer">Open trailer</a>{% endif %}
       <a class="button button--secondary" href="{{ url_for('ai.workspace', mode='film_analysis', context_type='movie', context_id=movie.id) }}">Ask AI</a>
