@@ -226,6 +226,7 @@ def movie_detail(movie: Movie) -> dict[str, Any]:
         "reviews": list(tmdb_detail.get("reviews") or []),
         "similar": list(tmdb_detail.get("similar") or []),
         "recommendations": list(tmdb_detail.get("recommendations") or []),
+        "provider_availability": list(metadata_state.get("provider_availability") or []),
         "updated_at": _utc_json(movie.updated_at),
     }
 

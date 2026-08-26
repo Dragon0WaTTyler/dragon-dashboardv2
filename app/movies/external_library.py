@@ -244,7 +244,8 @@ def refresh_movie_metadata(movie: Movie) -> Movie:
     tmdb_id = _optional_int(external_ids.get("tmdb_id"))
     if not tmdb_id:
         raise MediaIntegrationError("This title has no TMDB identity to refresh yet.")
-    details = tmdb_catalog_provider().details(movie.media_type, tmdb_id)
+    provider = tmdb_catalog_provider()
+    details = provider.details(movie.media_type, tmdb_id)
     if movie.media_type == "tv":
         details = _hydrate_tv_details(details)
     if details.get("overview"):
@@ -261,6 +262,10 @@ def refresh_movie_metadata(movie: Movie) -> Movie:
         movie.runtime_minutes = int(details["runtime_minutes"])
     metadata = dict(movie.metadata_state or {})
     metadata["tmdb_detail"] = dict(details.get("tmdb_detail") or {})
+    if hasattr(provider, "watch_providers"):
+        metadata["provider_availability"] = provider.watch_providers(
+            movie.media_type, tmdb_id, region="US"
+        )
     if movie.media_type == "tv":
         metadata.update(_tv_metadata_state(details))
     movie.metadata_state = metadata

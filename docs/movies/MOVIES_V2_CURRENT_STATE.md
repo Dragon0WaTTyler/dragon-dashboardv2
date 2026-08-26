@@ -164,6 +164,15 @@ membership is never encoded in lifecycle, favorite, or progress state. The
 Movies UI supports create, edit, delete, add, and remove operations, and every
 mutation resolves the list through the current authenticated owner.
 
+## Verified Phase 12 provider-availability delta
+
+The shared TMDB browse contract now supports an optional provider ID and
+two-letter region. Provider catalogs and filtered browse pages are cached and
+shareable in the URL. Explicit detail refresh caches a title's TMDB availability
+labels for the selected default region and labels them as availability only. No
+availability record creates, enables, probes, or selects a Dragon Playback
+source; absent TMDB data is omitted rather than guessed.
+
 ## Ownership map
 
 ```text

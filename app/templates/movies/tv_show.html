@@ -34,6 +34,7 @@
       {% if movie.original_language %}<div><dt>Original language</dt><dd>{{ movie.original_language|upper }}</dd></div>{% endif %}
       {% if movie.countries %}<div><dt>Country</dt><dd>{{ movie.countries|join(', ') }}</dd></div>{% endif %}
     </dl>
+    {% if movie.provider_availability %}<p class="muted">Streaming availability (TMDB, US): {% for provider in movie.provider_availability %}{{ provider.name }}{% if not loop.last %}, {% endif %}{% endfor %}. This does not provide playback in Dragon.</p>{% endif %}
     {% if workspace.resume_target %}
     <section class="detail-section tv-season-summary">
       <div>

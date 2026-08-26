@@ -13,6 +13,7 @@ from app.movies.integrations import MediaIntegrationError
 
 BROWSE_CACHE_TTL_SECONDS = 5 * 60
 GENRE_CACHE_TTL_SECONDS = 24 * 60 * 60
+PROVIDER_CACHE_TTL_SECONDS = 24 * 60 * 60
 BROWSE_SORTS = {"popular", "rating", "newest", "title"}
 
 
@@ -21,6 +22,8 @@ class BrowseQuery:
     media_type: str
     genre_id: int | None
     year: int | None
+    provider_id: int | None
+    region: str
     sort: str
     page: int
 
@@ -36,6 +39,13 @@ def parse_browse_query(media_type: str, values: Any) -> tuple[BrowseQuery, dict[
     year = _bounded_int(
         values.get("year"), minimum=1800, maximum=2200, errors=errors, name="year"
     )
+    provider_id = _bounded_int(
+        values.get("provider"), minimum=1, maximum=99999, errors=errors, name="provider"
+    )
+    region = str(values.get("region") or "US").strip().upper()
+    if len(region) != 2 or not region.isalpha():
+        errors["region"] = "Use a two-letter region code."
+        region = "US"
     page = (
         _bounded_int(
             values.get("page"), minimum=1, maximum=500, errors=errors, name="page"
@@ -46,7 +56,7 @@ def parse_browse_query(media_type: str, values: Any) -> tuple[BrowseQuery, dict[
     if sort not in BROWSE_SORTS:
         errors["sort"] = "Choose a supported sort order."
         sort = "popular"
-    return BrowseQuery(normalized_type, genre_id, year, sort, page), errors
+    return BrowseQuery(normalized_type, genre_id, year, provider_id, region, sort, page), errors
 
 
 def browse_catalog(query: BrowseQuery) -> dict[str, Any]:
@@ -65,25 +75,29 @@ def browse_catalog(query: BrowseQuery) -> dict[str, Any]:
     now = time.monotonic()
     genre_key = f"genres:{query.media_type}"
     genres = _cached_genres(cache, genre_key, provider, query.media_type, now)
+    providers = _cached_providers(cache, provider, query.media_type, query.region, now)
     query_key = (
-        f"browse:{query.media_type}:{query.genre_id or ''}:{query.year or ''}:"
+        f"browse:{query.media_type}:{query.genre_id or ''}:{query.year or ''}:{query.provider_id or ''}:{query.region}:"
         f"{query.sort}:{query.page}"
     )
     cached = cache.get(query_key)
     if isinstance(cached, dict) and float(cached.get("expires_at") or 0) > now:
-        return {**cached["value"], "genres": genres, "error": ""}
+        return {**cached["value"], "genres": genres, "providers": providers, "error": ""}
     try:
-        payload = provider.discover(
-            query.media_type,
-            genre_id=query.genre_id,
-            year=query.year,
-            sort=query.sort,
-            page=query.page,
-        )
+        discover_kwargs: dict[str, Any] = {
+            "genre_id": query.genre_id,
+            "year": query.year,
+            "sort": query.sort,
+            "page": query.page,
+        }
+        if query.provider_id:
+            discover_kwargs["provider_id"] = query.provider_id
+            discover_kwargs["region"] = query.region
+        payload = provider.discover(query.media_type, **discover_kwargs)
     except MediaIntegrationError as exc:
         return {
             "items": [],
-            "genres": genres,
+            "genres": genres, "providers": providers,
             "page": query.page,
             "total_pages": query.page,
             "error": str(exc),
@@ -97,7 +111,25 @@ def browse_catalog(query: BrowseQuery) -> dict[str, Any]:
         "total_pages": int(payload["total_pages"]),
     }
     cache[query_key] = {"expires_at": now + BROWSE_CACHE_TTL_SECONDS, "value": value}
-    return {**value, "genres": genres, "error": ""}
+    return {**value, "genres": genres, "providers": providers, "error": ""}
+
+
+def _cached_providers(
+    cache: dict[str, Any], provider: Any, media_type: str, region: str, now: float
+) -> list[dict[str, Any]]:
+    key = f"providers:{media_type}:{region}"
+    cached = cache.get(key)
+    if isinstance(cached, dict) and float(cached.get("expires_at") or 0) > now:
+        return list(cached.get("value") or [])
+    if not hasattr(provider, "provider_catalog"):
+        return []
+    try:
+        value = provider.provider_catalog(media_type, region=region)
+    except MediaIntegrationError:
+        return list(cached.get("value") or []) if isinstance(cached, dict) else []
+    providers = sorted(value, key=lambda item: item["name"].casefold())
+    cache[key] = {"expires_at": now + PROVIDER_CACHE_TTL_SECONDS, "value": providers}
+    return providers
 
 
 def _cached_genres(

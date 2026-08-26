@@ -152,6 +152,8 @@ class TmdbCatalogProvider:
         *,
         genre_id: int | None = None,
         year: int | None = None,
+        provider_id: int | None = None,
+        region: str = "US",
         sort: str = "popular",
         page: int = 1,
     ) -> dict[str, Any]:
@@ -182,6 +184,9 @@ class TmdbCatalogProvider:
                 "primary_release_year" if media_type == "movie" else "first_air_date_year"
             )
             params[year_key] = int(year)
+        if provider_id:
+            params["with_watch_providers"] = int(provider_id)
+            params["watch_region"] = str(region or "US").upper()[:2]
         payload = self._request(f"/discover/{media_type}", params)
         return {
             "items": [
@@ -192,6 +197,43 @@ class TmdbCatalogProvider:
             "page": int(payload.get("page") or params["page"]),
             "total_pages": min(500, int(payload.get("total_pages") or 1)),
         }
+
+    def watch_providers(self, media_type: str, tmdb_id: int, *, region: str = "US") -> list[dict]:
+        if media_type not in {"movie", "tv"}:
+            raise MediaIntegrationError("Provider availability needs a movie or series.")
+        payload = self._request(f"/{media_type}/{int(tmdb_id)}/watch/providers", {})
+        region_data = (payload.get("results") or {}).get(str(region or "US").upper()) or {}
+        providers: dict[int, dict] = {}
+        for availability_type in ("flatrate", "free", "ads", "rent", "buy"):
+            for item in region_data.get(availability_type) or []:
+                provider_id = _optional_int(item.get("provider_id"))
+                if not provider_id or not item.get("provider_name"):
+                    continue
+                entry = providers.setdefault(
+                    provider_id,
+                    {
+                        "id": provider_id,
+                        "name": str(item["provider_name"]),
+                        "logo_url": self._image_url(item.get("logo_path"), size="w185"),
+                        "availability": [],
+                    },
+                )
+                entry["availability"].append(availability_type)
+        return sorted(providers.values(), key=lambda item: item["name"].casefold())
+
+    def provider_catalog(self, media_type: str, *, region: str = "US") -> list[dict]:
+        if media_type not in {"movie", "tv"}:
+            raise MediaIntegrationError("Provider catalog needs a movie or series.")
+        payload = self._request(f"/watch/providers/{media_type}", {"watch_region": region})
+        return [
+            {
+                "id": int(item["provider_id"]),
+                "name": str(item["provider_name"]),
+                "logo_url": self._image_url(item.get("logo_path"), size="w185"),
+            }
+            for item in payload.get("results") or []
+            if item.get("provider_id") and item.get("provider_name")
+        ]
 
     def genres(self, media_type: str) -> list[dict[str, Any]]:
         if media_type not in {"movie", "tv"}:

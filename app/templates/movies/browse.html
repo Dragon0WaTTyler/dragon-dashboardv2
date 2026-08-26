@@ -13,6 +13,8 @@
   <form class="movie-browse__filters" method="get" aria-label="Browse filters">
     <label class="field"><span>Genre</span><select name="genre"><option value="">All genres</option>{% for genre in genres %}<option value="{{ genre.id }}"{% if query.genre_id == genre.id %} selected{% endif %}>{{ genre.name }}</option>{% endfor %}</select></label>
     <label class="field"><span>Year</span><input name="year" type="number" min="1800" max="2200" value="{{ query.year or '' }}" inputmode="numeric"></label>
+    <label class="field"><span>Region</span><input name="region" value="{{ query.region }}" maxlength="2" pattern="[A-Za-z]{2}"></label>
+    <label class="field"><span>Streaming availability</span><select name="provider"><option value="">Any provider</option>{% for provider in providers %}<option value="{{ provider.id }}"{% if query.provider_id == provider.id %} selected{% endif %}>{{ provider.name }}</option>{% endfor %}</select></label>
     <label class="field"><span>Sort</span><select name="sort"><option value="popular"{% if query.sort == 'popular' %} selected{% endif %}>Popular</option><option value="rating"{% if query.sort == 'rating' %} selected{% endif %}>Rating</option><option value="newest"{% if query.sort == 'newest' %} selected{% endif %}>Newest</option><option value="title"{% if query.sort == 'title' %} selected{% endif %}>Title</option></select></label>
     <button class="button button--primary" type="submit">Apply</button>
   </form>
@@ -27,7 +29,7 @@
     </article>
     {% endfor %}
   </section>
-  <nav class="movie-browse__pagination" aria-label="Browse pages">{% if page > 1 %}<a class="button button--secondary" href="{{ url_for('movies.browse', media_type=query.media_type, genre=query.genre_id, year=query.year, sort=query.sort, page=page - 1) }}">Previous</a>{% endif %}<span>Page {{ page }} of {{ total_pages }}</span>{% if page < total_pages %}<a class="button button--secondary" href="{{ url_for('movies.browse', media_type=query.media_type, genre=query.genre_id, year=query.year, sort=query.sort, page=page + 1) }}">Next</a>{% endif %}</nav>
+  <nav class="movie-browse__pagination" aria-label="Browse pages">{% if page > 1 %}<a class="button button--secondary" href="{{ url_for('movies.browse', media_type=query.media_type, genre=query.genre_id, year=query.year, region=query.region, provider=query.provider_id, sort=query.sort, page=page - 1) }}">Previous</a>{% endif %}<span>Page {{ page }} of {{ total_pages }}</span>{% if page < total_pages %}<a class="button button--secondary" href="{{ url_for('movies.browse', media_type=query.media_type, genre=query.genre_id, year=query.year, region=query.region, provider=query.provider_id, sort=query.sort, page=page + 1) }}">Next</a>{% endif %}</nav>
   {% elif not error %}
     {{ empty_state('No titles matched', 'Try a broader filter combination.') }}
   {% endif %}

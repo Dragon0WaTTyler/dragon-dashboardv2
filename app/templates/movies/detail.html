@@ -39,6 +39,7 @@
       {% if movie.original_language %}<div><dt>Original language</dt><dd>{{ movie.original_language|upper }}</dd></div>{% endif %}
       {% if movie.countries %}<div><dt>Country</dt><dd>{{ movie.countries|join(', ') }}</dd></div>{% endif %}
     </dl>
+    {% if movie.provider_availability %}<p class="muted">Streaming availability (TMDB, US): {% for provider in movie.provider_availability %}{{ provider.name }}{% if not loop.last %}, {% endif %}{% endfor %}. This does not provide playback in Dragon.</p>{% endif %}
   </div>
   {% if embed_player_sources or player_sources %}
   {% set has_selected_player_source = last_selected_provider == 'local' %}
