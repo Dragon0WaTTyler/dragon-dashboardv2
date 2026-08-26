@@ -1,0 +1,27 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import empty_state %}
+{% block title %}Collections · Movies · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-collections-1">{% endblock %}
+{% block content %}
+<main class="movies-v2 movie-collections">
+  <div class="movies-v2__atmosphere" aria-hidden="true"></div>
+  <a class="back-link" href="{{ url_for('movies.index') }}">← Movies home</a>
+  <header class="page-header movie-v2-masthead">
+    <div><span class="eyebrow">Dragon editorial discovery</span><h1>Collections</h1><p>Curated ways into TMDB discovery. Opening a collection never changes your library or playback sources.</p></div>
+  </header>
+  {% if collections %}
+  <section class="movie-collections__grid" aria-label="Movie collections">
+    {% for collection in collections %}
+    <article class="movie-collections__card">
+      <span class="eyebrow">{{ collection.collection_type|replace('_', ' ') }}</span>
+      <h2><a href="{{ url_for('movies.collection', collection_id=collection.id) }}">{{ collection.title }}</a></h2>
+      <p>{{ collection.description }}</p>
+      <a class="button button--secondary" href="{{ url_for('movies.collection', collection_id=collection.id) }}">View collection</a>
+    </article>
+    {% endfor %}
+  </section>
+  {% else %}
+    {{ empty_state('No collections are available', 'A verified editorial collection will appear here when it is ready.') }}
+  {% endif %}
+</main>
+{% endblock %}

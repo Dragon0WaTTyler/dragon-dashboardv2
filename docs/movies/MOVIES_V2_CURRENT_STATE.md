@@ -173,6 +173,24 @@ labels for the selected default region and labels them as availability only. No
 availability record creates, enables, probes, or selects a Dragon Playback
 source; absent TMDB data is omitted rather than guessed.
 
+## Verified Phase 13 collections-engine delta
+
+`app/movies/collections.py` is now the sole declarative registry for Dragon
+Movie collections. It exposes only safe, reviewable editorial, seasonal, and
+dynamic-query definitions; every collection resolves through the existing
+cache-first TMDB browse engine and its cards remain discovery previews. The
+collection index is local configuration only, so opening it does not call TMDB,
+write a Movie or library row, or inspect Playback sources. A collection's first
+catalog page can make the same bounded TMDB browse request as the existing
+Browse surface; subsequent requests reuse that cache.
+
+The registry's contract recognizes `award`, `festival`, and `provider` types,
+but exposes none until Dragon has a reliable, reviewable source for the relevant
+metadata. Therefore no “award-winning”, “Oscar”, “Cannes”, “based on a true
+story”, provider, or playback claim is fabricated from a loose genre query.
+`/movies/collections/<collection_id>` reuses the browse result surface with its
+editorial query fixed and pagination preserved in the URL.
+
 ## Ownership map
 
 ```text

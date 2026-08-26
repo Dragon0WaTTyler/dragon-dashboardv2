@@ -127,6 +127,20 @@ def test_movie_pages_are_protected_and_render_local_data(authenticated_client, a
     assert "Science Fiction" in detail.get_data(as_text=True)
 
 
+def test_movie_collections_are_authenticated_and_do_not_require_tmdb_for_the_index(
+    authenticated_client, app
+):
+    assert app.test_client().get("/movies/collections").status_code == 302
+
+    page = authenticated_client.get("/movies/collections")
+    collection = authenticated_client.get("/movies/collections/psychological-thrillers")
+
+    assert page.status_code == 200
+    assert "Psychological thrillers" in page.get_data(as_text=True)
+    assert collection.status_code == 200
+    assert "fixed editorial query" in collection.get_data(as_text=True)
+
+
 def test_legacy_notion_movie_gets_tmdb_identity_for_jackett_and_embed_sources(
     authenticated_client, app
 ):

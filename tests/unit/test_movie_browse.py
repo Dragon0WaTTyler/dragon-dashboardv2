@@ -1,4 +1,10 @@
 from app.movies.browse import browse_catalog, parse_browse_query
+from app.movies.collections import (
+    COLLECTION_TYPES,
+    active_movie_collections,
+    collection_catalog,
+    movie_collection,
+)
 
 
 class StubBrowseProvider:
@@ -65,3 +71,34 @@ def test_browse_catalog_caches_catalog_and_genres_without_personal_state(app):
     ]
     assert second == first
     assert first["items"][0]["detail_url"] == "/movies/discover/movie/603"
+
+
+def test_collections_are_declarative_and_reuse_the_browse_cache(app):
+    provider = StubBrowseProvider()
+    definition = movie_collection("psychological-thrillers")
+
+    assert definition is not None
+    assert definition.collection_type in COLLECTION_TYPES
+    assert definition.genre_id == 53
+    assert {item.collection_type for item in active_movie_collections()} == {
+        "curated_editorial",
+        "dynamic_query",
+        "seasonal",
+    }
+
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = provider
+        query, first = collection_catalog(definition, {"page": "2"})
+        _, second = collection_catalog(definition, {"page": "2"})
+
+    assert (query.media_type, query.genre_id, query.sort, query.page) == (
+        "movie",
+        53,
+        "popular",
+        2,
+    )
+    assert provider.discover_calls == [
+        ("movie", {"genre_id": 53, "year": None, "sort": "popular", "page": 2})
+    ]
+    assert first["items"][0]["detail_url"] == "/movies/discover/movie/603"
+    assert second == first

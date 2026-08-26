@@ -14,6 +14,11 @@ from flask import (
 from flask_login import current_user, login_required
 
 from app.movies.browse import browse_catalog, parse_browse_query
+from app.movies.collections import (
+    active_movie_collections,
+    collection_catalog,
+    movie_collection,
+)
 from app.movies.external_library import (
     add_to_library,
     discover_item,
@@ -393,6 +398,33 @@ def browse(media_type: str):
         active_module="movies",
         query=query,
         filter_errors=filter_errors,
+        **result,
+    )
+
+
+@bp.get("/collections")
+@login_required
+def collections():
+    return render_template(
+        "movies/collections.html",
+        active_module="movies",
+        collections=active_movie_collections(),
+    )
+
+
+@bp.get("/collections/<collection_id>")
+@login_required
+def collection(collection_id: str):
+    definition = movie_collection(collection_id)
+    if definition is None:
+        abort(404)
+    query, result = collection_catalog(definition, request.args)
+    return render_template(
+        "movies/browse.html",
+        active_module="movies",
+        query=query,
+        filter_errors={},
+        collection=definition,
         **result,
     )
 
