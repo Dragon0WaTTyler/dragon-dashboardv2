@@ -45,6 +45,26 @@
   </div>
 </section>
 {% endif %}
+{% for rail in discovery_rails %}
+<section class="movie-discovery-rail{% if rail['rail_type'] == 'ranked' %} movie-discovery-rail--ranked{% endif %}" data-discovery-rail="{{ rail['id'] }}" aria-labelledby="{{ rail['id'] }}-title">
+  <div class="movie-now__heading">
+    <div><span class="eyebrow">{{ rail['source']|replace('_', ' ') }}</span><h2 id="{{ rail['id'] }}-title">{{ rail['title'] }}</h2><p>{{ rail['subtitle'] }}</p></div>
+  </div>
+  <div class="movie-discovery-rail__items movie-rail">
+    {% for item in rail['items'] %}
+    <article class="movie-discovery-rail__item">
+      <a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">
+        {% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="180" height="270">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}
+      </a>
+      <div class="movie-discovery-rail__copy">
+        <span class="movie-discovery-rail__rank" aria-label="Rank {{ item.rank }}">{{ item.rank }}</span>
+        <div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Coming soon' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</p></div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
 {% if recommendation and dragon_feature('movies', 'recommendation') %}
 <section id="movie-recommendation" class="movie-recommendation" data-recommendation-card data-recommendation-items="{{ recommendations|tojson|forceescape }}" data-recommendation-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}" aria-labelledby="movie-recommendation-title" hidden>
   <article class="movie-recommendation__card">

@@ -63,6 +63,18 @@ separate Want to Watch rail uses the existing Watch Next repository projection.
 This is presentation and routing composition only: it introduces no new external
 catalog/provider request, no state transition, and no playback/source change.
 
+## Verified Phase 4 discovery-rail delta
+
+`app/movies/rails.py` now owns a declarative registry and a five-minute,
+app-scoped cache for TMDB discovery rails: Trending, Popular, Top Rated,
+Upcoming, Now in Theaters, and Top 10. The normalized catalog cards are
+explicitly labelled as TMDB discovery and link to Dragon's existing `discover`
+route; rendering them never creates a `Movie`, `MovieLibraryEntry`, source, or
+progress record. A cache miss may make one TMDB request per distinct source
+query, while repeated page loads within the TTL reuse normalized cards; Top 10
+reuses the Trending Movies query. View All browse targets remain deferred to
+the shared browse-engine phase.
+
 ## Ownership map
 
 ```text

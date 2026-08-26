@@ -65,6 +65,39 @@ class TmdbCatalogProvider:
             for _, summary in ranked[: max(1, min(limit, 40))]
         ]
 
+    def trending(self, media_type: str, *, limit: int = 20) -> list[dict]:
+        """Return a ranked TMDB trend snapshot without mutating Dragon state."""
+
+        if media_type not in {"movie", "tv"}:
+            raise MediaIntegrationError("Trending media type must be movie or series.")
+        payload = self._request(f"/trending/{media_type}/week", {"language": "en-US"})
+        return [
+            self._summary(item, media_type)
+            for item in (payload.get("results") or [])[: max(1, min(limit, 40))]
+            if item.get("id")
+        ]
+
+    def catalog(self, media_type: str, kind: str, *, limit: int = 20) -> list[dict]:
+        """Return one normalized TMDB browse slice without personal-state writes."""
+
+        paths = {
+            ("movie", "popular"): "/movie/popular",
+            ("tv", "popular"): "/tv/popular",
+            ("movie", "top_rated"): "/movie/top_rated",
+            ("tv", "top_rated"): "/tv/top_rated",
+            ("movie", "upcoming"): "/movie/upcoming",
+            ("movie", "now_playing"): "/movie/now_playing",
+        }
+        path = paths.get((media_type, kind))
+        if path is None:
+            raise MediaIntegrationError("Unsupported TMDB catalog rail.")
+        payload = self._request(path, {"language": "en-US", "page": 1})
+        return [
+            self._summary(item, media_type)
+            for item in (payload.get("results") or [])[: max(1, min(limit, 40))]
+            if item.get("id")
+        ]
+
     def details(self, media_type: str, tmdb_id: int) -> dict:
         if media_type not in {"movie", "tv"}:
             raise MediaIntegrationError("Media type must be movie or series.")

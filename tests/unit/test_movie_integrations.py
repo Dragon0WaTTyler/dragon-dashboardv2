@@ -93,6 +93,29 @@ class TmdbAliasSession:
         )
 
 
+class TmdbTrendingSession:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, *, params, headers, timeout):
+        self.calls.append((url, params, headers, timeout))
+        return JsonResponse(
+            {
+                "results": [
+                    {
+                        "id": 603,
+                        "title": "The Matrix",
+                        "original_title": "The Matrix",
+                        "release_date": "1999-03-30",
+                        "poster_path": "/matrix.jpg",
+                        "backdrop_path": "/matrix-backdrop.jpg",
+                        "vote_average": 8.2,
+                    }
+                ]
+            }
+        )
+
+
 class TorznabResponse:
     ok = True
     status_code = 200
@@ -171,6 +194,39 @@ def test_tmdb_multilingual_release_plan_uses_cached_native_and_transliterated_al
         "Khane-ye dust kojast?",
     ]
     assert sum(url.endswith("/alternative_titles") for url in session.calls) == 1
+
+
+def test_tmdb_trending_returns_normalized_rankable_catalog_cards():
+    session = TmdbTrendingSession()
+    provider = TmdbCatalogProvider(api_key="key", session=session)
+
+    items = provider.trending("movie", limit=12)
+
+    assert items == [
+        {
+            "tmdb_id": 603,
+            "media_type": "movie",
+            "type_label": "Movie",
+            "title": "The Matrix",
+            "original_title": "The Matrix",
+            "original_language": "",
+            "overview": "",
+            "year": 1999,
+            "release_date": "1999-03-30",
+            "poster_url": "https://image.tmdb.org/t/p/w500/matrix.jpg",
+            "backdrop_url": "https://image.tmdb.org/t/p/w1280/matrix-backdrop.jpg",
+            "rating": 8.2,
+        }
+    ]
+    assert session.calls[0][0].endswith("/trending/movie/week")
+    assert session.calls[0][1]["language"] == "en-US"
+
+    catalog_items = provider.catalog("tv", "popular", limit=3)
+
+    assert catalog_items[0]["media_type"] == "tv"
+    assert catalog_items[0]["type_label"] == "Series"
+    assert session.calls[1][0].endswith("/tv/popular")
+    assert session.calls[1][1] == {"language": "en-US", "page": 1, "api_key": "key"}
 
 
 def test_jackett_search_plan_uses_advertised_ids_then_dedupes_alias_results():

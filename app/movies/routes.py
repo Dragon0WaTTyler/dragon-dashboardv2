@@ -28,6 +28,7 @@ from app.movies.external_library import (
 )
 from app.movies.integrations import MediaIntegrationError
 from app.movies.models import Movie
+from app.movies.rails import discovery_rails
 from app.movies.repositories import MovieRepository
 from app.movies.scoring import notion_score_options, score_option_for_input
 from app.movies.services import (
@@ -244,7 +245,9 @@ def index():
     )["items"]
     recommendation = recommendations[0] if recommendations else None
     home_focus = continue_items[0] if continue_items else personal_pick or recommendation
-    home_focus_kind = "resume" if continue_items else "personal" if personal_pick else "recommendation"
+    home_focus_kind = (
+        "resume" if continue_items else "personal" if personal_pick else "recommendation"
+    )
     return render_template(
         "movies/index.html",
         active_module="movies",
@@ -263,6 +266,7 @@ def index():
         home_focus=home_focus,
         home_focus_kind=home_focus_kind,
         personal_pick=personal_pick,
+        discovery_rails=discovery_rails(),
         recommendation=recommendation,
         recommendations=recommendations,
     )

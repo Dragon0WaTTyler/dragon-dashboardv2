@@ -767,3 +767,63 @@ def test_movies_home_prioritizes_personal_focus_and_want_to_watch(authenticated_
     assert "Personal choice" in html
     assert "Want to watch" in html
     assert 'data-home-focus-shuffle' in html
+
+
+def test_movies_home_renders_cached_tmdb_discovery_rails(authenticated_client, app):
+    class RailProvider:
+        configured = True
+
+        def __init__(self):
+            self.calls = []
+            self.catalog_calls = []
+
+        def trending(self, media_type, *, limit):
+            self.calls.append((media_type, limit))
+            return [
+                {
+                    "tmdb_id": 81 if media_type == "movie" else 82,
+                    "media_type": media_type,
+                    "title": f"Trending {media_type}",
+                    "poster_url": "",
+                    "year": 2026,
+                    "rating": 7.5,
+                }
+            ]
+
+        def catalog(self, media_type, kind, *, limit):
+            self.catalog_calls.append((media_type, kind, limit))
+            return [
+                {
+                    "tmdb_id": len(self.catalog_calls) + 300,
+                    "media_type": media_type,
+                    "title": f"{kind} {media_type}",
+                    "poster_url": "",
+                    "year": 2026,
+                    "rating": 7.5,
+                }
+            ]
+
+    provider = RailProvider()
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = provider
+
+    first = authenticated_client.get("/movies")
+    second = authenticated_client.get("/movies")
+    html = first.get_data(as_text=True)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert 'data-discovery-rail="trending_movies"' in html
+    assert "Trending Movies" in html
+    assert 'href="/movies/discover/movie/81"' in html
+    assert 'data-discovery-rail="popular_series"' in html
+    assert "Top 10 Movies" in html
+    assert provider.calls == [("movie", 12), ("tv", 12)]
+    assert provider.catalog_calls == [
+        ("movie", "popular", 12),
+        ("tv", "popular", 12),
+        ("movie", "top_rated", 12),
+        ("tv", "top_rated", 12),
+        ("movie", "upcoming", 12),
+        ("movie", "now_playing", 12),
+    ]
