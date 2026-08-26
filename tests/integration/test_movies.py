@@ -187,6 +187,35 @@ def test_legacy_notion_movie_gets_tmdb_identity_for_jackett_and_embed_sources(
         }
 
 
+def test_jackett_lookup_only_runs_for_an_explicit_release_request(
+    authenticated_client, app, monkeypatch
+):
+    movie_id = add_movie(
+        app,
+        title="Explicit Release Boundary",
+        normalized_title="explicit release boundary",
+        external_ids={"tmdb_id": "603", "tmdb_type": "movie"},
+    )
+    calls = []
+
+    def fake_release_lookup(**values):
+        calls.append(values)
+        return {"media": {}, "queries": [], "queries_tried": [], "match_context": {}, "items": []}
+
+    monkeypatch.setattr(movie_routes, "release_lookup", fake_release_lookup)
+
+    assert authenticated_client.get("/movies").status_code == 200
+    assert authenticated_client.get(f"/movies/{movie_id}").status_code == 200
+    assert calls == []
+
+    response = authenticated_client.get("/movies/api/releases?type=movie&tmdb_id=603")
+
+    assert response.status_code == 200
+    assert calls == [
+        {"media_type": "movie", "tmdb_id": 603, "season": None, "episode": None, "mode": "auto"}
+    ]
+
+
 def test_movies_prioritizes_continue_watching_and_exposes_watch_next(authenticated_client, app):
     paused_id = add_movie(
         app,

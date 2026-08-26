@@ -206,6 +206,18 @@ row exists. This is a selector UX/projection change only: source resolution,
 selection persistence, acquisition, local runtime, and provider configuration
 contracts are unchanged.
 
+## Verified Phase 15 Jackett/local-runtime boundary
+
+Jackett release lookup remains an explicit action through the release API,
+manual release browser, or deliberate TV “Find Best Source” action. Movies
+Home, library/detail rendering, personal state, cached TMDB discovery, and the
+new collection index do not invoke it. The cinematic Home contains no Jackett
+configuration or runtime controls. When a source is explicitly selected, the
+existing Playback boundary owns local runtime sessions and their transient
+engine/buffer state; neither the Movie catalog nor the V2 snapshot contract
+receives those fields. Existing focused tests verify that a direct embed skips
+automatic source search and that normal pages do not trigger a release lookup.
+
 ## Ownership map
 
 ```text
