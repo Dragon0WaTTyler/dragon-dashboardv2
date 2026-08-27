@@ -790,3 +790,124 @@ const showMovieToast = (message, level = "success") => {
     });
   });
 })();
+
+(() => {
+  const preview = document.querySelector("[data-discover-player]");
+  if (!preview) return;
+
+  const source = preview.querySelector("[data-preview-source]");
+  const season = preview.querySelector("[data-preview-season]");
+  const episode = preview.querySelector("[data-preview-episode]");
+  const launch = preview.querySelector("[data-preview-launch]");
+  const status = preview.querySelector("[data-preview-status]");
+  const viewport = preview.querySelector("[data-preview-viewport]");
+  const frame = preview.querySelector("[data-preview-frame]");
+  const mediaType = preview.dataset.mediaType;
+  const tmdbId = preview.dataset.tmdbId;
+  document.querySelectorAll("[data-preview-open]").forEach((button) => {
+    button.addEventListener("click", () => preview.scrollIntoView({ block: "start", behavior: "smooth" }));
+  });
+
+  const api = async (url) => {
+    const response = await fetch(url, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error?.message || "Preview playback is unavailable.");
+    return payload;
+  };
+
+  const fillTemplate = (template, values = []) => {
+    if (!template || typeof template !== "string") return null;
+    return values.reduce((result, value) => {
+      if (value === null || value === undefined || value === "") return result;
+      return result.replace("999999999", encodeURIComponent(value));
+    }, template);
+  };
+
+  const clearPreview = () => {
+    frame.src = "about:blank";
+    frame.hidden = true;
+    viewport.hidden = true;
+  };
+
+  const syncLaunchState = () => {
+    const ready = mediaType !== "tv" || (season?.value && episode?.value);
+    launch.disabled = !ready;
+    launch.textContent = ready ? "Play preview" : "Choose an episode";
+  };
+
+  const loadEpisodes = async () => {
+    clearPreview();
+    episode.replaceChildren(new Option("Choose an episode", ""));
+    episode.disabled = true;
+    syncLaunchState();
+    if (!season.value) {
+      status.textContent = "Choose a season to load preview episodes from TMDB.";
+      return;
+    }
+    status.textContent = "Loading episodes from TMDB…";
+    const endpoint = fillTemplate(preview.dataset.episodesTemplate, [tmdbId, season.value]);
+    if (!endpoint) {
+      status.textContent = "Episode preview is not configured yet.";
+      return;
+    }
+    try {
+      const payload = await api(endpoint);
+      (payload.items || []).forEach((item) => {
+        episode.add(new Option(`E${String(item.episode_number).padStart(2, "0")} · ${item.name}`, item.episode_number));
+      });
+      episode.disabled = !(payload.items || []).length;
+      status.textContent = payload.items?.length
+        ? "Choose an episode, then play a preview. Nothing is added to your library."
+        : "No episodes were found for this season.";
+    } catch (error) {
+      status.textContent = error.message;
+    }
+    syncLaunchState();
+  };
+
+  source.addEventListener("change", () => {
+    clearPreview();
+    status.textContent = "Source changed. Press Play preview when you are ready.";
+    syncLaunchState();
+  });
+  season?.addEventListener("change", loadEpisodes);
+  episode?.addEventListener("change", () => {
+    clearPreview();
+    syncLaunchState();
+  });
+  launch.addEventListener("click", async () => {
+    const provider = source.value;
+    if (!provider || (mediaType === "tv" && (!season.value || !episode.value))) return;
+    launch.disabled = true;
+    status.textContent = `Preparing ${source.selectedOptions[0]?.textContent || "preview"}…`;
+    try {
+      const endpoint = (preview.dataset.sourceTemplate || "").replace("provider-key", encodeURIComponent(provider));
+      const url = new URL(endpoint, window.location.origin);
+      if (mediaType === "tv") {
+        url.searchParams.set("season", season.value);
+        url.searchParams.set("episode", episode.value);
+      }
+      const payload = await api(url);
+      const sourceUrl = String(payload?.source?.url || "").trim();
+      if (!sourceUrl) throw new Error("The selected preview provider returned no player.");
+      frame.src = sourceUrl;
+      frame.hidden = false;
+      viewport.hidden = false;
+      status.textContent = `${payload.source.label || "Preview player"} is loading…`;
+      syncLaunchState();
+    } catch (error) {
+      clearPreview();
+      status.textContent = error.message;
+      syncLaunchState();
+    }
+  });
+  frame.addEventListener("load", () => {
+    if (!frame.hidden && frame.src !== "about:blank") {
+      status.textContent = "Preview loaded. Nothing was added to your library.";
+    }
+  });
+  syncLaunchState();
+})();

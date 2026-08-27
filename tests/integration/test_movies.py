@@ -479,6 +479,41 @@ def test_movie_search_uses_tmdb_for_titles_missing_from_notion(authenticated_cli
     assert payload["discovery"][0]["in_library"] is False
 
 
+def test_discovery_preview_provider_does_not_create_library_state(authenticated_client, app):
+    with app.app_context():
+        app.config["DRAGON_PLAYBACK_ENABLED"] = True
+        app.config["DRAGON_CINESRC_ENABLED"] = True
+        app.extensions.pop("dragon_playback_provider_registry", None)
+
+    response = authenticated_client.get(
+        "/movies/discover/movie/550/preview-source/cinesrc"
+    )
+
+    assert response.status_code == 200
+    payload = response.get_json()
+    assert payload["preview"] is True
+    assert payload["source"]["url"] == "https://cinesrc.st/embed/movie/550"
+    with app.app_context():
+        assert db.session.scalar(db.select(PlaybackSource)) is None
+
+
+def test_discovery_page_exposes_tmdb_preview_players(authenticated_client, app):
+    with app.app_context():
+        app.config["DRAGON_PLAYBACK_ENABLED"] = True
+        app.config["DRAGON_CINESRC_ENABLED"] = True
+        app.extensions["dragon_tmdb_catalog_provider"] = StubTmdbProvider()
+        app.extensions.pop("dragon_playback_provider_registry", None)
+
+    response = authenticated_client.get("/movies/discover/movie/329865")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'data-discover-player' in html
+    assert 'data-preview-source' in html
+    assert "CineSrc" in html
+    assert "Nothing is saved to your library" in html
+
+
 def test_import_writes_notion_and_creates_selected_player_source(authenticated_client, app):
     notion = StubNotionProvider()
     with app.app_context():

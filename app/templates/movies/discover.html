@@ -1,8 +1,8 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ media.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-final-correction-2">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movies-v2-final-correction-1" defer></script>{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-preview-1">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movies-v2-preview-1" defer></script>{% endblock %}
 {% block content %}
 {% set genre_names = media.genres|map(attribute='name')|select|list %}
 {% set backdrop_url = media.tmdb_detail.backdrop_url or media.backdrop_url or media.poster_url %}
@@ -22,6 +22,7 @@
       {% if media.overview %}<p class="movie-discover-hero__overview">{{ media.overview }}</p>{% endif %}
       <div class="movie-discover-hero__actions" aria-label="Movie actions">
         <button class="button button--primary" type="button" data-library-add>+ Add to library</button>
+        {% if media.preview_player_sources %}<button class="button button--secondary" type="button" data-preview-open aria-controls="preview-player">Preview player</button>{% endif %}
         <button class="button button--secondary" type="button" data-release-browser-open aria-controls="release-browser">Watch options</button>
         {% if trailers %}<a class="button button--quiet" href="{{ trailers[0].url }}" rel="noreferrer">Trailer</a>{% endif %}
       </div>
@@ -40,6 +41,27 @@
         <div><dt>Source</dt><dd>TMDB preview</dd></div>
       </dl>
     </section>
+
+    {% if media.preview_player_sources %}
+    <section id="preview-player" class="movie-preview-player detail-section" data-discover-player data-media-type="{{ media.media_type }}" data-tmdb-id="{{ media.tmdb_id }}" data-source-template="{{ url_for('movies.discover_preview_source', media_type=media.media_type, tmdb_id=media.tmdb_id, provider_key='provider-key') }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if media.media_type == 'tv' else '' }}" aria-labelledby="preview-player-title">
+      <div class="movie-preview-player__heading">
+        <div><span class="eyebrow">Preview player</span><h2 id="preview-player-title">Watch before adding</h2></div>
+        <span class="badge badge--accent">No library changes</span>
+      </div>
+      <div class="movie-preview-player__controls">
+        <label class="field"><span>Player source</span><select data-preview-source>{% for source in media.preview_player_sources %}<option value="{{ source.provider }}">{{ source.label }}</option>{% endfor %}</select></label>
+        {% if media.media_type == 'tv' %}
+        <label class="field"><span>Season</span><select data-preview-season><option value="">Choose a season</option>{% for season in media.seasons or [] if season.season_number > 0 and season.episode_count > 0 %}<option value="{{ season.season_number }}">{{ season.name }} · {{ season.episode_count }} episodes</option>{% endfor %}</select></label>
+        <label class="field"><span>Episode</span><select data-preview-episode disabled><option value="">Choose an episode</option></select></label>
+        {% endif %}
+        <button class="button button--primary" type="button" data-preview-launch>{{ 'Choose an episode' if media.media_type == 'tv' else 'Play preview' }}</button>
+      </div>
+      <p class="movie-preview-player__status" data-preview-status role="status" aria-live="polite">Preview only. Nothing is saved to your library or playback history.</p>
+      <div class="movie-preview-player__viewport" data-preview-viewport hidden>
+        <iframe data-preview-frame title="Preview player for {{ media.title }}" allow="autoplay; fullscreen; picture-in-picture" allowfullscreen webkitallowfullscreen referrerpolicy="no-referrer" hidden></iframe>
+      </div>
+    </section>
+    {% endif %}
 
     <details id="release-browser" class="movie-release-browser detail-section" data-inline-release-browser data-media-type="{{ media.media_type }}" data-tmdb-id="{{ media.tmdb_id }}" data-library-endpoint="{{ url_for('movies.api_library') }}" data-import-endpoint="{{ url_for('movies.api_import') }}" data-releases-endpoint="{{ url_for('movies.api_releases') }}" data-seasons-template="{{ url_for('movies.api_tv_seasons', tmdb_id=999999999) }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}">
       <summary>Watch options &amp; sources</summary>

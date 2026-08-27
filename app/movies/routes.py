@@ -57,6 +57,7 @@ from app.movies.snapshots import (
     movies_snapshot_digest,
     preview_movies_snapshot,
 )
+from app.playback.identity import PlaybackIdentity
 from app.playback.providers import (
     ID_CATALOG_EMBED_PROVIDER_SPECS,
     build_provider_registry_from_config,
@@ -159,6 +160,51 @@ def _id_catalog_embed_candidates(movie: Movie) -> list[dict]:
             }
         )
     return candidates
+
+
+def _discover_embed_player_sources(media: dict) -> list[dict]:
+    """Build safe, non-persistent player choices for a TMDB-only preview.
+
+    Discovery pages do not have a local ``Movie.id`` yet, so they cannot use
+    the library-backed source selector.  Only providers that resolve directly
+    from a TMDB identity are eligible here; indexed providers still require a
+    Dragon-owned per-title mapping and remain available after library import.
+    """
+    if not _playback_is_enabled():
+        return []
+    tmdb_id = str(media.get("tmdb_id") or "").strip()
+    media_type = str(media.get("media_type") or "").strip().lower()
+    if not tmdb_id.isdigit() or media_type not in {"movie", "tv"}:
+        return []
+
+    registry = build_provider_registry_from_config(current_app.config)
+    enabled = PlaybackService.enabled_provider_keys(registry.keys())
+    priorities = _provider_priorities()
+    sources: list[dict] = []
+    if current_app.config.get("DRAGON_VIDSRC_ENABLED") and "vidsrc" in enabled:
+        sources.append(
+            {
+                "id": "preview-vidsrc",
+                "provider": "vidsrc",
+                "label": "VidSrc",
+                "priority": priorities.get("vidsrc", 100),
+            }
+        )
+    for spec in ID_CATALOG_EMBED_PROVIDER_SPECS:
+        if spec.key not in enabled:
+            continue
+        provider = registry.get(spec.key)
+        if provider is None:
+            continue
+        sources.append(
+            {
+                "id": f"preview-{spec.key}",
+                "provider": spec.key,
+                "label": provider.display_name,
+                "priority": priorities.get(spec.key, spec.default_priority),
+            }
+        )
+    return sorted(sources, key=lambda source: (source["priority"], source["label"].casefold()))
 
 
 def _jackett_is_eligible(
@@ -931,11 +977,65 @@ def discover(media_type: str, tmdb_id: int):
         return redirect(url_for("movies.index"))
     if item["in_library"] and item["local_id"]:
         return redirect(url_for("movies.detail", movie_id=item["local_id"]))
+    item["preview_player_sources"] = _discover_embed_player_sources(item)
     return render_template(
         "movies/discover.html",
         active_module="movies",
         media=item,
     )
+
+
+@bp.get("/discover/<media_type>/<int:tmdb_id>/preview-source/<provider_key>")
+@login_required
+def discover_preview_source(media_type: str, tmdb_id: int, provider_key: str):
+    """Resolve a configured TMDB-backed embed for a non-library preview.
+
+    This endpoint deliberately does not call ``upsert_resolved_source``: a
+    preview must not create library state, source rows, or progress records.
+    """
+    media_type = media_type.strip().lower()
+    provider_key = provider_key.strip().lower()
+    if media_type not in {"movie", "tv"} or tmdb_id < 1:
+        abort(404)
+    if not _playback_is_enabled():
+        abort(404)
+    registry = build_provider_registry_from_config(current_app.config)
+    enabled = PlaybackService.enabled_provider_keys(registry.keys())
+    allowed = {"vidsrc"} | {spec.key for spec in ID_CATALOG_EMBED_PROVIDER_SPECS}
+    if provider_key not in allowed or provider_key not in enabled:
+        return _api_error("The selected preview provider is not enabled.", 409)
+    if provider_key == "vidsrc" and not current_app.config.get("DRAGON_VIDSRC_ENABLED"):
+        return _api_error("VidSrc previews are disabled.", 409)
+
+    try:
+        season = _optional_positive_int(request.args.get("season"))
+        episode = _optional_positive_int(request.args.get("episode"))
+    except ValueError:
+        return _api_error("Choose a valid season and episode.")
+    if (season is None) != (episode is None):
+        return _api_error("TV preview requires both a season and an episode.")
+    if media_type == "tv" and (season is None or episode is None):
+        return _api_error("Choose a season and episode before starting the preview.")
+    if media_type == "movie" and (season is not None or episode is not None):
+        return _api_error("Movie preview does not accept a season or episode.")
+
+    provider = registry.get(provider_key)
+    if provider is None:
+        return _api_error("The selected preview provider is unavailable.", 409)
+    identity = PlaybackIdentity(
+        movie_id=f"preview:{media_type}:{tmdb_id}",
+        tmdb_id=str(tmdb_id),
+        media_type=media_type,
+        season=season,
+        episode=episode,
+    )
+    try:
+        resolved = provider.resolve(identity)
+    except ValueError as exc:
+        return _api_error(str(exc), 503)
+    response = jsonify({"ok": True, "preview": True, "source": resolved.response_item()})
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 @bp.post("/<movie_id>/status")
