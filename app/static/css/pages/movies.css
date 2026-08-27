@@ -2185,3 +2185,19 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movies-v2--detail .movie-detail__overview, .movies-v2--detail .definition-grid { grid-column: 1 / -1; }
   .movies-v2--detail .movie-detail__poster { width: auto; }
 }
+
+.movies-v2 .filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  margin-top: 48px;
+  padding: 18px 0;
+  border-block: 1px solid rgb(255 255 255 / 10%);
+}
+.movies-v2 .filter-bar .field { flex: 1 1 145px; min-width: 0; }
+.movies-v2 .filter-bar .field span { margin: 0 0 5px 5px; color: rgb(255 255 255 / 55%); font-size: .66rem; }
+.movies-v2 .filter-bar input,
+.movies-v2 .filter-bar select { min-height: 42px; border-radius: 999px; background: rgb(255 255 255 / 6%); }
+.movies-v2 .filter-bar__actions { display: flex; flex: 0 1 auto; gap: 8px; align-items: end; }
+.movies-v2 .filter-bar__actions .button { min-height: 42px; border-radius: 999px; }
