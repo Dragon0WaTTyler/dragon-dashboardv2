@@ -130,6 +130,16 @@ def _utc_json(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _utc_sort_key(value: datetime | None) -> datetime:
+    """Return a comparable UTC timestamp for legacy and current Movie rows."""
+
+    if value is None:
+        return datetime.min.replace(tzinfo=UTC)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def progress_dict(progress: MovieProgress | None) -> dict[str, Any] | None:
     if progress is None:
         return None
@@ -1439,7 +1449,7 @@ class MovieService:
             key=lambda movie: (
                 bool(movie.library_entry and movie.library_entry.is_favorite),
                 float(effective_personal_rating(movie) or 0),
-                (
+                _utc_sort_key(
                     movie.library_entry.last_watched_at
                     or movie.library_entry.updated_at
                     if movie.library_entry

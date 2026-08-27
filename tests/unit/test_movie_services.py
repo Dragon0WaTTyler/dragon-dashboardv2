@@ -397,6 +397,39 @@ def test_because_you_watched_uses_cached_related_cards_and_excludes_local_titles
     assert rail["items"][0]["detail_url"] == "/movies/discover/movie/201"
 
 
+def test_because_you_watched_sorts_mixed_datetime_shapes_in_utc(app, monkeypatch):
+    with app.app_context():
+        newer = Movie(
+            id="mov_aware",
+            media_key="movie:100",
+            title="Newer anchor",
+            normalized_title="newer anchor",
+            media_type="movie",
+            status="watched",
+            updated_at=datetime(2026, 8, 27, 12, tzinfo=UTC),
+            metadata_state={
+                "tmdb_detail": {
+                    "similar": [{"tmdb_id": 201, "title": "Related title"}]
+                }
+            },
+        )
+        older = Movie(
+            id="mov_naive",
+            media_key="movie:101",
+            title="Older anchor",
+            normalized_title="older anchor",
+            media_type="movie",
+            status="watched",
+            updated_at=datetime(2026, 8, 26, 12),
+        )
+        monkeypatch.setattr(db.session, "scalars", lambda _statement: [older, newer])
+
+        rail = MovieService.because_you_watched()
+
+    assert rail is not None
+    assert rail["anchor"]["id"] == newer.id
+
+
 def test_tv_season_workspace_handles_episodes_without_progress(app):
     with app.app_context():
         movie = Movie(
