@@ -71,7 +71,7 @@
       </div>
       <div class="tv-season-grid">
         {% for season in workspace.seasons %}
-        <a class="tv-season-card" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=season.season_number) }}">
+        <a class="tv-season-card{% if selected_season_workspace and selected_season_workspace.season.season_number == season.season_number %} is-active{% endif %}" href="{{ url_for('movies.detail', movie_id=movie.id, season=season.season_number) }}#tv-season-episodes"{% if selected_season_workspace and selected_season_workspace.season.season_number == season.season_number %} aria-current="true"{% endif %}>
           <span class="tv-season-card__poster">
             {% if season.poster_url %}<img src="{{ season.poster_url }}" alt="{{ season.name }}" loading="lazy" width="240" height="360">{% else %}<span class="media-fallback" aria-hidden="true">S{{ season.season_number }}</span>{% endif %}
           </span>
@@ -92,6 +92,31 @@
         {% endfor %}
       </div>
     </section>
+    {% if selected_season_workspace %}
+    <section id="tv-season-episodes" class="detail-section tv-series-episode-preview" aria-labelledby="tv-season-episodes-title">
+      <div class="movie-release-browser__header">
+        <div><span class="eyebrow">Episode browser</span><h2 id="tv-season-episodes-title">{{ selected_season_workspace.season.name or ('Season ' ~ selected_season_workspace.season.season_number) }}</h2><p class="muted">Play or resume an episode without leaving the series.</p></div>
+        <a class="button button--quiet" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=selected_season_workspace.season.season_number) }}">Open season page</a>
+      </div>
+      <div class="tv-episode-grid">
+        {% for episode in selected_season_workspace.episodes %}
+        <a class="movie-tile tv-episode-tile{% if selected_season_workspace.resume_target and selected_season_workspace.resume_target.episode == episode.episode_number %} is-active{% endif %}" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=selected_season_workspace.season.season_number, episode_number=episode.episode_number) }}">
+          <span class="movie-tile__poster tv-episode-tile__poster" data-media-frame>
+            {% if episode.still_url %}<img src="{{ episode.still_url }}" alt="{{ episode.name }}" loading="lazy" width="480" height="270">{% else %}<span class="media-fallback" aria-hidden="true">E{{ '%02d'|format(episode.episode_number) }}</span>{% endif %}
+          </span>
+          <div class="movie-tile__body tv-episode-tile__body">
+            <span class="eyebrow">S{{ '%02d'|format(selected_season_workspace.season.season_number) }}E{{ '%02d'|format(episode.episode_number) }}</span>
+            <h3>{{ episode.name }}</h3>
+            {% if episode.overview %}<p class="tv-episode-tile__overview">{{ episode.overview }}</p>{% endif %}
+            <div class="tv-episode-tile__meta">{% if episode.runtime_minutes %}<span>{{ episode.runtime_minutes }} min</span>{% endif %}{% if episode.air_date %}<span>{{ episode.air_date }}</span>{% endif %}<span>{% if episode.progress and episode.progress.completed %}Watched{% elif episode.progress %}{{ episode.progress.percent }}% watched{% else %}Not started{% endif %}</span></div>
+            {% if episode.progress %}<progress class="progress-track" value="{{ episode.progress.percent }}" max="100" aria-label="{{ episode.progress.percent }} percent watched">{{ episode.progress.percent }}%</progress>{% endif %}
+            <span class="tv-episode-tile__action">{% if episode.progress and not episode.progress.completed %}Resume{% elif episode.progress and episode.progress.completed %}Replay{% else %}Play episode{% endif %} <span aria-hidden="true">→</span></span>
+          </div>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
   </div>
 </article>
 </div>

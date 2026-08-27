@@ -95,7 +95,7 @@ has no horizontal document overflow, and the selector preserves its URL state.
 | Persistent Movies navigation | Server-rendered nav added to Home, browse, discover, detail, TV, lists, and Watch Next templates; sticky CSS is shared | PASS |
 | Dynamic Home hero | Server-projected candidate deck, client dots/previous/next/auto-rotation when at least two real candidates exist; the browser fixture captures `A-home-hero-candidate-a.png` and `A-home-hero-candidate-b.png` as distinct titles | PASS |
 | Inline availability provider selector | Existing provider URLs and selected state are retained; selector is visible in the shared Home rail heading | PASS |
-| TV series hierarchy | Series hero metadata, season/episode counts, compact season browser, and explicit secondary Jackett disclosure | PASS |
+| TV series hierarchy | Series hero metadata, season/episode counts, compact season cards, inline selected-season episode browser, and explicit secondary Jackett disclosure | PASS |
 | Episode-picker null guard | `tests/browser/test_movie_player.py` season-pack flow passes with the secondary disclosure opened deliberately | PASS |
 | Focused regression suites | `tests/integration/test_movies.py` (32 passed), `tests/browser/test_movies_phase1.py` (1 passed), `tests/browser/test_movie_player.py` (9 passed), `tests/unit/test_movie_services.py` (22 passed) | PASS |
 

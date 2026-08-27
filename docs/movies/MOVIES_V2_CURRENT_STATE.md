@@ -725,10 +725,12 @@ It adds presentation/routing composition only:
 - Provider availability is surfaced by an inline, URL-backed provider selector
   shared by the Movies and TV rails. Availability metadata is still not a
   playback source.
-- TV series detail now gives seasons/episode counts and a compact season browser;
-  Jackett/manual release discovery is an explicitly secondary disclosure. The
-  player/source, subtitle, local-runtime, exact-episode, and season-pack paths
-  remain Playback-owned.
+- TV series detail now gives seasons/episode counts, a compact season browser,
+  and an inline episode preview for the selected season; dedicated season URLs
+  remain available for deep links and player/source controls. Jackett/manual
+  release discovery is an explicitly secondary disclosure. The player/source,
+  subtitle, local-runtime, exact-episode, and season-pack paths remain
+  Playback-owned.
 - The legacy media search picker now guards absent TV selection state before
   reading season/episode fields, preventing the previously observed null
   `season` read during episode-picker hydration.

@@ -484,9 +484,10 @@ presentation/routing work that is compatible with these invariants:
   progress row, lifecycle state, favorite, or playback session.
 - Provider selector UI consumes existing availability metadata and URL state;
   it cannot launch or masquerade as a Dragon playback source.
-- TV season/episode presentation and the secondary Jackett disclosure preserve
-  the frozen episode identity, scoped progress, source/acquisition, subtitle,
-  local-runtime, and auto-next contracts.
+- TV season/episode presentation now includes a read-only selected-season episode
+  browser on the series page; dedicated season routes and the secondary Jackett
+  disclosure preserve the frozen episode identity, scoped progress,
+  source/acquisition, subtitle, local-runtime, and auto-next contracts.
 - The media picker now treats a missing selected TV item as an explicit empty
   state before reading season/episode fields. This is a defensive client fix,
   not a change to episode identity or persistence.

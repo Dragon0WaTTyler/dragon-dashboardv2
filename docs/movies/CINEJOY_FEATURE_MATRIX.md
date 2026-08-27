@@ -166,9 +166,10 @@ The matrix decisions above are now reflected in the local Flask/Jinja surface:
   persist carousel state. With one candidate it intentionally stays static.
 - Provider browsing is an inline selected-provider control backed by existing
   region/provider URL state. It is availability metadata, not a Dragon source.
-- TV detail exposes season/episode counts and keeps Jackett/manual release
-  discovery behind a secondary disclosure. Existing exact-episode, season-pack,
-  local playback, subtitle, and auto-next boundaries remain unchanged.
+- TV detail exposes season/episode counts plus an inline episode browser for the
+  selected season, while keeping Jackett/manual release discovery behind a
+  secondary disclosure. Existing exact-episode, season-pack, local playback,
+  subtitle, and auto-next boundaries remain unchanged.
 - The media picker guards missing TV selection before dereferencing season or
   episode, covering the previously observed null-selection regression.
 

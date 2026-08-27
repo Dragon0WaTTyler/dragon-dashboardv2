@@ -841,11 +841,33 @@ def detail(movie_id: str):
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
     if movie.media_type == "tv":
+        workspace = tv_show_workspace(movie)
+        season_values = [
+            int(item.get("season_number") or 0)
+            for item in workspace["seasons"]
+            if int(item.get("season_number") or 0) >= 0
+            and int(item.get("episode_count") or 0) > 0
+        ]
+        requested_season = request.args.get("season", type=int)
+        selected_season_number = (
+            requested_season
+            if requested_season in season_values
+            else next(
+                (value for value in season_values if value > 0),
+                season_values[0] if season_values else None,
+            )
+        )
+        selected_season_workspace = (
+            tv_season_workspace(movie, season_number=selected_season_number)
+            if selected_season_number is not None
+            else None
+        )
         return render_template(
             "movies/tv_show.html",
             active_module="movies",
             movie=movie_detail(movie),
-            workspace=tv_show_workspace(movie),
+            workspace=workspace,
+            selected_season_workspace=selected_season_workspace,
             custom_lists=MovieService.custom_lists(current_user.id),
         )
     local_player_enabled = (

@@ -1171,6 +1171,8 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     page.set_viewport_size({"width": 1280, "height": 844})
     page.goto(f"{live_app}/movies/{movie_id}")
     page.locator(".tv-series-hero").wait_for()
+    page.locator("#tv-season-episodes").wait_for()
+    assert page.get_by_role("heading", name="Pilot").is_visible()
     page.screenshot(path=str(evidence_dir / "Y-series-detail-hero.png"), full_page=True)
     page.locator(".tv-series-seasons").screenshot(path=str(evidence_dir / "Z-series-seasons.png"))
     page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/2#episode-player")

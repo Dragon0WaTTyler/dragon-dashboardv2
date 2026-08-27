@@ -152,6 +152,46 @@ def test_movies_library_is_a_dedicated_page(authenticated_client, app):
     assert 'id="movie-library"' not in home.get_data(as_text=True)
 
 
+def test_tv_series_page_embeds_selected_season_episode_browser(authenticated_client, app):
+    movie_id = add_movie(
+        app,
+        title="Series workspace",
+        normalized_title="series workspace",
+        media_type="tv",
+        external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+        metadata_state={
+            "tv_total_seasons": 1,
+            "tv_total_episodes": 2,
+            "tv_seasons": [{"season_number": 1, "name": "Season 1", "episode_count": 2}],
+            "tv_episodes": {
+                "1": [
+                    {
+                        "season_number": 1,
+                        "episode_number": 1,
+                        "name": "Pilot",
+                        "runtime_minutes": 60,
+                    },
+                    {
+                        "season_number": 1,
+                        "episode_number": 2,
+                        "name": "Second episode",
+                        "runtime_minutes": 60,
+                    },
+                ]
+            },
+        },
+    )
+
+    response = authenticated_client.get(f"/movies/{movie_id}?season=1")
+
+    assert response.status_code == 200
+    html = response.get_data(as_text=True)
+    assert 'id="tv-season-episodes"' in html
+    assert "Play or resume an episode without leaving the series." in html
+    assert "S01E01" in html
+    assert f"/movies/{movie_id}/seasons/1/episodes/1" in html
+
+
 def test_movie_collections_are_authenticated_and_do_not_require_tmdb_for_the_index(
     authenticated_client, app
 ):

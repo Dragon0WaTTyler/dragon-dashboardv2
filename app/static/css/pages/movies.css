@@ -1579,6 +1579,11 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 .movie-release-browser--secondary[open] > :not(summary) { margin-inline: 20px; }
 .movie-release-browser--secondary[open] > .release-list { margin-bottom: 20px; }
 .tv-episode-tile__action { display: inline-flex; gap: 6px; align-items: center; margin-top: 4px; color: #ffd9df; font-size: .78rem; font-weight: 700; }
+.tv-season-card.is-active { border-color: rgb(225 68 81 / 62%); box-shadow: 0 0 0 1px rgb(225 68 81 / 20%), 0 18px 38px rgb(0 0 0 / 24%); }
+.tv-series-episode-preview { margin-top: clamp(28px, 4vw, 54px); }
+.tv-series-episode-preview .movie-release-browser__header { align-items: end; }
+.tv-series-episode-preview .movie-release-browser__header p { margin: 8px 0 0; }
+.tv-series-episode-preview .tv-episode-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
 
 /* Structural V2 pass: keep the local nav in the cinematic viewport while the
    global Dragon header remains the primary application chrome. */
