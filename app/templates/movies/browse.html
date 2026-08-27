@@ -1,6 +1,6 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import empty_state %}
-{% block title %}{% if collection is defined %}{{ collection.title }} · Collections · Dragon{% else %}Browse {{ 'Movies' if query.media_type == 'movie' else 'Series' }} · Dragon{% endif %}{% endblock %}
+{% block title %}{% if collection is defined %}{{ collection.title }} · Collections · Dragon{% else %}{{ 'Movies' if query.media_type == 'movie' else 'Shows' }} · Dragon{% endif %}{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-polish-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script>{% endblock %}
 {% block content %}
@@ -8,13 +8,13 @@
   <div class="movies-v2__atmosphere" aria-hidden="true"></div>
   <a class="back-link" href="{{ url_for('movies.index') }}">← Movies home</a>
   <header class="page-header movie-v2-masthead">
-    <div>{% if collection is defined %}<span class="eyebrow">Dragon {{ collection.collection_type|replace('_', ' ') }} · TMDB discovery</span><h1>{{ collection.title }}</h1><p>{{ collection.description }} Adding a title remains a deliberate Dragon action.</p>{% else %}<span class="eyebrow">TMDB discovery · not in your library yet</span><h1>Browse {{ 'movies' if query.media_type == 'movie' else 'series' }}</h1><p>Explore the catalog, then add a title deliberately from its Dragon preview.</p>{% endif %}</div>
-    <nav class="movie-v2-nav" aria-label="Browse media type"><a href="{{ url_for('movies.browse', media_type='movie') }}"{% if query.media_type == 'movie' %} aria-current="page"{% endif %}>Movies</a><a href="{{ url_for('movies.browse', media_type='tv') }}"{% if query.media_type == 'tv' %} aria-current="page"{% endif %}>Series</a></nav>
+    <div>{% if collection is defined %}<span class="eyebrow">Dragon {{ collection.collection_type|replace('_', ' ') }} · TMDB discovery</span><h1>{{ collection.title }}</h1><p>{{ collection.description }} Adding a title remains a deliberate Dragon action.</p>{% else %}<span class="eyebrow">TMDB discovery · catalog</span><h1>{{ 'Movies' if query.media_type == 'movie' else 'Shows' }}</h1><p>Explore the catalog, then add a title deliberately from its Dragon preview.</p>{% endif %}</div>
+    <nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}"{% if query.media_type == 'movie' %} aria-current="page"{% endif %}>Movies</a><a href="{{ url_for('movies.browse', media_type='tv') }}"{% if query.media_type == 'tv' %} aria-current="page"{% endif %}>Shows</a><a href="{{ url_for('movies.index') }}#movie-library">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
   </header>
   {% if collection is not defined %}<form class="movie-browse__filters" method="get" aria-label="Browse filters">
     <label class="field"><span>Genre</span><select name="genre"><option value="">All genres</option>{% for genre in genres %}<option value="{{ genre.id }}"{% if query.genre_id == genre.id %} selected{% endif %}>{{ genre.name }}</option>{% endfor %}</select></label>
     <label class="field"><span>Year</span><input name="year" type="number" min="1800" max="2200" value="{{ query.year or '' }}" inputmode="numeric"></label>
-    <label class="field"><span>Region</span><input name="region" value="{{ query.region }}" maxlength="2" pattern="[A-Za-z]{2}"></label>
+    <label class="field"><span>Country</span><input name="region" value="{{ query.region }}" maxlength="2" pattern="[A-Za-z]{2}"></label>
     <label class="field"><span>Streaming availability</span><select name="provider"><option value="">Any provider</option>{% for provider in providers %}<option value="{{ provider.id }}"{% if query.provider_id == provider.id %} selected{% endif %}>{{ provider.name }}</option>{% endfor %}</select></label>
     <label class="field"><span>Sort</span><select name="sort"><option value="popular"{% if query.sort == 'popular' %} selected{% endif %}>Popular</option><option value="rating"{% if query.sort == 'rating' %} selected{% endif %}>Rating</option><option value="newest"{% if query.sort == 'newest' %} selected{% endif %}>Newest</option><option value="title"{% if query.sort == 'title' %} selected{% endif %}>Title</option></select></label>
     <button class="button button--primary" type="submit">Apply</button>
