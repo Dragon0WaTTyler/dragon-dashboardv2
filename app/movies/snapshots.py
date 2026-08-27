@@ -28,6 +28,8 @@ from app.movies.models import (
 )
 from app.shared.time import utc_now
 
+UTC = timezone.utc  # noqa: UP017 - keep Python 3.10 compatibility
+
 MOVIES_SNAPSHOT_SCHEMA_VERSION = 1
 _SUPPORTED_SCHEMA_VERSIONS = {0, MOVIES_SNAPSHOT_SCHEMA_VERSION}
 _LIFECYCLE_STATUSES = {"want_to_watch", "watching", "watched"}

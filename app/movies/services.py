@@ -24,6 +24,8 @@ from app.movies.scoring import score_option_for_input
 from app.playback.models import PlaybackSource
 from app.shared.time import utc_now
 
+UTC = timezone.utc  # noqa: UP017 - keep Python 3.10 compatibility
+
 MOVIE_STATUSES = {"want_to_watch", "watching", "finished", "watched", "unknown"}
 MOVIE_COMPLETION_THRESHOLD = 0.95
 EPISODE_COMPLETION_THRESHOLD = 0.90
