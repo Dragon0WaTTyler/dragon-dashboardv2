@@ -489,6 +489,10 @@ def test_authorized_indexed_mapping_can_be_added_without_an_arbitrary_url(
     listing = authenticated_client.get(f"/playback/movie/{movie_id}/sources")
     assert listing.get_json()["items"] == [
         {
+            "availability_checked": False,
+            "availability_fresh": False,
+            "availability_status": "UNKNOWN",
+            "enabled": True,
             "id": listing.get_json()["items"][0]["id"],
             "provider": "videotube",
             "label": "VideoTube · Arabic Subs",
@@ -496,7 +500,9 @@ def test_authorized_indexed_mapping_can_be_added_without_an_arbitrary_url(
             "subtitle_languages": ["ar", "en"],
             "quality": "1080p",
             "playback_mode": "embed",
+            "priority": 10,
             "selected": False,
+            "source_type_label": "Authorized embed mapping",
         }
     ]
     with app.app_context():

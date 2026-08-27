@@ -439,6 +439,23 @@ justifies client-side virtualization, infinite-scroll state, or a new index in
 this phase; those are intentionally deferred until profiling demonstrates a
 real bottleneck.
 
+## Verified Phase 29 release gate
+
+The fresh Alembic path reaches `b1d2e3f4a5b6` (head). A SQLite online backup of
+the existing local database was migrated on a copy before the same additive
+`a9c4e1f7b2d6 → b1d2e3f4a5b6` custom-list migration was applied to the local
+database; Movie and MovieProgress row counts were preserved and both
+custom-list tables were present afterward. The backup is ignored local data and
+is not part of source control.
+
+The final focused suite covers Movies services, browse, rails, snapshots,
+integrations, routes, the Movies API contract and Playback routes; it passed
+119 tests with `--cov=app`. The real-browser Movie player smoke suite passed
+9 tests. The tracked-file secret scan passed. The repository-wide `pytest -q`
+currently stops during collection in unrelated `app.shared.auto_sync` imports,
+and repository-wide Ruff reports pre-existing/untracked non-Movies findings;
+the changed Movies/Playback test files pass scoped Ruff and `git diff --check`.
+
 ## Ownership map
 
 ```text
@@ -564,11 +581,11 @@ existence does not make them part of the Movies ownership boundary.
 | Styles | `app/static/css/pages/movies.css`, shared layout/components/tokens |
 | Cross-application navigation | `app/templates/layouts/app.html` |
 
-The current visual lane is Dragon Noir, documented in M11: near-black surfaces,
-crimson actions, warm typography, restrained grain, responsive mobile navigation,
-and reduced-motion support. The existing foundation wireframes intentionally use
-a restrained editorial Movies page rather than a cinematic hero; that is a
-documented prior design direction, not an excuse to change it in this phase.
+The current visual lane is Dragon Noir: near-black surfaces, crimson actions,
+warm typography, restrained grain, responsive mobile navigation and
+reduced-motion support. Movies V2 now applies that language through a
+personal-first cinematic hero, poster-first grids and rails, restrained
+artwork-derived ambient color, and a server-rendered detail/player workspace.
 
 ## Catalog, TMDB, search and library flows
 
@@ -594,14 +611,14 @@ descending. The index page renders the resulting “continue” card and Resume
 links. This is a real persisted-progress projection, although its target ordering
 will later be formalized as `last_watched_at`.
 
-### Watch Next / recommendation — confirmed working, target differs
+### Watch Next / What Should I Watch — confirmed working
 
 `MovieRepository.watch_next()` is a local-library query for
 `status == want_to_watch`, ordered by personal score, shortest runtime, then
-recent update. `MovieService.recommended()` and the index rotation operate on
-that same intent with local metadata scoring/explanations. This is not yet the
-target explicitly bounded “What Should I Watch?” contract with eligibility,
-filters and a result interaction.
+recent update. `MovieService.what_should_i_watch()` is deliberately distinct:
+it selects only canonical, unwatched personal-library entries, can apply local
+type/genre/runtime/language/decade/sort filters, and never sends a TMDB or
+source-provider request merely to choose a result.
 
 ## Playback, local runtime, subtitles and Jackett
 
@@ -640,9 +657,10 @@ claim that every Jackett/provider setup is available locally.
 
 - SQLite remains the current source of truth. `SnapshotStore` is a generic atomic
   store with validation and last-valid fallback.
-- The current Movies tables are included in the approved legacy importer and
-  Notion/TMDB flows, but this audit found no dedicated canonical
-  `movies.snapshot.json` V2 export/import contract yet.
+- `app/movies/snapshots.py` owns canonical `schema_version: 1` Movies
+  export/validation/preview/apply. It contains only portable personal state and
+  preferences; it excludes credentials, paths, provider/source data and Playback
+  runtime state. Import is bounded, digest-confirmed and non-deleting.
 - M10 records an earlier non-destructive migration dry run; M11 records an
   approved local legacy import. Those reports are historical evidence, not a
   substitute for a V2 migration plan.
@@ -660,6 +678,8 @@ claim that every Jackett/provider setup is available locally.
 | `d4a8f2c9e731_add_playback_provider_foundation` | Added provider/source scope and a source uniqueness invariant | active playback foundation |
 | `e5b9d3a0f842_add_provider_availability_cache` | Added provider availability cache | active playback foundation |
 | `f6c0e4b1a953_add_playback_provider_preferences` | Added provider preferences | active playback foundation |
+| `a9c4e1f7b2d6_add_movies_v2_foundation` | Added typed `media_key`, library state and scoped unique MovieProgress with safe duplicate archival | active V2 foundation |
+| `b1d2e3f4a5b6_add_movie_custom_lists` | Added owner-scoped custom lists and memberships | active; current local DB upgraded in Phase 29 after a verified SQLite backup/copy migration |
 
 ## Relevant tests
 
@@ -675,13 +695,13 @@ claim that every Jackett/provider setup is available locally.
 
 | Status | Current capability |
 | --- | --- |
-| Confirmed working | local Movie/status/score records; persisted progress; library filtering; watch-next; TMDB discovery; TV workspace; source selection; feature-gated local player; subtitle/browser flows covered by tests |
-| Partial / requires a contract | canonical Movies snapshot; custom-list ownership; provider-availability discovery; TV season/episode cache/detail; source-selector UX and next-episode policy |
+| Confirmed working | canonical identity/library/progress; personal Home/rails; cache-first discovery/browse/search/detail; real TV metadata/auto-next; favorites/lists; configured source selector; feature-gated local player/subtitles; snapshots; responsive browser player checks |
+| Partial / intentionally bounded | PWA/offline shell is deferred; broader discovery language/airing/network filters await reliable metadata; per-account ownership for library/progress/preferences awaits an approved migration |
 | Legacy / preserve during migration | app-generated Movie IDs, JSON metadata containers, existing status vocabulary (`finished` and `watched`), score label in `metadata_state`, `watch_history`, imported Notion identifiers and historical import records |
 
 ## Historical Phase 0 boundary
 
-The initial audit itself made no code, schema, route, provider, Jackett,
-playback, source, or existing-state change. Subsequent sections record the
-separately verified, incremental V2 milestones above; they do not authorize the
-remaining milestones.
+The initial Phase 0 audit itself made no code, schema, route, provider, Jackett,
+playback, source, or existing-state change. The sections above now record the
+completed, separately verified Movies V2 milestones and their explicitly
+deferred boundaries.
