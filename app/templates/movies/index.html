@@ -33,13 +33,15 @@
   <div class="movie-personal-hero__content">
     <div>
       <h2 id="movie-personal-hero-title"><a data-home-focus-title href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{{ home_focus.title }}</a></h2>
-      <p class="movie-personal-hero__meta" data-home-focus-meta>{{ [home_focus.media_type|title, home_focus.year, home_focus.runtime_minutes ~ ' min' if home_focus.runtime_minutes else '', home_focus.genres[:2]|join(' · ')]|select|join(' · ') }}</p>
+      <p class="movie-personal-hero__meta" data-home-focus-meta>{{ [home_focus.media_type|title, home_focus.year, '★ ' ~ ('%.1f'|format(home_focus.personal_score)) if home_focus.personal_score is not none else '', home_focus.runtime_minutes ~ ' min' if home_focus.runtime_minutes else '', home_focus.genres[:2]|join(' · ')]|select|join(' · ') }}</p>
       {% if home_focus.overview %}<p class="movie-personal-hero__overview">{{ home_focus.overview }}</p>{% endif %}
       {% if home_focus_kind == 'resume' and home_focus.progress %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.progress.percent }}% watched{% if home_focus.progress.remaining_seconds %} · {{ (home_focus.progress.remaining_seconds / 60)|round|int }} min left{% endif %}</p>{% elif home_focus_kind == 'personal' %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.eligibility_reason }}</p>{% else %}<p class="movie-personal-hero__progress" data-home-focus-progress>A title to consider when your personal list is clear.</p>{% endif %}
     </div>
     <div class="movie-personal-hero__actions">
       <a class="button button--primary" data-home-focus-primary href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{% if home_focus_kind == 'resume' %}Resume{% else %}Watch{% endif %}</a>
       <a class="button button--secondary" href="{{ url_for('movies.detail', movie_id=home_focus.id) }}">Details</a>
+      <a class="button button--quiet" href="{{ url_for('movies.detail', movie_id=home_focus.id) }}#actions-title">{{ home_focus.status|replace('_', ' ')|title }}</a>
+      <form method="post" action="{{ url_for('movies.update_favorite', movie_id=home_focus.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="favorite" value="{{ '0' if home_focus.is_favorite else '1' }}"><button class="button button--quiet" type="submit">{{ 'Unfavorite' if home_focus.is_favorite else 'Favorite' }}</button></form>
       {% if personal_pick %}<button class="button button--quiet" type="button" data-home-focus-shuffle>Another pick</button>{% endif %}
     </div>
   </div>
