@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from app.extensions import db
@@ -972,6 +974,10 @@ def test_failed_subtitle_auto_tries_next_available_track(page, live_app, app):
 def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app, app):
     captured = {}
     subtitle_queries = []
+    page_errors = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    evidence_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
+    evidence_dir.mkdir(parents=True, exist_ok=True)
 
     with app.app_context():
         movie = Movie(
@@ -1162,10 +1168,16 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     )
 
     sign_in(page, live_app)
+    page.set_viewport_size({"width": 1280, "height": 844})
+    page.goto(f"{live_app}/movies/{movie_id}")
+    page.locator(".tv-series-hero").wait_for()
+    page.screenshot(path=str(evidence_dir / "Y-series-detail-hero.png"), full_page=True)
+    page.locator(".tv-series-seasons").screenshot(path=str(evidence_dir / "Z-series-seasons.png"))
     page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/2#episode-player")
     release_browser = page.locator("[data-inline-release-browser]")
     release_browser.wait_for()
     release_browser.evaluate("element => { element.open = true; }")
+    page.screenshot(path=str(evidence_dir / "AA-season-page.png"), full_page=True)
     assert release_browser.get_by_role("button", name="Find full-season packs").is_visible()
     assert release_browser.locator("[data-season-select]").input_value() == "1"
     assert release_browser.locator("[data-season-select]").is_disabled()
@@ -1188,6 +1200,7 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     assert pack_browser.is_visible()
     assert page.locator("[data-player-pack-episode]").input_value() == "2"
     page.locator("[data-player-launch]").wait_for()
+    page.screenshot(path=str(evidence_dir / "AC-episode-context.png"), full_page=True)
     page.locator("[data-player-launch]").click()
     page.locator("[data-movie-player][data-playback-state]").wait_for()
     assert captured == {
@@ -1201,6 +1214,14 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
         ".includes('Arabic · Season 1 Arabic is selected')"
     )
     assert any("season=1" in url and "episode=2" in url for url in subtitle_queries)
+    page.locator("[data-player-selected-episode]").wait_for()
+    page.screenshot(path=str(evidence_dir / "AD-episode-player-playing.png"), full_page=True)
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate(
+        "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+    )
+    page.screenshot(path=str(evidence_dir / "AI-episode-mobile.png"), full_page=True)
+    assert not page_errors, page_errors
 
 
 def test_episode_selector_stays_available_after_switching_from_season_pack(page, live_app, app):

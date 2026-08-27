@@ -72,6 +72,7 @@ class Phase1Provider:
 def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     poster = _art("DRAGON", "#22162d", "#c5294f")
     backdrop = _art("CINEMA", "#120c28", "#7b243e")
+    backdrop_two = _art("SECOND", "#101d2b", "#1f8a70")
     with app.app_context():
         resume = Movie(
             title="Resume Feature",
@@ -89,6 +90,17 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
                     "production_companies": [{"name": "Dragon Pictures", "logo_url": ""}],
                 },
             },
+        )
+        resume_two = Movie(
+            title="Second Resume Feature",
+            normalized_title="second resume feature",
+            media_type="movie",
+            year=2023,
+            status="watching",
+            poster_url=poster,
+            overview="A second local feature proving the hero can rotate.",
+            external_ids={"tmdb_id": "705", "tmdb_type": "movie"},
+            metadata_state={"tmdb_detail": {"backdrop_url": backdrop_two}},
         )
         anchor = Movie(
             title="Watched Anchor",
@@ -166,16 +178,21 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
                 }
             },
         )
-        db.session.add_all([resume, anchor, anchor_two])
+        db.session.add_all([resume, resume_two, anchor, anchor_two])
         db.session.flush()
         db.session.add(
             MovieProgress(movie_id=resume.id, current_seconds=600, duration_seconds=1800)
+        )
+        db.session.add(
+            MovieProgress(movie_id=resume_two.id, current_seconds=420, duration_seconds=1500)
         )
         db.session.commit()
         anchor_id = anchor.id
         app.extensions["dragon_tmdb_catalog_provider"] = Phase1Provider()
 
     page.set_viewport_size({"width": 1280, "height": 900})
+    evidence_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
+    evidence_dir.mkdir(parents=True, exist_ok=True)
     page_errors = []
     page.on("pageerror", lambda error: page_errors.append(str(error)))
     _sign_in(page, live_app)
@@ -191,24 +208,38 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     assert page.get_by_role("heading", name="Movies on Netflix").is_visible()
     assert page.get_by_role("heading", name="TV Series on Netflix").is_visible()
     assert page.get_by_role("heading", name="Because you watched Watched Anchor").is_visible()
+    provider_selector = page.locator(".movie-provider-selector").first
+    provider_selector.locator("summary").click()
+    assert provider_selector.get_by_role("menu").is_visible()
+    page.screenshot(
+        path=str(evidence_dir / "I-provider-selector-open.png"),
+        full_page=True,
+    )
+    provider_selector.locator("summary").click()
+    page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+    nav_top = page.locator(".movie-v2-nav").bounding_box()["y"]
+    assert 120 <= nav_top <= 140
+    page.evaluate("window.scrollTo(0, 0)")
     hero_dots = page.locator("[data-home-hero-dot]")
-    if hero_dots.count() >= 2:
-        hero_title = page.locator("[data-home-focus-title]")
-        first_hero_title = hero_title.inner_text()
-        page.locator("[data-home-hero-next]").click()
-        page.wait_for_function(
-            "first => document.querySelector('[data-home-focus-title]')?.textContent !== first",
-            first_hero_title,
-        )
-        assert hero_title.inner_text() != first_hero_title
+    assert hero_dots.count() >= 2
+    phase1_dir = evidence_dir
+    page.screenshot(path=str(phase1_dir / "A-home-hero-candidate-a.png"), full_page=True)
+    hero_title = page.locator("[data-home-focus-title]")
+    first_hero_title = hero_title.inner_text()
+    page.locator("[data-home-hero-next]").click()
+    page.wait_for_function(
+        "first => document.querySelector('[data-home-focus-title]')?.textContent !== first",
+        arg=first_hero_title,
+    )
+    assert hero_title.inner_text() != first_hero_title
+    page.screenshot(path=str(phase1_dir / "A-home-hero-candidate-b.png"), full_page=True)
     selector = page.locator("#because-anchor")
     assert selector.is_visible()
     selector.select_option(label="Second Anchor")
     page.locator(".movie-because-selector").evaluate("form => form.requestSubmit()")
     page.wait_for_url("**/movies?because=*")
     page.get_by_role("heading", name="Because you watched Second Anchor").wait_for()
-    phase1_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
-    phase1_dir.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(phase1_dir / "L-because-you-watched-changed.png"), full_page=True)
     page.screenshot(path=str(phase1_dir / "A-home-hero-continue.png"), full_page=True)
     captures = {
         "B-browse-by-provider.png": ".movie-provider-browser",
@@ -229,6 +260,9 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.get_by_role("link", name="Browse titles available on Netflix").click()
     page.wait_for_url(f"{live_app}/movies?provider=8&region=US")
     assert page.get_by_role("heading", name="Movies on Netflix").is_visible()
+    page.goto(f"{live_app}/movies?provider=9&region=US")
+    assert page.get_by_role("heading", name="Movies on Prime Video").is_visible()
+    assert page.get_by_role("heading", name="TV Series on Prime Video").is_visible()
 
     page.goto(f"{live_app}/movies/{anchor_id}")
     page.locator(".movie-detail__related-rail").wait_for()
@@ -280,4 +314,17 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         assert page.evaluate(
             "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
         )
+    page.set_viewport_size({"width": 1280, "height": 844})
+    page.goto(f"{live_app}/movies/library")
+    page.get_by_role("heading", name="My Library").wait_for()
+    assert page.locator("#movie-library").count() == 0
+    page.screenshot(path=str(phase1_dir / "O-library-top.png"), full_page=True)
+    page.locator(".filter-bar").screenshot(path=str(phase1_dir / "P-library-filters.png"))
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(f"{live_app}/movies/library")
+    page.get_by_role("heading", name="My Library").wait_for()
+    assert page.evaluate(
+        "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+    )
+    page.screenshot(path=str(phase1_dir / "AG-library-mobile.png"), full_page=True)
     assert not page_errors, page_errors

@@ -317,7 +317,9 @@ def index():
     ]
     want_to_watch = [
         movie_item(movie)
-        for movie in MovieRepository.watch_next(limit=12, library_ids=library_context["library_ids"])
+        for movie in MovieRepository.watch_next(
+            limit=12, library_ids=library_context["library_ids"]
+        )
     ]
     personal_pick = MovieService.what_should_i_watch()
     availability_region = str(

@@ -93,7 +93,7 @@ has no horizontal document overflow, and the selector preserves its URL state.
 | --- | --- | --- |
 | Dedicated Library route | `tests/integration/test_movies.py` checks `/movies/library`, heading `My Library`, and the absence of the old Home grid | PASS |
 | Persistent Movies navigation | Server-rendered nav added to Home, browse, discover, detail, TV, lists, and Watch Next templates; sticky CSS is shared | PASS |
-| Dynamic Home hero | Server-projected candidate deck, client dots/previous/next/auto-rotation when at least two real candidates exist; single-candidate fallback remains valid | PASS |
+| Dynamic Home hero | Server-projected candidate deck, client dots/previous/next/auto-rotation when at least two real candidates exist; the browser fixture captures `A-home-hero-candidate-a.png` and `A-home-hero-candidate-b.png` as distinct titles | PASS |
 | Inline availability provider selector | Existing provider URLs and selected state are retained; selector is visible in the shared Home rail heading | PASS |
 | TV series hierarchy | Series hero metadata, season/episode counts, compact season browser, and explicit secondary Jackett disclosure | PASS |
 | Episode-picker null guard | `tests/browser/test_movie_player.py` season-pack flow passes with the secondary disclosure opened deliberately | PASS |
@@ -101,3 +101,17 @@ has no horizontal document overflow, and the selector preserves its URL state.
 
 These checks are structural and behavioral evidence, not a claim that optional
 external providers are configured or that PWA/offline playback is complete.
+
+## A–AI evidence index
+
+The live browser fixtures write the following real UI captures outside the
+repository under `C:\Users\walid\Pictures\movies-v2-phase1`:
+
+| IDs | Capture files / surface | Result |
+| --- | --- | --- |
+| A–N | `A-home-hero-candidate-a.png`, `A-home-hero-candidate-b.png`, `A-home-hero-continue.png`, `B-browse-by-provider.png`, `I-provider-selector-open.png`, `D-movies-on-provider.png`, `E-tv-on-provider.png`, `L-because-you-watched-changed.png`, `G-top-10.png` and existing detail captures | PASS; Because native select popup is marked PARTIAL for platform-owned popup pixels, behavior PASS |
+| O–R | `O-library-top.png`, `P-library-filters.png`, `AG-library-mobile.png`, plus Home capture proving no `#movie-library` | PASS |
+| S–X | `H-detail-hero.png`, `M-enrichment.png`, `N-watch-options.png`, `K-trailers.png`, `J-cast.png`, `L-reviews.png`, `M-more-like-this.png` | PASS |
+| Y–AB | `Y-series-detail-hero.png`, `Z-series-seasons.png`, `AA-season-page.png`, `AB-episode-player-selected.png` | PASS |
+| AC–AE | `AC-episode-context.png`, `AD-episode-player-playing.png`, browser `pageerror` collection is empty | PASS |
+| AF–AI | `O-home-mobile.png`, `AG-library-mobile.png`, mobile detail/episode captures `P-detail-mobile.png` and `AI-episode-mobile.png` | PASS |
