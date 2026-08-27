@@ -1508,6 +1508,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 .movies-v2--detail .movie-detail__overview { max-width: 62ch; margin: 20px 0 26px; }
 .movies-v2--detail .definition-grid { max-width: 880px; border-color: rgb(255 255 255 / 12%); }
 .movies-v2--detail .movie-detail__content--secondary { margin-top: 24px; }
+.movies-v2--tv .movie-detail__content--secondary { grid-row: 2; }
 .movies-v2--detail .detail-section { margin-top: clamp(40px, 6vw, 74px); }
 
 @media (max-width: 760px) {
@@ -2201,3 +2202,4 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 .movies-v2 .filter-bar select { min-height: 42px; border-radius: 999px; background: rgb(255 255 255 / 6%); }
 .movies-v2 .filter-bar__actions { display: flex; flex: 0 1 auto; gap: 8px; align-items: end; }
 .movies-v2 .filter-bar__actions .button { min-height: 42px; border-radius: 999px; }
+.movies-v2--tv .tv-season-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 240px)); }
