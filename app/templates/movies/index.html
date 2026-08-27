@@ -6,21 +6,11 @@
 {% block content %}
 <div class="movies-v2" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
 <div class="movies-v2__atmosphere" aria-hidden="true"></div>
-<header class="page-header movie-v2-masthead">
-  <div>
-    <span class="eyebrow">Dragon cinema · local-first</span>
-    <h1>Your film room</h1>
-    <p>Movies and series you chose, with every resume and source kept in Dragon.</p>
-  </div>
-  <div class="movie-v2-masthead__meta">{{ badge(total ~ ' titles', 'accent') }}<span>Private library</span></div>
-</header>
 <nav class="movie-v2-nav" aria-label="Movies navigation">
   <a href="{{ url_for('movies.index') }}" aria-current="page">Home</a>
+  <a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a>
+  <a href="{{ url_for('movies.shows') }}">Shows</a>
   <a href="#movie-library">Library</a>
-  <a href="{{ url_for('movies.browse', media_type='movie') }}">Browse</a>
-  <a href="{{ url_for('movies.collections') }}">Collections</a>
-  <a href="{{ url_for('movies.shows') }}">Series</a>
-  <a href="{{ url_for('movies.watch_next') }}">Watch next</a>
   <a href="#movie-discovery">Search</a>
 </nav>
 {% if home_focus %}
@@ -31,6 +21,11 @@
   data-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}"
   aria-labelledby="movie-personal-hero-title"
 >
+  {% if home_focus.backdrop_url or home_focus.poster_url %}
+  <div class="movie-personal-hero__art" aria-hidden="true">
+    <img src="{{ home_focus.backdrop_url or home_focus.poster_url }}" alt="">
+  </div>
+  {% endif %}
   <div class="movie-personal-hero__eyebrow">
     <span class="eyebrow" data-home-focus-label>{% if home_focus_kind == 'resume' %}Ready when you are{% elif home_focus_kind == 'personal' %}From your personal library{% else %}A considered recommendation{% endif %}</span>
     {% if home_focus_kind == 'resume' %}<span class="movie-personal-hero__signal">Resume</span>{% endif %}
@@ -38,48 +33,15 @@
   <div class="movie-personal-hero__content">
     <div>
       <h2 id="movie-personal-hero-title"><a data-home-focus-title href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{{ home_focus.title }}</a></h2>
-      <p data-home-focus-meta>{{ [home_focus.media_type|title, home_focus.year, home_focus.runtime_minutes ~ ' min' if home_focus.runtime_minutes else '']|select|join(' · ') }}</p>
+      <p class="movie-personal-hero__meta" data-home-focus-meta>{{ [home_focus.media_type|title, home_focus.year, home_focus.runtime_minutes ~ ' min' if home_focus.runtime_minutes else '', home_focus.genres[:2]|join(' · ')]|select|join(' · ') }}</p>
+      {% if home_focus.overview %}<p class="movie-personal-hero__overview">{{ home_focus.overview }}</p>{% endif %}
       {% if home_focus_kind == 'resume' and home_focus.progress %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.progress.percent }}% watched{% if home_focus.progress.remaining_seconds %} · {{ (home_focus.progress.remaining_seconds / 60)|round|int }} min left{% endif %}</p>{% elif home_focus_kind == 'personal' %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.eligibility_reason }}</p>{% else %}<p class="movie-personal-hero__progress" data-home-focus-progress>A title to consider when your personal list is clear.</p>{% endif %}
     </div>
     <div class="movie-personal-hero__actions">
-      <a class="button button--primary" data-home-focus-primary href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{% if home_focus_kind == 'resume' %}Resume{% else %}Open details{% endif %}</a>
-      {% if personal_pick %}<button class="button button--secondary" type="button" data-home-focus-shuffle>Shuffle again</button>{% endif %}
+      <a class="button button--primary" data-home-focus-primary href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{% if home_focus_kind == 'resume' %}Resume{% else %}Watch{% endif %}</a>
+      <a class="button button--secondary" href="{{ url_for('movies.detail', movie_id=home_focus.id) }}">Details</a>
+      {% if personal_pick %}<button class="button button--quiet" type="button" data-home-focus-shuffle>Another pick</button>{% endif %}
     </div>
-  </div>
-</section>
-{% endif %}
-{% for rail in discovery_rails %}
-<section class="movie-discovery-rail{% if rail['rail_type'] == 'ranked' %} movie-discovery-rail--ranked{% endif %}" data-discovery-rail="{{ rail['id'] }}" aria-labelledby="{{ rail['id'] }}-title">
-  <div class="movie-now__heading">
-    <div><span class="eyebrow">{{ rail['source']|replace('_', ' ') }}</span><h2 id="{{ rail['id'] }}-title">{{ rail['title'] }}</h2><p>{{ rail['subtitle'] }}</p></div>
-  </div>
-  <div class="movie-discovery-rail__items movie-rail">
-    {% for item in rail['items'] %}
-    <article class="movie-discovery-rail__item">
-      <a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">
-        {% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="180" height="270">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}
-      </a>
-      <div class="movie-discovery-rail__copy">
-        <span class="movie-discovery-rail__rank" aria-label="Rank {{ item.rank }}">{{ item.rank }}</span>
-        <div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Coming soon' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</p></div>
-      </div>
-    </article>
-    {% endfor %}
-  </div>
-</section>
-{% endfor %}
-{% if because_you_watched %}
-<section class="movie-discovery-rail" aria-labelledby="because-you-watched-title">
-  <div class="movie-now__heading">
-    <div><span class="eyebrow">Cached TMDB discovery</span><h2 id="because-you-watched-title">Because you watched {{ because_you_watched.anchor.title }}</h2><p>Related titles from cached TMDB metadata. They are not in your library yet.</p></div>
-  </div>
-  <div class="movie-discovery-rail__items movie-rail">
-    {% for item in because_you_watched.items %}
-    <article class="movie-discovery-rail__item">
-      <a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">{% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="180" height="270">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}</a>
-      <div class="movie-discovery-rail__copy"><div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %} · {{ item.signal }}</p></div></div>
-    </article>
-    {% endfor %}
   </div>
 </section>
 {% endif %}
@@ -115,7 +77,7 @@
     {% for movie in continue_watching %}
     <article class="movie-now__item">
       <a class="movie-now__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">
-        {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="120" height="180">{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+        {% if movie.backdrop_url or movie.poster_url %}<img data-media-image src="{{ movie.backdrop_url or movie.poster_url }}" alt="Artwork for {{ movie.title }}" loading="lazy" width="320" height="180">{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
       </a>
       <div class="movie-now__body">
         <span class="eyebrow">{{ movie.media_type|title }}{% if movie.progress.season %} · S{{ '%02d'|format(movie.progress.season) }}E{{ '%02d'|format(movie.progress.episode) }}{% endif %}</span>
@@ -156,6 +118,43 @@
   <p class="movie-now__empty">Your Want to Watch list is clear. Add a title when something catches your eye.</p>
   {% endif %}
 </section>
+{% if because_you_watched %}
+<section class="movie-discovery-rail movie-discovery-rail--personal" aria-labelledby="because-you-watched-title">
+  <div class="movie-now__heading">
+    <div><span class="eyebrow">For you</span><h2 id="because-you-watched-title">Because you watched {{ because_you_watched.anchor.title }}</h2></div>
+  </div>
+  <div class="movie-discovery-rail__items movie-rail">
+    {% for item in because_you_watched.items %}
+    <article class="movie-discovery-rail__item">
+      <a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">{% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="220" height="330">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}</a>
+      <div class="movie-discovery-rail__copy"><div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }}{% endif %}</p></div></div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% for rail in discovery_rails %}
+<section class="movie-discovery-rail{% if rail['rail_type'] == 'ranked' %} movie-discovery-rail--ranked{% endif %}" data-discovery-rail="{{ rail['id'] }}" aria-labelledby="{{ rail['id'] }}-title">
+  <div class="movie-now__heading">
+    <div><span class="eyebrow">{{ rail['source']|replace('_', ' ') }}</span><h2 id="{{ rail['id'] }}-title">{{ rail['title'] }}</h2><p>{{ rail['subtitle'] }}</p></div>
+    <a class="movie-rail__all" href="{{ url_for('movies.browse', media_type='movie') }}">View all</a>
+  </div>
+  <div class="movie-discovery-rail__items movie-rail">
+    {% for item in rail['items'] %}
+    <article class="movie-discovery-rail__item">
+      <a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">
+        {% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="220" height="330">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}
+        {% if item.rating is not none %}<span class="movie-card-rating">★ {{ '%.1f'|format(item.rating) }}</span>{% endif %}
+      </a>
+      <div class="movie-discovery-rail__copy">
+        {% if rail['rail_type'] == 'ranked' %}<span class="movie-discovery-rail__rank" aria-label="Rank {{ item.rank }}">{{ item.rank }}</span>{% endif %}
+        <div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Coming soon' }}</p></div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
 <div id="movie-library" class="movie-actions">
   <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index') }}">All</a><a href="{{ url_for('movies.index', status='want_to_watch') }}">Want to watch</a><a href="{{ url_for('movies.index', status='watching') }}">Watching</a><a href="{{ url_for('movies.index', status='watched') }}">Watched</a><a href="{{ url_for('movies.index', favorite='1') }}">Favorites</a><a href="{{ url_for('movies.custom_lists') }}">Custom lists</a><a href="{{ url_for('movies.watch_next') }}">Watch next</a></nav>
   <div class="movie-actions__controls">

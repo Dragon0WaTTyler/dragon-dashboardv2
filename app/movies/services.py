@@ -177,6 +177,9 @@ def _watch_target(progress: MovieProgress | None) -> dict[str, Any] | None:
 
 def movie_item(movie: Movie) -> dict[str, Any]:
     progress = _display_progress(movie)
+    metadata_state = dict(movie.metadata_state or {})
+    tmdb_detail = metadata_state.get("tmdb_detail")
+    tmdb_detail = dict(tmdb_detail) if isinstance(tmdb_detail, dict) else {}
     score_option = score_option_for_input(
         effective_personal_rating(movie),
         stored_label=effective_personal_label(movie),
@@ -193,6 +196,12 @@ def movie_item(movie: Movie) -> dict[str, Any]:
         "personal_score_label": score_option.label if score_option else None,
         "is_favorite": bool(movie.library_entry and movie.library_entry.is_favorite),
         "poster_url": movie.poster_url,
+        # These are already persisted catalog fields.  Keeping them on the
+        # lightweight view model lets the Movies surface render artwork-first
+        # cards without changing any library or playback contract.
+        "overview": movie.overview,
+        "genres": list(movie.genres or []),
+        "backdrop_url": str(tmdb_detail.get("backdrop_url") or ""),
         "progress": progress_dict(progress),
         "watch_target": _watch_target(progress),
     }
