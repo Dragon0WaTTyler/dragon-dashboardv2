@@ -672,7 +672,7 @@ claim that every Jackett/provider setup is available locally.
 | Migration | Effect | Status |
 | --- | --- | --- |
 | `1c7f96e2a4b8_create_movies_and_progress` | Introduced `movies` and single-row-per-movie progress | historical baseline |
-| `e8b6c2a9f4d1_scope_movie_progress_by_episode` | Added nullable season/episode; removed unique `movie_id`; added non-unique scope index | active risk documented above |
+| `e8b6c2a9f4d1_scope_movie_progress_by_episode` | Added nullable season/episode; removed unique `movie_id`; added non-unique scope index | historical pre-V2 risk, repaired by the V2 foundation migration |
 | `1f6c4b8d9e72_add_episode_scoped_playback_sources` | Added episode-scoped playback-source support | active playback foundation |
 | `af6c42e9b831_add_isolated_playback_sources` | Isolated source and magnet persistence | active playback foundation |
 | `d4a8f2c9e731_add_playback_provider_foundation` | Added provider/source scope and a source uniqueness invariant | active playback foundation |

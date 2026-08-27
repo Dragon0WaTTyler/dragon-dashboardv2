@@ -104,5 +104,5 @@ Dragon can claim per-account snapshot isolation.
 Dragon may adopt the *composition* of a cinematic hero, poster rails, browse
 filters, detail hierarchy and responsive navigation. It must not adopt Cinejoy’s
 data ownership, telemetry, embed configuration, identifiers or unverified feature
-claims. The first V2 implementation remains the contract/migration foundation,
-not the visual shell.
+claims. The completed V2 implementation keeps those ownership and playback
+boundaries intact while adapting only the approved cinematic UX ideas.
