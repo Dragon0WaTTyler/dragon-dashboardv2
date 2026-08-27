@@ -2096,7 +2096,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 }
 
 /* Final cascade for the artwork-first Movies V2 surface. */
-.movies-v2 { --movie-rail-gap: clamp(14px, 1.6vw, 22px); --movie-rail-poster: clamp(152px, 12.8vw, 212px); }
+.movies-v2 { --movie-rail-gap: clamp(14px, 1.6vw, 22px); --movie-rail-poster: clamp(152px, 12.8vw, 212px); background: #08090c; }
 .movies-v2__atmosphere { background: linear-gradient(180deg, rgb(6 7 10 / 52%), transparent 42%); filter: none; }
 .movies-v2__atmosphere::after, .movie-personal-hero::after { display: none; }
 .movies-v2 > :not(.movies-v2__atmosphere) { position: relative; z-index: 1; }
