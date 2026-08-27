@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import sqlalchemy as sa
 from alembic import op
+
+UTC = timezone.utc  # noqa: UP017 - keep Python 3.10 compatibility
 
 revision = "a9c4e1f7b2d6"
 down_revision = "fe6a0b2c3d4e"
