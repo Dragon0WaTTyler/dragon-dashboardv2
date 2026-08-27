@@ -143,6 +143,53 @@ const showMovieToast = (message, level = "success") => {
   if (sessionStorage.getItem("dragon:recommendation-dismissed") === "1") section.hidden = true;
 })();
 
+/* Shared, keyboard-friendly controls for horizontal Movies rails. */
+(() => {
+  const rails = document.querySelectorAll("[data-movie-rail]");
+  if (!rails.length) return;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  rails.forEach((rail) => {
+    if (!(rail instanceof HTMLElement) || rail.dataset.railControls === "true") return;
+    rail.dataset.railControls = "true";
+    const section = rail.closest("section") || rail.parentElement;
+    if (!section) return;
+    section.classList.add("movie-rail-section");
+    const controls = document.createElement("div");
+    controls.className = "movie-rail__controls";
+    const previous = document.createElement("button");
+    const next = document.createElement("button");
+    previous.type = next.type = "button";
+    previous.className = next.className = "movie-rail__control";
+    previous.setAttribute("aria-label", "Scroll rail backward");
+    next.setAttribute("aria-label", "Scroll rail forward");
+    previous.innerHTML = "‹";
+    next.innerHTML = "›";
+    controls.append(previous, next);
+    section.append(controls);
+    const update = () => {
+      const max = rail.scrollWidth - rail.clientWidth - 2;
+      previous.disabled = rail.scrollLeft <= 2;
+      next.disabled = max <= 0 || rail.scrollLeft >= max;
+      controls.hidden = max <= 0;
+    };
+    const move = (direction) => {
+      const amount = Math.max(rail.clientWidth * 0.78, 240) * direction;
+      rail.scrollBy({ left: amount, behavior: reduceMotion ? "auto" : "smooth" });
+    };
+    previous.addEventListener("click", () => move(-1));
+    next.addEventListener("click", () => move(1));
+    rail.addEventListener("scroll", update, { passive: true });
+    rail.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        move(event.key === "ArrowRight" ? 1 : -1);
+      }
+    });
+    if (window.ResizeObserver) new ResizeObserver(update).observe(rail);
+    update();
+  });
+})();
+
 (() => {
   const focus = document.querySelector("[data-home-focus]");
   if (!focus) return;

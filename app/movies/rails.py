@@ -12,6 +12,9 @@ from app.movies.external_library import tmdb_catalog_provider
 from app.movies.integrations import MediaIntegrationError
 
 DISCOVERY_RAIL_CACHE_TTL_SECONDS = 5 * 60
+PROVIDER_CONTEXT_CACHE_TTL_SECONDS = 5 * 60
+PROVIDER_CONTEXT_LIMIT = 14
+PROVIDER_RAIL_LIMIT = 12
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +152,152 @@ def discovery_rails() -> list[dict[str, Any]]:
             }
         )
     return rails
+
+
+def provider_context(
+    *, region: str = "US", selected_provider_id: int | None = None
+) -> dict[str, Any]:
+    """Return one shared availability-provider selection and its two rails.
+
+    Provider data here is TMDB availability metadata.  It is deliberately kept
+    separate from Dragon playback/source acquisition, and all remote results
+    remain cache-backed discovery cards until a user imports a title.
+    """
+
+    normalized_region = str(region or "US").strip().upper()
+    if len(normalized_region) != 2 or not normalized_region.isalpha():
+        normalized_region = "US"
+    provider = tmdb_catalog_provider()
+    cache = current_app.extensions.setdefault("dragon_movies_provider_context", {})
+    catalog_cache = current_app.extensions.setdefault("dragon_movies_provider_catalog", {})
+    now = time.monotonic()
+    catalog = _provider_catalog_union(
+        catalog_cache, provider, normalized_region, now
+    )
+    if not catalog or not getattr(provider, "configured", True):
+        return {
+            "region": normalized_region,
+            "providers": catalog,
+            "selected_provider": None,
+            "rails": [],
+            "error": "TMDB availability providers are not configured.",
+        }
+    selected = next(
+        (item for item in catalog if item["id"] == selected_provider_id), None
+    )
+    selected = selected or catalog[0]
+    cache_key = f"{normalized_region}:{selected['id']}"
+    cached = cache.get(cache_key)
+    if isinstance(cached, dict) and float(cached.get("expires_at") or 0) > now:
+        return {
+            "region": normalized_region,
+            "providers": catalog,
+            "selected_provider": selected,
+            "rails": list(cached.get("rails") or []),
+            "error": "",
+        }
+    rails: list[dict[str, Any]] = []
+    errors: list[str] = []
+    for media_type, title in (
+        ("movie", f"Movies on {selected['name']}"),
+        ("tv", f"TV Series on {selected['name']}"),
+    ):
+        try:
+            payload = provider.discover(
+                media_type,
+                provider_id=int(selected["id"]),
+                region=normalized_region,
+                sort="popular",
+                page=1,
+            )
+            items = _normalize_items(
+                payload.get("items") if isinstance(payload, dict) else [],
+                media_type,
+                PROVIDER_RAIL_LIMIT,
+            )
+        except MediaIntegrationError as exc:
+            errors.append(str(exc))
+            items = []
+        if items:
+            rails.append(
+                {
+                    "id": f"provider_{media_type}",
+                    "title": title,
+                    "subtitle": f"Available in {normalized_region}",
+                    "content_type": media_type,
+                    "rail_type": "poster",
+                    "source": "tmdb_availability",
+                    "provider_id": int(selected["id"]),
+                    "provider_name": selected["name"],
+                    "items": items,
+                }
+            )
+    if rails:
+        cache[cache_key] = {
+            "expires_at": now + PROVIDER_CONTEXT_CACHE_TTL_SECONDS,
+            "rails": rails,
+        }
+    elif isinstance(cached, dict):
+        rails = list(cached.get("rails") or [])
+    return {
+        "region": normalized_region,
+        "providers": catalog,
+        "selected_provider": selected,
+        "rails": rails,
+        "error": "; ".join(errors),
+    }
+
+
+def _provider_catalog_union(
+    cache: dict[str, Any], provider: Any, region: str, now: float
+) -> list[dict[str, Any]]:
+    key = f"{region}"
+    cached = cache.get(key)
+    if isinstance(cached, dict) and float(cached.get("expires_at") or 0) > now:
+        return list(cached.get("value") or [])
+    if not getattr(provider, "configured", True) or not hasattr(provider, "provider_catalog"):
+        return list(cached.get("value") or []) if isinstance(cached, dict) else []
+    merged: dict[int, dict[str, Any]] = {}
+    for media_type in ("movie", "tv"):
+        try:
+            values = provider.provider_catalog(media_type, region=region)
+        except MediaIntegrationError:
+            continue
+        for item in values or []:
+            try:
+                provider_id = int(item["id"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if not item.get("name"):
+                continue
+            merged.setdefault(
+                provider_id,
+                {
+                    "id": provider_id,
+                    "name": str(item["name"]),
+                    "logo_url": str(item.get("logo_url") or ""),
+                },
+            )
+    priority = {
+        "netflix": 0,
+        "prime video": 1,
+        "disney plus": 2,
+        "disney+": 2,
+        "apple tv+": 3,
+        "hulu": 4,
+        "max": 5,
+    }
+    value = sorted(
+        merged.values(),
+        key=lambda item: (priority.get(item["name"].casefold(), 99), item["name"].casefold()),
+    )[:PROVIDER_CONTEXT_LIMIT]
+    if value:
+        cache[key] = {
+            "expires_at": now + 24 * 60 * 60,
+            "value": value,
+        }
+        return value
+    return list(cached.get("value") or []) if isinstance(cached, dict) else []
 
 
 def _source_limit(definition: DiscoveryRailDefinition) -> int:

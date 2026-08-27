@@ -1,4 +1,4 @@
-from app.movies.rails import DISCOVERY_RAILS, discovery_rails
+from app.movies.rails import DISCOVERY_RAILS, discovery_rails, provider_context
 
 
 class StubTrendingProvider:
@@ -71,3 +71,39 @@ def test_discovery_rails_are_cached_and_keep_remote_cards_out_of_personal_state(
             "detail_url": "/movies/discover/movie/100",
         }
     ]
+
+
+def test_provider_context_shares_selection_for_movie_and_tv_availability(app):
+    class Provider(StubTrendingProvider):
+        def provider_catalog(self, media_type, *, region):
+            return [
+                {"id": 8, "name": "Netflix", "logo_url": "logo"},
+                {"id": 9, "name": "Prime Video", "logo_url": ""},
+            ]
+
+        def discover(self, media_type, **kwargs):
+            assert kwargs == {
+                "provider_id": 8,
+                "region": "US",
+                "sort": "popular",
+                "page": 1,
+            }
+            return {
+                "items": [
+                    {
+                        "tmdb_id": 100 if media_type == "movie" else 200,
+                        "media_type": media_type,
+                        "title": media_type,
+                    }
+                ],
+                "page": 1,
+                "total_pages": 1,
+            }
+
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = Provider()
+        result = provider_context(region="US", selected_provider_id=8)
+
+    assert result["selected_provider"]["name"] == "Netflix"
+    assert [rail["content_type"] for rail in result["rails"]] == ["movie", "tv"]
+    assert all(rail["provider_id"] == 8 for rail in result["rails"])

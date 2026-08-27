@@ -38,7 +38,7 @@ from app.movies.external_library import (
 )
 from app.movies.integrations import MediaIntegrationError
 from app.movies.models import Movie
-from app.movies.rails import discovery_rails
+from app.movies.rails import discovery_rails, provider_context
 from app.movies.repositories import MovieRepository
 from app.movies.scoring import notion_score_options, score_option_for_input
 from app.movies.services import (
@@ -350,7 +350,19 @@ def index():
         for movie in MovieRepository.watch_next(limit=12, library_ids=library_sync.library_ids)
     ]
     personal_pick = MovieService.what_should_i_watch()
-    because_you_watched = MovieService.because_you_watched()
+    availability_region = str(
+        request.args.get("region") or preferences.get("preferred_region") or "US"
+    ).upper()
+    if len(availability_region) != 2 or not availability_region.isalpha():
+        availability_region = "US"
+    selected_provider_id = request.args.get("provider", type=int)
+    availability = provider_context(
+        region=availability_region,
+        selected_provider_id=selected_provider_id,
+    )
+    because_you_watched = MovieService.because_you_watched(
+        anchor_id=request.args.get("because")
+    )
     recommendations = MovieService.recommendation_pool(
         category=filters["category"], source=filters["source"]
     )["items"]
@@ -378,6 +390,8 @@ def index():
         home_focus_kind=home_focus_kind,
         personal_pick=personal_pick,
         because_you_watched=because_you_watched,
+        because_anchor_id=request.args.get("because", type=int),
+        availability=availability,
         discovery_rails=discovery_rails(),
         recommendation=recommendation,
         recommendations=recommendations,

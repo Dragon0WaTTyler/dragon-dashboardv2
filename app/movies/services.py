@@ -226,6 +226,14 @@ def movie_detail(movie: Movie) -> dict[str, Any]:
     metadata_state = dict(movie.metadata_state or {})
     tmdb_detail = metadata_state.get("tmdb_detail")
     tmdb_detail = dict(tmdb_detail) if isinstance(tmdb_detail, dict) else {}
+    trailers = []
+    for trailer in tmdb_detail.get("trailers") or []:
+        item = dict(trailer)
+        url = str(item.get("url") or "")
+        key = url.split("v=", 1)[1].split("&", 1)[0] if "v=" in url else ""
+        if key:
+            item["thumbnail_url"] = f"https://img.youtube.com/vi/{key}/hqdefault.jpg"
+        trailers.append(item)
     return {
         **movie_item(movie),
         "original_title": movie.original_title,
@@ -247,7 +255,7 @@ def movie_detail(movie: Movie) -> dict[str, Any]:
         "countries": list(tmdb_detail.get("countries") or []),
         "certification": str(tmdb_detail.get("certification") or ""),
         "tmdb_rating": tmdb_detail.get("tmdb_rating"),
-        "trailers": list(tmdb_detail.get("trailers") or []),
+        "trailers": trailers,
         "reviews": list(tmdb_detail.get("reviews") or []),
         "similar": list(tmdb_detail.get("similar") or []),
         "recommendations": list(tmdb_detail.get("recommendations") or []),
@@ -1429,7 +1437,9 @@ class MovieService:
         }
 
     @staticmethod
-    def because_you_watched(*, limit: int = 12) -> dict[str, Any] | None:
+    def because_you_watched(
+        *, limit: int = 12, anchor_id: int | str | None = None
+    ) -> dict[str, Any] | None:
         """Project cached TMDB similar/recommendation cards from personal anchors.
 
         This is intentionally a cache-only discovery rail. It never refreshes an
@@ -1464,6 +1474,15 @@ class MovieService:
             ),
             reverse=True,
         )
+        if anchor_id not in (None, ""):
+            try:
+                requested_id = int(anchor_id)
+            except (TypeError, ValueError):
+                requested_id = None
+            requested = next((movie for movie in anchors if movie.id == requested_id), None)
+            if requested is not None:
+                anchors = [requested] + [movie for movie in anchors if movie.id != requested.id]
+        anchor_options = [movie_item(movie) for movie in anchors[:24]]
         for anchor in anchors:
             detail = dict(anchor.metadata_state or {}).get("tmdb_detail") or {}
             candidates: list[dict[str, Any]] = []
@@ -1504,6 +1523,7 @@ class MovieService:
             if candidates:
                 return {
                     "anchor": movie_item(anchor),
+                    "anchors": anchor_options,
                     "items": candidates,
                     "cache_only": True,
                 }
