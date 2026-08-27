@@ -1526,6 +1526,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movie-browse__filters .button { flex-basis: 100%; }
   .movies-v2 .movie-discovery__form { grid-template-columns: 1fr; }
   .movies-v2--detail .movie-detail { grid-template-columns: 104px minmax(0, 1fr); gap: 18px; margin-top: 52px; }
+  .movies-v2--detail .movie-detail__poster { width: auto; }
   .movie-detail__backdrop { height: 560px; }
   .movies-v2--detail .movie-detail__content h1 { font-size: clamp(2.35rem, 12vw, 4.5rem); }
   .movies-v2--detail .movie-detail__overview { grid-column: 1 / -1; }
@@ -2099,6 +2100,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 .movies-v2__atmosphere { background: linear-gradient(180deg, rgb(6 7 10 / 52%), transparent 42%) !important; filter: none !important; }
 .movies-v2__atmosphere::after, .movie-personal-hero::after { display: none; }
 .movies-v2 > :not(.movies-v2__atmosphere) { position: relative; z-index: 1; }
+.movies-v2 > .movie-detail__backdrop { position: absolute; z-index: 0; }
 .movie-v2-nav { position: relative; z-index: 2; margin: clamp(16px, 2vw, 28px) 0 clamp(18px, 3vw, 38px); background: rgb(15 16 20 / 82%); box-shadow: 0 12px 36px rgb(0 0 0 / 24%); }
 .movie-v2-nav a { padding-inline: clamp(13px, 1.4vw, 19px); }
 .movie-personal-hero { isolation: isolate; display: grid; grid-template-rows: auto 1fr; min-height: clamp(440px, 48vw, 660px); margin-bottom: clamp(42px, 6vw, 86px); padding: clamp(24px, 4.4vw, 68px); border: 0; border-radius: 24px; background: #0d0e12; box-shadow: 0 30px 72px rgb(0 0 0 / 34%); }
@@ -2181,4 +2183,5 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movie-detail__backdrop { height: 560px; }
   .movies-v2--detail .movie-detail__content h1 { font-size: clamp(2.35rem, 12vw, 4.5rem); }
   .movies-v2--detail .movie-detail__overview, .movies-v2--detail .definition-grid { grid-column: 1 / -1; }
+  .movies-v2--detail .movie-detail__poster { width: auto; }
 }
