@@ -389,7 +389,9 @@ The web flow is explicit: export is authenticated; import first validates and
 previews with no writes; apply requires the digest of the exact previewed JSON.
 Unsupported schemas, malformed identities, duplicate media/progress/list scopes,
 invalid timestamps, or invalid preference values are rejected before a database
-write. V0 compatibility accepts the same basic shape when optional progress,
+write. Snapshot preview/import accepts at most 5 MiB of declared JSON payload,
+so it cannot be used as an unbounded authenticated parsing endpoint. V0
+compatibility accepts the same basic shape when optional progress,
 lists and preferences are absent; it normalizes to V1 defaults. No speculative
 converter exists for an unknown schema.
 
@@ -399,7 +401,11 @@ titles, list memberships, source configuration, cache data or runtime state.
 List keys are owner-scoped: a key owned by a different local account rejects the
 restore. The current `MovieLibraryEntry` table is still single-local-library
 rather than owner-keyed; therefore its export/import scope remains the existing
-Dragon local library until a separately approved ownership migration.
+Dragon local library until a separately approved ownership migration. The same
+legacy boundary currently applies to `MovieProgress` and compact Movies
+preferences. Multi-user export, import, library, progress and preference
+isolation is therefore an **open migration decision**, not an achieved V2
+security property.
 
 ## 9. Activity facts — FROZEN
 

@@ -401,6 +401,37 @@ bounded (normally 12), and TMDB browse is cache-keyed and URL-paginated to a
 maximum page of 500. A 500-title repository regression test confirms the
 second 24-item page remains bounded while returning the correct total.
 
+## Verified Phase 27 security checkpoint
+
+The Movies surface is authenticated, and unsafe route mutations remain covered
+by the application's CSRF protection. Snapshot export contains no credentials,
+provider configuration, source URLs, active sessions, local paths, subtitle
+state, buffers or logs; import validates typed keys, known field shapes, sizes
+and timestamps before preview/apply. Preview still binds apply to the digest of
+the exact inspected payload. Snapshot preview/apply now rejects declared JSON
+payloads larger than 5 MiB before parsing, so an authenticated caller cannot
+make that endpoint parse an unbounded export.
+
+Ordinary Home, Browse and Search rendering does not start source resolution or
+probe every provider. The Movies templates pass only same-origin Dragon source
+resolver endpoints to the browser; configured embed URLs are built/validated by
+the Playback layer after explicit user action. The Movies player script uses
+DOM-safe text assignment for dynamic messages and has no `postMessage`
+listener. The iframe keeps a no-referrer policy, uses the configured sandbox
+where the provider supports it, and opens externally only with
+`noopener noreferrer`; the legacy VidSrc exception remains explicitly
+feature-gated because that provider rejects sandboxing.
+
+**Known ownership limitation — not silently fixed:** `MovieCustomList` is
+owner-scoped, but `MovieLibraryEntry`, `MovieProgress`, and the compact Movies
+preference store are currently single-local-library records. Consequently an
+installation configured for multiple local accounts does not yet provide
+per-account library/progress/snapshot isolation. The snapshot routes accurately
+follow the existing table boundary, but that is insufficient for a multi-user
+privacy contract. An ownership migration needs an explicit, safe assignment of
+existing global records before it can add an owner key; it is a separate
+approved migration, not a Phase 27 data rewrite.
+
 Movie/TV posters, rails, cast, season and episode artwork use native lazy image
 loading where they are not the primary hero image. Discovery search already
 debounces at 320 ms and cancels stale fetches via `AbortController`. No evidence

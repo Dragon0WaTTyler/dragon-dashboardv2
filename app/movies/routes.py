@@ -65,6 +65,11 @@ from app.playback.services import PlaybackService
 
 bp = Blueprint("movies", __name__, url_prefix="/movies")
 
+# Snapshot restore is intentionally a bounded, authenticated operation.  The
+# payload contains canonical personal memory only; large catalog or runtime exports do
+# not belong on this endpoint.
+_MAX_MOVIES_SNAPSHOT_BYTES = 5 * 1024 * 1024
+
 
 def _movie_preferences() -> dict:
     from app.admin.control_center import preference_store
@@ -242,6 +247,9 @@ def _movie_score_options() -> list:
 
 
 def _snapshot_request() -> tuple[dict, str]:
+    content_length = request.content_length
+    if content_length is not None and content_length > _MAX_MOVIES_SNAPSHOT_BYTES:
+        raise MoviesSnapshotValidationError("Movies snapshots must be 5 MiB or smaller.")
     payload = request.get_json(silent=True)
     if not isinstance(payload, dict):
         raise MoviesSnapshotValidationError("Send a JSON Movies snapshot object.")

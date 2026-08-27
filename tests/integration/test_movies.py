@@ -399,6 +399,20 @@ def test_movies_snapshot_routes_require_preview_and_restore_only_the_previewed_p
         )
 
 
+def test_movies_snapshot_preview_rejects_oversized_payload(authenticated_client):
+    token = csrf_from(authenticated_client.get("/movies"))
+
+    response = authenticated_client.post(
+        "/movies/snapshot/import/preview",
+        data=b" " * (5 * 1024 * 1024 + 1),
+        content_type="application/json",
+        headers={"X-CSRFToken": token},
+    )
+
+    assert response.status_code == 400
+    assert response.get_json()["error"] == "Movies snapshots must be 5 MiB or smaller."
+
+
 def test_movie_status_mutation_requires_csrf(authenticated_client, app):
     movie_id = add_movie(app)
     assert (
