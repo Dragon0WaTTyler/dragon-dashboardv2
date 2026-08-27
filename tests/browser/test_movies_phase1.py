@@ -68,6 +68,20 @@ class Phase1Provider:
             "items"
         ]
 
+    def details(self, media_type, tmdb_id):
+        return {
+            "tmdb_id": tmdb_id,
+            "media_type": media_type,
+            "type_label": "Movie" if media_type == "movie" else "Series",
+            "title": "Preview Candidate",
+            "year": 2024,
+            "overview": "A TMDB-only title used to verify stateless preview presentation.",
+            "poster_url": _art("PREVIEW", "#1b2840", "#8b4a75"),
+            "backdrop_url": _art("PREVIEW", "#1b2840", "#8b4a75"),
+            "genres": [{"name": "Drama"}],
+            "rating": 8.0,
+        }
+
 
 def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     poster = _art("DRAGON", "#22162d", "#c5294f")
@@ -199,6 +213,7 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         db.session.commit()
         anchor_id = anchor.id
         app.extensions["dragon_tmdb_catalog_provider"] = Phase1Provider()
+        app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDSRC_ENABLED=True)
 
     page.set_viewport_size({"width": 1280, "height": 900})
     evidence_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
@@ -274,6 +289,12 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.goto(f"{live_app}/movies?provider=9&region=US")
     assert page.get_by_role("heading", name="Movies on Prime Video").is_visible()
     assert page.get_by_role("heading", name="TV Series on Prime Video").is_visible()
+
+    page.goto(f"{live_app}/movies/discover/movie/801")
+    preview = page.locator("[data-discover-player]")
+    preview.wait_for()
+    assert page.locator("[data-preview-viewport]").is_hidden()
+    page.screenshot(path=str(phase1_dir / "U-preview-player-on-demand.png"), full_page=True)
 
     page.goto(f"{live_app}/movies/{anchor_id}")
     page.locator(".movie-detail__related-rail").wait_for()
