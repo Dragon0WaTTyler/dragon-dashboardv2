@@ -1,0 +1,263 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from app.extensions import db
+from app.movies.models import Movie, MovieProgress
+
+pytestmark = pytest.mark.browser
+
+
+def _art(label: str, start: str, end: str) -> str:
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="640" height="960">'
+        f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop stop-color="{start}"/><stop offset="1" stop-color="{end}"/></linearGradient></defs>'
+        f'<rect width="100%" height="100%" fill="url(#g)"/><text x="48" y="820" '
+        f'fill="white" font-size="42" font-family="sans-serif">{label}</text></svg>'
+    )
+    return "data:image/svg+xml," + svg.replace("#", "%23").replace(" ", "%20")
+
+
+def _sign_in(page, base_url: str):
+    page.goto(f"{base_url}/auth/login")
+    page.get_by_label("Username").fill("walid")
+    page.get_by_label("Password").fill("correct horse battery staple")
+    page.get_by_role("button", name="Sign in").click()
+    page.wait_for_url(f"{base_url}/")
+
+
+class Phase1Provider:
+    configured = True
+
+    def provider_catalog(self, media_type, *, region):
+        return [
+            {"id": 8, "name": "Netflix", "logo_url": _art("NETFLIX", "#321", "#e50914")},
+            {"id": 9, "name": "Prime Video", "logo_url": _art("PRIME", "#123", "#23a6d5")},
+            {"id": 337, "name": "Disney Plus", "logo_url": _art("DISNEY+", "#102b55", "#2255a4")},
+        ]
+
+    def discover(self, media_type, **kwargs):
+        provider_id = kwargs.get("provider_id")
+        prefix = "Movie" if media_type == "movie" else "Series"
+        return {
+            "items": [
+                {
+                    "tmdb_id": (800 if media_type == "movie" else 900) + index,
+                    "media_type": media_type,
+                    "title": f"{prefix} on provider {provider_id} {index}",
+                    "poster_url": _art(prefix, "#251b3d", "#d32f5f"),
+                    "year": 2025 - index,
+                    "rating": 7.8 - (index / 10),
+                }
+                for index in range(1, 7)
+            ],
+            "page": 1,
+            "total_pages": 1,
+        }
+
+    def trending(self, media_type, *, limit):
+        return self.discover(media_type, provider_id=8, region="US", sort="popular", page=1)[
+            "items"
+        ]
+
+    def catalog(self, media_type, kind, *, limit):
+        return self.discover(media_type, provider_id=8, region="US", sort="popular", page=1)[
+            "items"
+        ]
+
+
+def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
+    poster = _art("DRAGON", "#22162d", "#c5294f")
+    backdrop = _art("CINEMA", "#120c28", "#7b243e")
+    with app.app_context():
+        resume = Movie(
+            title="Resume Feature",
+            normalized_title="resume feature",
+            media_type="movie",
+            year=2024,
+            status="watching",
+            poster_url=poster,
+            overview="A local feature ready to continue.",
+            external_ids={"tmdb_id": "700", "tmdb_type": "movie"},
+            metadata_state={
+                "tmdb_detail": {"backdrop_url": backdrop, "tmdb_rating": 8.2},
+                "tmdb_enrichment": {
+                    "release_date": "2024-06-01",
+                    "production_companies": [{"name": "Dragon Pictures", "logo_url": ""}],
+                },
+            },
+        )
+        anchor = Movie(
+            title="Watched Anchor",
+            normalized_title="watched anchor",
+            media_type="movie",
+            year=2022,
+            status="watched",
+            poster_url=poster,
+            external_ids={"tmdb_id": "701", "tmdb_type": "movie"},
+            metadata_state={
+                "tmdb_detail": {
+                    "backdrop_url": backdrop,
+                    "recommendations": [
+                        {
+                            "tmdb_id": 702,
+                            "media_type": "movie",
+                            "title": "Recommendation One",
+                            "poster_url": poster,
+                            "year": 2023,
+                            "rating": 7.9,
+                        }
+                    ],
+                    "trailers": [
+                        {
+                            "name": "Official Trailer",
+                            "url": "https://www.youtube.com/watch?v=phase1",
+                            "official": True,
+                        }
+                    ],
+                    "reviews": [
+                        {
+                            "author": "Reviewer",
+                            "content": (
+                                "A long review used to verify the compact default presentation."
+                            ),
+                            "url": "",
+                        }
+                    ],
+                    "similar": [
+                        {
+                            "tmdb_id": 703,
+                            "media_type": "movie",
+                            "title": "Similar One",
+                            "poster_url": poster,
+                            "year": 2021,
+                            "rating": 7.4,
+                        }
+                    ],
+                },
+                "tmdb_enrichment": {
+                    "production_companies": [{"name": "Dragon Pictures", "logo_url": ""}]
+                },
+            },
+            cast=[{"name": "Ada Example", "character": "Lead", "profile_url": poster}],
+        )
+        anchor_two = Movie(
+            title="Second Anchor",
+            normalized_title="second anchor",
+            media_type="movie",
+            year=2020,
+            status="watched",
+            poster_url=poster,
+            metadata_state={
+                "tmdb_detail": {
+                    "recommendations": [
+                        {
+                            "tmdb_id": 704,
+                            "media_type": "movie",
+                            "title": "Recommendation Two",
+                            "poster_url": poster,
+                            "year": 2020,
+                            "rating": 7.2,
+                        }
+                    ]
+                }
+            },
+        )
+        db.session.add_all([resume, anchor, anchor_two])
+        db.session.flush()
+        db.session.add(
+            MovieProgress(movie_id=resume.id, current_seconds=600, duration_seconds=1800)
+        )
+        db.session.commit()
+        anchor_id = anchor.id
+        app.extensions["dragon_tmdb_catalog_provider"] = Phase1Provider()
+
+    page.set_viewport_size({"width": 1280, "height": 900})
+    _sign_in(page, live_app)
+    page.goto(f"{live_app}/movies?because={anchor_id}")
+    page.locator(".movie-provider-browser").wait_for()
+    assert page.get_by_role("heading", name="Choose a provider").is_visible()
+    assert (
+        page.get_by_role("link", name="Browse titles available on Netflix").get_attribute(
+            "aria-current"
+        )
+        == "true"
+    )
+    assert page.get_by_role("heading", name="Movies on Netflix").is_visible()
+    assert page.get_by_role("heading", name="TV Series on Netflix").is_visible()
+    assert page.get_by_role("heading", name="Because you watched Watched Anchor").is_visible()
+    selector = page.locator("#because-anchor")
+    assert selector.is_visible()
+    selector.select_option(label="Second Anchor")
+    page.locator(".movie-because-selector").evaluate("form => form.requestSubmit()")
+    page.wait_for_url("**/movies?because=*")
+    page.get_by_role("heading", name="Because you watched Second Anchor").wait_for()
+    phase1_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
+    phase1_dir.mkdir(parents=True, exist_ok=True)
+    captures = {
+        "A-home-hero.png": ".movie-personal-hero",
+        "B-continue-watching.png": "section[aria-labelledby='continue-watching-title']",
+        "C-provider-browser.png": ".movie-provider-browser",
+        "D-provider-movies.png": "[data-discovery-rail='provider_movie']",
+        "E-provider-tv.png": "[data-discovery-rail='provider_tv']",
+        "F-because-you-watched.png": ".movie-discovery-rail--personal",
+        "G-discovery-rail.png": (
+            ".movie-discovery-rail:not(.movie-discovery-rail--provider):"
+            "not(.movie-discovery-rail--personal)"
+        ),
+    }
+    for filename, selector in captures.items():
+        locator = page.locator(selector).first
+        assert locator.is_visible(), f"missing screenshot surface: {selector}"
+        locator.screenshot(path=str(phase1_dir / filename))
+    page.screenshot(path=str(phase1_dir / "home-desktop.png"), full_page=True)
+    page.get_by_role("link", name="Browse titles available on Netflix").click()
+    page.wait_for_url(f"{live_app}/movies?provider=8&region=US")
+    assert page.get_by_role("heading", name="Movies on Netflix").is_visible()
+
+    page.goto(f"{live_app}/movies/{anchor_id}")
+    page.locator(".movie-detail__related-rail").wait_for()
+    assert page.get_by_text("More details").is_visible()
+    assert page.locator(".movie-detail__trailer-art").count() == 1
+    assert page.locator(".movie-detail__review-copy").count() == 1
+    assert page.locator(".movie-detail__cast-rail").count() == 1
+    assert page.get_by_text("Ada Example").is_visible()
+    detail_captures = {
+        "H-detail-hero.png": ".movie-detail",
+        "I-trailers.png": ".movie-detail__media-rail",
+        "J-cast.png": ".movie-detail__cast",
+        "K-reviews.png": ".movie-detail__reviews",
+        "L-more-like-this.png": ".movie-detail__related",
+        "M-enrichment.png": ".movie-detail__enrichment",
+        "N-watch-options.png": ".movie-release-browser",
+    }
+    for filename, selector in detail_captures.items():
+        locator = page.locator(selector).first
+        assert locator.is_visible(), f"missing screenshot surface: {selector}"
+        locator.screenshot(path=str(phase1_dir / filename))
+    page.screenshot(path=str(phase1_dir / "detail-desktop.png"), full_page=True)
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(f"{live_app}/movies?because={anchor_id}")
+    page.locator(".movie-provider-browser").wait_for()
+    page.locator(".movie-provider-browser__tile").first.wait_for()
+    mobile_next = page.locator(".movie-provider-browser .movie-rail__control").last
+    if mobile_next.is_visible() and not mobile_next.is_disabled():
+        rail = page.locator(".movie-provider-browser__rail")
+        before = rail.evaluate("element => element.scrollLeft")
+        mobile_next.click()
+        page.wait_for_timeout(250)
+        assert rail.evaluate("element => element.scrollLeft") > before
+    page.screenshot(path=str(phase1_dir / "O-home-mobile.png"), full_page=True)
+    page.goto(f"{live_app}/movies/{anchor_id}")
+    page.locator(".movie-detail__related-rail").wait_for()
+    assert page.evaluate(
+        "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+    )
+    page.screenshot(path=str(phase1_dir / "P-detail-mobile.png"), full_page=True)
+    page.locator(".movie-detail__related").screenshot(
+        path=str(phase1_dir / "Q-detail-lower-mobile.png")
+    )
+    page.screenshot(path=str(phase1_dir / "detail-mobile.png"), full_page=True)

@@ -35,6 +35,7 @@
       {% if movie.original_language %}<div><dt>Original language</dt><dd>{{ movie.original_language|upper }}</dd></div>{% endif %}
       {% if movie.countries %}<div><dt>Country</dt><dd>{{ movie.countries|join(', ') }}</dd></div>{% endif %}
     </dl>
+    {% if movie.release_date or movie.production_companies %}<details class="movie-detail__enrichment"><summary>More details</summary><div class="movie-detail__enrichment-grid">{% if movie.release_date %}<div><span class="eyebrow">First air date</span><strong>{{ movie.release_date }}</strong></div>{% endif %}{% if movie.production_companies %}<div><span class="eyebrow">Production</span><strong>{{ movie.production_companies|map(attribute='name')|join(', ') }}</strong></div>{% endif %}</div></details>{% endif %}
     {% if movie.provider_availability %}<p class="muted">Streaming availability (TMDB, US): {% for provider in movie.provider_availability %}{{ provider.name }}{% if not loop.last %}, {% endif %}{% endfor %}. This does not provide playback in Dragon.</p>{% endif %}
     {% if workspace.resume_target %}
     <section class="detail-section tv-season-summary">

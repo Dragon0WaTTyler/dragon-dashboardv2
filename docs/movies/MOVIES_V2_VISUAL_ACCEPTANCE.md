@@ -57,3 +57,32 @@ paths only; it did not alter the application database or runtime contracts.
 The existing local movie-detail path was also captured after the correction:
 its hero now uses the same backdrop-first composition while retaining Resume,
 status/score, favorite, trailer, player, and source controls.
+
+## Phase 29 A–Q evidence — 2026-08-27
+
+Fresh rendered captures from the browser smoke test are stored outside the
+repository at `C:\Users\walid\Pictures\movies-v2-phase1` (the test fixture is
+disposable and does not touch the working database).
+
+| ID | Rendered surface | Viewport | Result |
+| --- | --- | --- | --- |
+| A | Home personal hero | 1280 | PASS |
+| B | Continue Watching section | 1280 | PASS |
+| C | Provider browser tiles | 1280 | PASS |
+| D | Movies-on-provider rail | 1280 | PASS |
+| E | TV-on-provider rail | 1280 | PASS |
+| F | Because You Watched rail + selector state | 1280 | PASS |
+| G | Standard discovery rail | 1280 | PASS |
+| H | Detail hero and metadata | 1280 | PASS |
+| I | Trailer visual card | 1280 | PASS |
+| J | Cast rail | 1280 | PASS |
+| K | Compact review card | 1280 | PASS |
+| L | More Like This rail | 1280 | PASS |
+| M | Enrichment disclosure | 1280 | PASS |
+| N | Watch Options / Jackett disclosure | 1280 | PASS |
+| O | Home responsive composition | 390 | PASS |
+| P | Detail responsive composition | 390 | PASS |
+| Q | Detail lower rail on mobile | 390 | PASS |
+
+The same test checks that the mobile provider rail can scroll, the detail page
+has no horizontal document overflow, and the selector preserves its URL state.

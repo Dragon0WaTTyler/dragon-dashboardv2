@@ -289,6 +289,16 @@ class TmdbCatalogProvider:
                     for member in (credits.get("cast") or [])[:12]
                     if member.get("name")
                 ],
+                "production_companies": [
+                    {
+                        "name": str(company.get("name")),
+                        "logo_url": self._image_url(company.get("logo_path"), size="w185"),
+                    }
+                    for company in payload.get("production_companies") or []
+                    if company.get("name")
+                ][:6],
+                "budget": _optional_int(payload.get("budget")),
+                "revenue": _optional_int(payload.get("revenue")),
                 "tmdb_detail": {
                     "backdrop_url": self._image_url(payload.get("backdrop_path"), size="w1280"),
                     "tagline": str(payload.get("tagline") or ""),
@@ -317,6 +327,12 @@ class TmdbCatalogProvider:
                     ),
                 },
             }
+        )
+        item["related"] = _tmdb_merge_related(
+            payload.get("similar") or {},
+            payload.get("recommendations") or {},
+            media_type,
+            exclude_tmdb_id=int(payload["id"]),
         )
         if media_type == "tv":
             item["seasons"] = [
@@ -687,21 +703,63 @@ def _tmdb_reviews(payload: dict) -> list[dict[str, str]]:
     ][:3]
 
 
-def _tmdb_related(payload: dict, media_type: str) -> list[dict[str, Any]]:
-    return [
-        {
-            "tmdb_id": int(item["id"]),
-            "media_type": media_type,
-            "title": str(item.get("title") or item.get("name") or "Untitled"),
-            "year": _optional_int(
-                str(item.get("release_date") or item.get("first_air_date") or "")[:4]
-            ),
-            "poster_url": TmdbCatalogProvider._image_url(item.get("poster_path")),
-            "rating": item.get("vote_average"),
-        }
-        for item in payload.get("results") or []
-        if item.get("id")
-    ][:12]
+def _tmdb_related(
+    payload: dict,
+    media_type: str,
+    *,
+    exclude_tmdb_id: int | None = None,
+) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    related: list[dict[str, Any]] = []
+    for item in payload.get("results") or []:
+        if not item.get("id"):
+            continue
+        try:
+            tmdb_id = int(item["id"])
+        except (TypeError, ValueError):
+            continue
+        if exclude_tmdb_id is not None and tmdb_id == exclude_tmdb_id:
+            continue
+        key = f"{media_type}:{tmdb_id}"
+        if key in seen:
+            continue
+        seen.add(key)
+        related.append(
+            {
+                "tmdb_id": tmdb_id,
+                "media_type": media_type,
+                "title": str(item.get("title") or item.get("name") or "Untitled"),
+                "year": _optional_int(
+                    str(item.get("release_date") or item.get("first_air_date") or "")[:4]
+                ),
+                "poster_url": TmdbCatalogProvider._image_url(item.get("poster_path")),
+                "rating": item.get("vote_average"),
+            }
+        )
+        if len(related) >= 12:
+            break
+    return related
+
+
+def _tmdb_merge_related(
+    similar: dict,
+    recommendations: dict,
+    media_type: str,
+    *,
+    exclude_tmdb_id: int | None = None,
+) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for payload in (similar, recommendations):
+        for item in _tmdb_related(payload, media_type, exclude_tmdb_id=exclude_tmdb_id):
+            key = f"{item['media_type']}:{item['tmdb_id']}"
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(item)
+            if len(merged) >= 12:
+                return merged
+    return merged
 
 
 class JackettReleaseProvider:

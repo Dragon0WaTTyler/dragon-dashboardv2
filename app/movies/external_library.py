@@ -262,6 +262,12 @@ def refresh_movie_metadata(movie: Movie) -> Movie:
         movie.runtime_minutes = int(details["runtime_minutes"])
     metadata = dict(movie.metadata_state or {})
     metadata["tmdb_detail"] = dict(details.get("tmdb_detail") or {})
+    metadata["tmdb_enrichment"] = {
+        "release_date": details.get("release_date"),
+        "production_companies": list(details.get("production_companies") or []),
+        "budget": details.get("budget"),
+        "revenue": details.get("revenue"),
+    }
     if hasattr(provider, "watch_providers"):
         metadata["provider_availability"] = provider.watch_providers(
             movie.media_type, tmdb_id, region="US"

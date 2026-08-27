@@ -226,6 +226,8 @@ def movie_detail(movie: Movie) -> dict[str, Any]:
     metadata_state = dict(movie.metadata_state or {})
     tmdb_detail = metadata_state.get("tmdb_detail")
     tmdb_detail = dict(tmdb_detail) if isinstance(tmdb_detail, dict) else {}
+    enrichment = metadata_state.get("tmdb_enrichment")
+    enrichment = dict(enrichment) if isinstance(enrichment, dict) else {}
     trailers = []
     for trailer in tmdb_detail.get("trailers") or []:
         item = dict(trailer)
@@ -234,6 +236,29 @@ def movie_detail(movie: Movie) -> dict[str, Any]:
         if key:
             item["thumbnail_url"] = f"https://img.youtube.com/vi/{key}/hqdefault.jpg"
         trailers.append(item)
+    current_tmdb_id = str((movie.external_ids or {}).get("tmdb_id") or "").strip()
+    related: list[dict[str, Any]] = []
+    seen_related: set[str] = set()
+    related_inputs = list(tmdb_detail.get("similar") or []) + list(
+        tmdb_detail.get("recommendations") or []
+    )
+    for item in related_inputs:
+        try:
+            tmdb_id = int(item.get("tmdb_id"))
+        except (AttributeError, TypeError, ValueError):
+            continue
+        media_type = str(item.get("media_type") or movie.media_type).lower()
+        if media_type not in {"movie", "tv"} or (
+            media_type == movie.media_type and str(tmdb_id) == current_tmdb_id
+        ):
+            continue
+        key = f"{media_type}:{tmdb_id}"
+        if key in seen_related:
+            continue
+        seen_related.add(key)
+        related.append({**item, "tmdb_id": tmdb_id, "media_type": media_type})
+        if len(related) >= 12:
+            break
     return {
         **movie_item(movie),
         "original_title": movie.original_title,
@@ -255,10 +280,15 @@ def movie_detail(movie: Movie) -> dict[str, Any]:
         "countries": list(tmdb_detail.get("countries") or []),
         "certification": str(tmdb_detail.get("certification") or ""),
         "tmdb_rating": tmdb_detail.get("tmdb_rating"),
+        "release_date": str(enrichment.get("release_date") or ""),
+        "production_companies": list(enrichment.get("production_companies") or []),
+        "budget": enrichment.get("budget"),
+        "revenue": enrichment.get("revenue"),
         "trailers": trailers,
         "reviews": list(tmdb_detail.get("reviews") or []),
         "similar": list(tmdb_detail.get("similar") or []),
         "recommendations": list(tmdb_detail.get("recommendations") or []),
+        "related": related,
         "provider_availability": list(metadata_state.get("provider_availability") or []),
         "updated_at": _utc_json(movie.updated_at),
     }
@@ -1475,11 +1505,10 @@ class MovieService:
             reverse=True,
         )
         if anchor_id not in (None, ""):
-            try:
-                requested_id = int(anchor_id)
-            except (TypeError, ValueError):
-                requested_id = None
-            requested = next((movie for movie in anchors if movie.id == requested_id), None)
+            requested_key = str(anchor_id).strip()
+            requested = next(
+                (movie for movie in anchors if str(movie.id) == requested_key), None
+            )
             if requested is not None:
                 anchors = [requested] + [movie for movie in anchors if movie.id != requested.id]
         anchor_options = [movie_item(movie) for movie in anchors[:24]]

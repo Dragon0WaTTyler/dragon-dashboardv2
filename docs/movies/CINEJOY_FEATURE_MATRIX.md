@@ -1,6 +1,6 @@
 # Cinejoy → Dragon Movies V2 Feature Matrix
 
-Status: Phase 28 final parity review on 2026-08-27. This is an evidence-backed
+Status: Phase 29 product-parity audit on 2026-08-27. This is an evidence-backed
 comparison of the implemented Dragon Movies V2 surface, not an authorization to
 copy Cinejoy code or architecture.
 
@@ -66,6 +66,31 @@ status is one of `DONE`, `DRAGON_EQUIVALENT`, `INTENTIONALLY_DIFFERENT`,
 | Ambient light | Artwork colors influence background | `ambientLight`, theme utilities | Restrained artwork sampling with session fallback, reduced effects and intensity settings | Optional subtle dynamic movie atmosphere | ADAPT_IDEA | DONE |
 | PWA | Install-oriented code/components | `usePWAInstall`, `InstallBanner` | No app-wide manifest/worker/cache policy; isolated `/media/` worker is not reused | Post-runtime-stabilization app shell/cache policy | LATER | DEFERRED |
 | Settings | Top-nav settings control | `SettingsModal` | Compact Movies preferences for playback, availability region and display effects; administration stays global | Small Movies preferences with advanced disclosure | ADAPT_IDEA | DONE |
+
+## Phase 29 rendered evidence
+
+The current pass used the disposable browser fixture in
+`tests/browser/test_movies_phase1.py` and wrote fresh captures outside the
+repository under `C:\Users\walid\Pictures\movies-v2-phase1`. The fixture tests
+real Jinja routes and shared client behavior; it does not seed production data.
+
+| Capability | Evidence | Result |
+| --- | --- | --- |
+| Home hero, Continue Watching, Want to Watch | A, B, `home-desktop.png` | PASS |
+| Provider browser and provider-scoped Movies/TV rails | C, D, E | PASS |
+| Because You Watched selector and cache-only rail | F, URL/state assertion in browser test | PASS |
+| Existing discovery rails and Top 10 composition | G, `home-desktop.png` | PASS |
+| Shared arrows, keyboard/touch rail behavior | rail controls plus mobile scroll assertion | PASS |
+| Detail atmosphere, trailer art/play affordance, cast, reviews, related | H–L | PASS |
+| Studio/enrichment disclosure and Watch Options boundary | M, N | PASS |
+| Responsive home/detail and lower detail rail | O–Q | PASS |
+| PWA/offline shell | no capture | DEFERRED by contract |
+
+The new implementation intentionally keeps provider availability metadata
+separate from Dragon playback source resolution. A title can be browsed by
+provider before import, while only Dragon-owned source controls can launch
+playback. Related-title output is typed, de-duplicated, and excludes the
+current TMDB identity before rendering.
 
 ## Phase 28 outcome
 

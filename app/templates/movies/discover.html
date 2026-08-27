@@ -5,20 +5,21 @@
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movies-v2-preview-1" defer></script>{% endblock %}
 {% block content %}
 {% set genre_names = media.genres|map(attribute='name')|select|list %}
-{% set backdrop_url = media.tmdb_detail.backdrop_url or media.backdrop_url or media.poster_url %}
-{% set trailers = media.tmdb_detail.trailers or [] %}
-{% set related = media.tmdb_detail.similar or media.tmdb_detail.recommendations or [] %}
+{% set tmdb_detail = media.tmdb_detail or {} %}
+{% set backdrop_url = tmdb_detail.backdrop_url or media.backdrop_url or media.poster_url %}
+{% set trailers = tmdb_detail.trailers or [] %}
+{% set related = media.related or tmdb_detail.similar or tmdb_detail.recommendations or [] %}
 <div class="movies-v2 movies-v2--discover-detail">
   <div class="movies-v2__atmosphere" aria-hidden="true"></div>
   <section class="movie-discover-hero" aria-labelledby="discover-title">
     {% if backdrop_url %}<div class="movie-discover-hero__art" aria-hidden="true"><img src="{{ backdrop_url }}" alt=""></div>{% endif %}
     <a class="back-link movie-discover-hero__back" href="{{ url_for('movies.index') }}">← Back to movies</a>
     <div class="movie-discover-hero__content">
-      <span class="eyebrow">{{ media.type_label|upper }}{% if media.year %} · {{ media.year }}{% endif %}{% if media.tmdb_detail.certification %} · {{ media.tmdb_detail.certification }}{% endif %}</span>
+      <span class="eyebrow">{{ media.type_label|upper }}{% if media.year %} · {{ media.year }}{% endif %}{% if tmdb_detail.certification %} · {{ tmdb_detail.certification }}{% endif %}</span>
       <h1 id="discover-title">{{ media.title }}</h1>
       {% if media.original_title and media.original_title != media.title %}<p class="movie-discover-hero__original">{{ media.original_title }}</p>{% endif %}
-      {% if media.tmdb_detail.tagline %}<p class="movie-detail__tagline">{{ media.tmdb_detail.tagline }}</p>{% endif %}
-      <p class="movie-discover-hero__meta">{{ [media.runtime_minutes ~ ' min' if media.runtime_minutes else '', '★ ' ~ ('%.1f'|format(media.rating)) if media.rating is not none else '', genre_names[:3]|join(' · ')]|select|join(' · ') }}</p>
+      {% if tmdb_detail.tagline %}<p class="movie-detail__tagline">{{ tmdb_detail.tagline }}</p>{% endif %}
+      <p class="movie-discover-hero__meta">{{ [media.runtime_minutes ~ ' min' if media.runtime_minutes else '', '★ ' ~ ('%.1f'|format(media.rating)) if media.rating is defined and media.rating is not none else '', genre_names[:3]|join(' · ')]|select|join(' · ') }}</p>
       {% if media.overview %}<p class="movie-discover-hero__overview">{{ media.overview }}</p>{% endif %}
       <div class="movie-discover-hero__actions" aria-label="Movie actions">
         <button class="button button--primary" type="button" data-library-add>+ Add to library</button>
@@ -35,11 +36,12 @@
     <section class="detail-section movie-discover-detail__overview" aria-labelledby="discover-overview-title">
       <span class="eyebrow">About this title</span><h2 id="discover-overview-title">Overview</h2>
       <dl class="definition-grid">
-        <div><dt>Rating</dt><dd>{{ ('%.1f / 10')|format(media.rating) if media.rating is not none else 'Unknown' }}</dd></div>
+        <div><dt>Rating</dt><dd>{{ ('%.1f / 10')|format(media.rating) if media.rating is defined and media.rating is not none else 'Unknown' }}</dd></div>
         <div><dt>Runtime</dt><dd>{{ media.runtime_minutes ~ ' min' if media.runtime_minutes else 'Unknown' }}</dd></div>
         <div><dt>Genres</dt><dd>{{ genre_names|join(', ') if genre_names else 'Unknown' }}</dd></div>
         <div><dt>Source</dt><dd>TMDB preview</dd></div>
       </dl>
+      {% if media.release_date or media.production_companies or media.budget or media.revenue %}<details class="movie-detail__enrichment"><summary>More details</summary><div class="movie-detail__enrichment-grid">{% if media.release_date %}<div><span class="eyebrow">Release date</span><strong>{{ media.release_date }}</strong></div>{% endif %}{% if media.production_companies %}<div><span class="eyebrow">Production</span><strong>{{ media.production_companies|map(attribute='name')|join(', ') }}</strong></div>{% endif %}{% if media.budget %}<div><span class="eyebrow">Budget</span><strong>${{ '{:,}'.format(media.budget) }}</strong></div>{% endif %}{% if media.revenue %}<div><span class="eyebrow">Revenue</span><strong>${{ '{:,}'.format(media.revenue) }}</strong></div>{% endif %}</div></details>{% endif %}
     </section>
 
     {% if media.preview_player_sources %}
@@ -77,10 +79,10 @@
       <div class="release-list" data-release-list></div>
     </details>
 
-    {% if trailers %}<section class="detail-section movie-detail__media-rail"><span class="eyebrow">TMDB videos</span><h2>Trailers</h2><div class="movie-detail__trailer-list">{% for trailer in trailers %}<a class="movie-detail__trailer" href="{{ trailer.url }}" rel="noreferrer"><span aria-hidden="true">▶</span><strong>{{ trailer.name }}</strong><small>{{ 'Official trailer' if trailer.official else 'Trailer' }}</small></a>{% endfor %}</div></section>{% endif %}
-    {% if media.cast %}<section class="detail-section movie-detail__cast"><span class="eyebrow">Credits</span><h2>Cast</h2><div class="movie-detail__cast-rail">{% for person in media.cast %}<article>{% if person.profile_url %}<img src="{{ person.profile_url }}" alt="{{ person.name }}" loading="lazy" width="120" height="120">{% else %}<span aria-hidden="true">{{ person.name[:1]|upper }}</span>{% endif %}<strong>{{ person.name }}</strong>{% if person.character %}<small>{{ person.character }}</small>{% endif %}</article>{% endfor %}</div></section>{% endif %}
-    {% if media.tmdb_detail.reviews %}<section class="detail-section movie-detail__reviews"><span class="eyebrow">TMDB member reviews</span><h2>Reviews</h2>{% for review in media.tmdb_detail.reviews %}<article><strong>{{ review.author }}</strong><p>{{ review.content }}</p>{% if review.url %}<a href="{{ review.url }}" rel="noreferrer">Read on TMDB</a>{% endif %}</article>{% endfor %}</section>{% endif %}
-    {% if related %}<section class="detail-section movie-detail__related"><span class="eyebrow">TMDB catalog</span><h2>More like this</h2><div class="movie-detail__related-rail">{% for item in related %}<a href="{{ url_for('movies.discover', media_type=item.media_type, tmdb_id=item.tmdb_id) }}">{% if item.poster_url %}<img src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="160" height="240">{% else %}<span aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}<strong>{{ item.title }}</strong><small>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</small></a>{% endfor %}</div></section>{% endif %}
+    {% if trailers %}<section class="detail-section movie-detail__media-rail movie-rail-section"><span class="eyebrow">TMDB videos</span><h2>Trailers</h2><div class="movie-detail__trailer-list movie-rail" data-movie-rail>{% for trailer in trailers %}{% set trailer_key = trailer.url.split('v=', 1)[1].split('&', 1)[0] if 'v=' in trailer.url else '' %}<a class="movie-detail__trailer" href="{{ trailer.url }}" rel="noreferrer"><span class="movie-detail__trailer-art">{% if trailer_key %}<img src="https://img.youtube.com/vi/{{ trailer_key }}/hqdefault.jpg" alt="" loading="lazy" width="320" height="180">{% endif %}<span class="movie-detail__trailer-play" aria-hidden="true">▶</span></span><strong>{{ trailer.name }}</strong><small>{{ 'Official trailer' if trailer.official else 'Trailer' }}</small></a>{% endfor %}</div></section>{% endif %}
+    {% if media.cast %}<section class="detail-section movie-detail__cast movie-rail-section"><span class="eyebrow">Credits</span><h2>Cast</h2><div class="movie-detail__cast-rail movie-rail" data-movie-rail tabindex="0">{% for person in media.cast %}<article>{% if person.profile_url %}<img src="{{ person.profile_url }}" alt="{{ person.name }}" loading="lazy" width="120" height="120">{% else %}<span aria-hidden="true">{{ person.name[:1]|upper }}</span>{% endif %}<strong>{{ person.name }}</strong>{% if person.character %}<small>{{ person.character }}</small>{% endif %}</article>{% endfor %}</div></section>{% endif %}
+    {% if tmdb_detail.reviews %}<section class="detail-section movie-detail__reviews"><span class="eyebrow">TMDB member reviews</span><h2>Reviews</h2>{% for review in tmdb_detail.reviews %}<article><strong>{{ review.author }}</strong><p class="movie-detail__review-copy">{{ review.content }}</p><details><summary>Read more</summary><p>{{ review.content }}</p></details>{% if review.url %}<a href="{{ review.url }}" rel="noreferrer">Read on TMDB</a>{% endif %}</article>{% endfor %}</section>{% endif %}
+    {% if related %}<section class="detail-section movie-detail__related movie-rail-section"><span class="eyebrow">TMDB catalog</span><h2>More like this</h2><div class="movie-detail__related-rail movie-rail" data-movie-rail>{% for item in related %}<a href="{{ url_for('movies.discover', media_type=item.media_type, tmdb_id=item.tmdb_id) }}">{% if item.poster_url %}<img src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="160" height="240">{% else %}<span aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}<strong>{{ item.title }}</strong><small>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</small></a>{% endfor %}</div></section>{% endif %}
   </article>
 </div>
 {% endblock %}

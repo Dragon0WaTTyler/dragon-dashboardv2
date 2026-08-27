@@ -47,22 +47,6 @@
   </div>
 </section>
 {% endif %}
-{% if availability and availability.providers %}
-<section class="movie-provider-browser" aria-labelledby="movie-provider-title">
-  <div class="movie-now__heading"><div><span class="eyebrow">Browse by availability</span><h2 id="movie-provider-title">Choose a provider</h2><p>TMDB availability metadata for {{ availability.region }}. This does not select a playback source.</p></div></div>
-  <div class="movie-provider-browser__rail" data-movie-rail>
-    {% for provider in availability.providers %}<a class="movie-provider-browser__tile{% if availability.selected_provider and provider.id == availability.selected_provider.id %} is-selected{% endif %}" href="{{ url_for('movies.index', provider=provider.id, region=availability.region) }}"{% if availability.selected_provider and provider.id == availability.selected_provider.id %} aria-current="true"{% endif %} aria-label="Browse titles available on {{ provider.name }}"><span class="movie-provider-browser__logo">{% if provider.logo_url %}<img src="{{ provider.logo_url }}" alt="" loading="lazy" width="72" height="72">{% else %}<span aria-hidden="true">{{ provider.name[:1]|upper }}</span>{% endif %}</span><span>{{ provider.name }}</span></a>{% endfor %}
-  </div>
-</section>
-{% for rail in availability.rails %}
-<section class="movie-discovery-rail movie-discovery-rail--provider" data-discovery-rail="{{ rail.id }}" aria-labelledby="{{ rail.id }}-title">
-  <div class="movie-now__heading"><div><span class="eyebrow">TMDB availability</span><h2 id="{{ rail.id }}-title">{{ rail.title }}</h2><p>{{ rail.subtitle }}</p></div><a class="movie-rail__all" href="{{ url_for('movies.browse', media_type=rail.content_type, provider=rail.provider_id, region=availability.region) }}">View all</a></div>
-  <div class="movie-discovery-rail__items movie-rail" data-movie-rail>
-    {% for item in rail.items %}<article class="movie-discovery-rail__item"><a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">{% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="220" height="330">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}{% if item.rating is not none %}<span class="movie-card-rating">★ {{ '%.1f'|format(item.rating) }}</span>{% endif %}</a><div class="movie-discovery-rail__copy"><div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Year unknown' }}</p></div></div></article>{% endfor %}
-  </div>
-</section>
-{% endfor %}
-{% endif %}
 {% if recommendation and dragon_feature('movies', 'recommendation') %}
 <section id="movie-recommendation" class="movie-recommendation" data-recommendation-card data-recommendation-items="{{ recommendations|tojson|forceescape }}" data-recommendation-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}" aria-labelledby="movie-recommendation-title" hidden>
   <article class="movie-recommendation__card">
@@ -91,7 +75,7 @@
     <a class="button button--quiet" href="{{ url_for('movies.watch_next') }}">See watch next</a>
   </div>
   {% if continue_watching %}
-  <div class="movie-now__grid movie-rail">
+  <div class="movie-now__grid movie-rail" data-movie-rail>
     {% for movie in continue_watching %}
     <article class="movie-now__item">
       <a class="movie-now__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">
@@ -117,7 +101,7 @@
     <a class="button button--quiet" href="{{ url_for('movies.watch_next') }}">View all</a>
   </div>
   {% if want_to_watch %}
-  <div class="movie-now__grid movie-rail">
+  <div class="movie-now__grid movie-rail" data-movie-rail>
     {% for movie in want_to_watch %}
     <article class="movie-now__item movie-want__item">
       <a class="movie-now__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}">
@@ -136,6 +120,22 @@
   <p class="movie-now__empty">Your Want to Watch list is clear. Add a title when something catches your eye.</p>
   {% endif %}
 </section>
+{% if availability and availability.providers %}
+<section class="movie-provider-browser" aria-labelledby="movie-provider-title">
+  <div class="movie-now__heading"><div><span class="eyebrow">Browse by availability</span><h2 id="movie-provider-title">Choose a provider</h2><p>TMDB availability metadata for {{ availability.region }}. This does not select a playback source.</p></div></div>
+  <div class="movie-provider-browser__rail" data-movie-rail>
+    {% for provider in availability.providers %}<a class="movie-provider-browser__tile{% if availability.selected_provider and provider.id == availability.selected_provider.id %} is-selected{% endif %}" href="{{ url_for('movies.index', provider=provider.id, region=availability.region) }}"{% if availability.selected_provider and provider.id == availability.selected_provider.id %} aria-current="true"{% endif %} aria-label="Browse titles available on {{ provider.name }}"><span class="movie-provider-browser__logo">{% if provider.logo_url %}<img src="{{ provider.logo_url }}" alt="" loading="lazy" width="72" height="72">{% else %}<span aria-hidden="true">{{ provider.name[:1]|upper }}</span>{% endif %}</span><span>{{ provider.name }}</span></a>{% endfor %}
+  </div>
+</section>
+{% for rail in availability.rails %}
+<section class="movie-discovery-rail movie-discovery-rail--provider" data-discovery-rail="{{ rail.id }}" aria-labelledby="{{ rail.id }}-title">
+  <div class="movie-now__heading"><div><span class="eyebrow">TMDB availability</span><h2 id="{{ rail.id }}-title">{{ rail.title }}</h2><p>{{ rail.subtitle }}</p></div><a class="movie-rail__all" href="{{ url_for('movies.browse', media_type=rail.content_type, provider=rail.provider_id, region=availability.region) }}">View all</a></div>
+  <div class="movie-discovery-rail__items movie-rail" data-movie-rail>
+    {% for item in rail['items'] %}<article class="movie-discovery-rail__item"><a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">{% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="220" height="330">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}{% if item.rating is not none %}<span class="movie-card-rating">★ {{ '%.1f'|format(item.rating) }}</span>{% endif %}</a><div class="movie-discovery-rail__copy"><div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Year unknown' }}</p></div></div></article>{% endfor %}
+  </div>
+</section>
+{% endfor %}
+{% endif %}
 {% if because_you_watched %}
 <section class="movie-discovery-rail movie-discovery-rail--personal" aria-labelledby="because-you-watched-title">
   <div class="movie-now__heading">
