@@ -176,6 +176,8 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         app.extensions["dragon_tmdb_catalog_provider"] = Phase1Provider()
 
     page.set_viewport_size({"width": 1280, "height": 900})
+    page_errors = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
     _sign_in(page, live_app)
     page.goto(f"{live_app}/movies?because={anchor_id}")
     page.locator(".movie-provider-browser").wait_for()
@@ -197,18 +199,18 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.get_by_role("heading", name="Because you watched Second Anchor").wait_for()
     phase1_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
     phase1_dir.mkdir(parents=True, exist_ok=True)
+    page.screenshot(path=str(phase1_dir / "A-home-hero-continue.png"), full_page=True)
     captures = {
-        "A-home-hero.png": ".movie-personal-hero",
-        "B-continue-watching.png": "section[aria-labelledby='continue-watching-title']",
-        "C-provider-browser.png": ".movie-provider-browser",
-        "D-provider-movies.png": "[data-discovery-rail='provider_movie']",
-        "E-provider-tv.png": "[data-discovery-rail='provider_tv']",
-        "F-because-you-watched.png": ".movie-discovery-rail--personal",
-        "G-discovery-rail.png": (
-            ".movie-discovery-rail:not(.movie-discovery-rail--provider):"
-            "not(.movie-discovery-rail--personal)"
-        ),
+        "B-browse-by-provider.png": ".movie-provider-browser",
+        "C-because-selector.png": ".movie-because-selector",
+        "D-movies-on-provider.png": "[data-discovery-rail='provider_movie']",
+        "E-tv-on-provider.png": "[data-discovery-rail='provider_tv']",
+        "F-generic-discovery-rail.png": "[data-discovery-rail='trending_movies']",
+        "G-top-10.png": "[data-discovery-rail='top_10_movies']",
     }
+    selector.click()
+    page.screenshot(path=str(phase1_dir / "C-because-selector-open-attempt.png"))
+    page.keyboard.press("Escape")
     for filename, selector in captures.items():
         locator = page.locator(selector).first
         assert locator.is_visible(), f"missing screenshot surface: {selector}"
@@ -226,12 +228,12 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     assert page.locator(".movie-detail__cast-rail").count() == 1
     assert page.get_by_text("Ada Example").is_visible()
     detail_captures = {
-        "H-detail-hero.png": ".movie-detail",
-        "I-trailers.png": ".movie-detail__media-rail",
+        "H-detail-hero.png": ".movie-detail__content--hero",
+        "I-detail-metadata-transition.png": ".movie-detail__content--secondary",
         "J-cast.png": ".movie-detail__cast",
-        "K-reviews.png": ".movie-detail__reviews",
-        "L-more-like-this.png": ".movie-detail__related",
-        "M-enrichment.png": ".movie-detail__enrichment",
+        "K-trailers.png": ".movie-detail__media-rail",
+        "L-reviews.png": ".movie-detail__reviews",
+        "M-more-like-this.png": ".movie-detail__related",
         "N-watch-options.png": ".movie-release-browser",
     }
     for filename, selector in detail_captures.items():
@@ -261,3 +263,11 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         path=str(phase1_dir / "Q-detail-lower-mobile.png")
     )
     page.screenshot(path=str(phase1_dir / "detail-mobile.png"), full_page=True)
+    for width in (390, 768, 1024, 1280, 1440):
+        page.set_viewport_size({"width": width, "height": 844})
+        page.goto(f"{live_app}/movies?because={anchor_id}")
+        page.locator(".movie-provider-browser").wait_for()
+        assert page.evaluate(
+            "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+        )
+    assert not page_errors, page_errors

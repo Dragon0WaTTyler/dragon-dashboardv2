@@ -66,19 +66,19 @@ disposable and does not touch the working database).
 
 | ID | Rendered surface | Viewport | Result |
 | --- | --- | --- | --- |
-| A | Home personal hero | 1280 | PASS |
-| B | Continue Watching section | 1280 | PASS |
-| C | Provider browser tiles | 1280 | PASS |
-| D | Movies-on-provider rail | 1280 | PASS |
-| E | TV-on-provider rail | 1280 | PASS |
-| F | Because You Watched rail + selector state | 1280 | PASS |
-| G | Standard discovery rail | 1280 | PASS |
-| H | Detail hero and metadata | 1280 | PASS |
-| I | Trailer visual card | 1280 | PASS |
+| A | Home hero + Continue Watching | 1280 | PASS |
+| B | Browse by Provider tiles | 1280 | PASS |
+| C | Because You Watched selector | 1280 | PARTIAL: behavior is exercised; native OS popup is not portable in screenshot capture |
+| D | Movies on selected provider | 1280 | PASS |
+| E | TV Series on selected provider | 1280 | PASS |
+| F | Generic discovery rail | 1280 | PASS |
+| G | Top 10 ranked rail | 1280 | PASS |
+| H | Detail hero | 1280 | PASS |
+| I | Detail metadata transition below hero | 1280 | PASS |
 | J | Cast rail | 1280 | PASS |
-| K | Compact review card | 1280 | PASS |
-| L | More Like This rail | 1280 | PASS |
-| M | Enrichment disclosure | 1280 | PASS |
+| K | Trailer visual cards | 1280 | PASS |
+| L | Compact review card | 1280 | PASS |
+| M | More Like This rail | 1280 | PASS |
 | N | Watch Options / Jackett disclosure | 1280 | PASS |
 | O | Home responsive composition | 390 | PASS |
 | P | Detail responsive composition | 390 | PASS |

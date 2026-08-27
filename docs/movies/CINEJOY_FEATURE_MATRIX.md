@@ -76,15 +76,36 @@ real Jinja routes and shared client behavior; it does not seed production data.
 
 | Capability | Evidence | Result |
 | --- | --- | --- |
-| Home hero, Continue Watching, Want to Watch | A, B, `home-desktop.png` | PASS |
-| Provider browser and provider-scoped Movies/TV rails | C, D, E | PASS |
-| Because You Watched selector and cache-only rail | F, URL/state assertion in browser test | PASS |
-| Existing discovery rails and Top 10 composition | G, `home-desktop.png` | PASS |
+| Home hero, Continue Watching, Want to Watch | A, `home-desktop.png` | PASS |
+| Provider browser and provider-scoped Movies/TV rails | B, D, E | PASS |
+| Because You Watched selector and cache-only rail | C, URL/state assertion in browser test | PARTIAL for native popup capture; behavior PASS |
+| Existing discovery rails and Top 10 composition | F, G, `home-desktop.png` | PASS |
 | Shared arrows, keyboard/touch rail behavior | rail controls plus mobile scroll assertion | PASS |
-| Detail atmosphere, trailer art/play affordance, cast, reviews, related | H–L | PASS |
-| Studio/enrichment disclosure and Watch Options boundary | M, N | PASS |
+| Detail atmosphere and metadata transition | H, I | PASS |
+| Cast, trailer art/play affordance, reviews, related | J–M | PASS |
+| Studio/enrichment disclosure and Watch Options boundary | N | PASS |
 | Responsive home/detail and lower detail rail | O–Q | PASS |
 | PWA/offline shell | no capture | DEFERRED by contract |
+
+### Required feature-parity status audit
+
+| Required feature | Final status | Evidence |
+| --- | --- | --- |
+| Browse by Provider | DONE | B: visible provider browser with selected state |
+| Provider selector | DONE | B and provider URL/state assertion |
+| Movies on Provider | DONE | D: selected Netflix context rail |
+| TV Series on Provider | DONE | E: same selected provider context |
+| Because You Watched | DONE | C/F: real watched anchor and recommendations |
+| Reference-title selector | DRAGON_EQUIVALENT | URL-changing native select; popup itself is platform-owned |
+| Provider visual tiles | DONE | B: large logo/image tiles |
+| Rail navigation | DONE | arrow controls plus mobile scroll/keyboard behavior |
+| Cast carousel | DONE | J: circular portraits and shared controls |
+| Trailers | DONE | K: 16:9 thumbnail/play cards |
+| Full-page atmosphere | DONE | H/I and detail lower-module captures |
+| You Might Also Like | DONE | M: shared related-title rail |
+| Studio metadata | DONE | M/enrichment disclosure from TMDB fields |
+| Detail metadata presentation | DONE | H/I: hero facts plus secondary disclosure |
+| Reviews presentation | DONE | L: compact default with deliberate expansion |
 
 The new implementation intentionally keeps provider availability metadata
 separate from Dragon playback source resolution. A title can be browsed by
