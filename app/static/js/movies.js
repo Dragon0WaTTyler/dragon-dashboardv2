@@ -190,6 +190,91 @@ const showMovieToast = (message, level = "success") => {
   });
 })();
 
+/* A restrained, personal-first Home hero carousel.  It only rotates the
+ * server-projected candidate deck; it never writes library or playback state. */
+(() => {
+  const hero = document.querySelector("[data-home-hero]");
+  if (!hero) return;
+  let candidates = [];
+  try { candidates = JSON.parse(hero.dataset.homeHeroItems || "[]"); } catch { candidates = []; }
+  if (!Array.isArray(candidates) || candidates.length < 2) return;
+  const title = hero.querySelector("[data-home-focus-title]");
+  const meta = hero.querySelector("[data-home-focus-meta]");
+  const overview = hero.querySelector("[data-home-focus-overview]");
+  const progress = hero.querySelector("[data-home-focus-progress]");
+  const label = hero.querySelector("[data-home-focus-label]");
+  const art = hero.querySelector("[data-home-focus-art]");
+  const primary = hero.querySelector("[data-home-focus-primary]");
+  const signal = hero.querySelector(".movie-personal-hero__signal");
+  const favoriteForm = hero.querySelector("[data-home-focus-favorite-form]");
+  const favoriteValue = hero.querySelector("[data-home-focus-favorite-value]");
+  const favoriteButton = hero.querySelector("[data-home-focus-favorite-button]");
+  const dots = [...hero.querySelectorAll("[data-home-hero-dot]")];
+  const previous = hero.querySelector("[data-home-hero-previous]");
+  const next = hero.querySelector("[data-home-hero-next]");
+  const detailTemplate = hero.dataset.detailTemplate || "";
+  const detailUrl = (item) => detailTemplate.replace("999999999", encodeURIComponent(item.id));
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  let index = 0;
+  let timer = null;
+  let paused = false;
+  const formatMeta = (item) => [
+    item.media_type === "tv" ? "TV" : "Movie",
+    item.year,
+    item.personal_score != null ? `★ ${Number(item.personal_score).toFixed(1)}` : "",
+    item.runtime_minutes ? `${item.runtime_minutes} min` : "",
+    ...(item.genre_names || []).slice(0, 2),
+  ].filter(Boolean).join(" · ");
+  const setCurrent = (nextIndex) => {
+    index = (nextIndex + candidates.length) % candidates.length;
+    const item = candidates[index] || {};
+    const url = detailUrl(item);
+    title.textContent = item.title || "Untitled";
+    title.href = url;
+    meta.textContent = formatMeta(item);
+    if (overview) { overview.textContent = item.overview || ""; overview.hidden = !item.overview; }
+    const isResume = Boolean(item.progress && item.progress.current_seconds > 0 && !item.progress.completed);
+    label.textContent = isResume ? "Ready when you are" : (item.status === "want_to_watch" ? "From your personal library" : "A title to consider");
+    primary.textContent = isResume ? "Resume" : "Details";
+    primary.href = `${url}${isResume ? "#movie-player" : ""}`;
+    if (progress) {
+      progress.textContent = isResume && item.progress
+        ? `${item.progress.percent || 0}% watched${item.progress.remaining_seconds ? ` · ${Math.round(item.progress.remaining_seconds / 60)} min left` : ""}`
+        : (item.eligibility_reason || "A title to consider when your personal list is clear.");
+    }
+    if (signal) signal.hidden = !isResume;
+    if (art) {
+      const source = item.backdrop_url || item.poster_url || "";
+      art.hidden = !source;
+      if (source && art.src !== source) art.src = source;
+    }
+    if (favoriteForm) favoriteForm.action = `${url}/favorite`;
+    if (favoriteValue) favoriteValue.value = item.is_favorite ? "0" : "1";
+    if (favoriteButton) favoriteButton.textContent = item.is_favorite ? "Unfavorite" : "Favorite";
+    dots.forEach((dot, dotIndex) => {
+      dot.toggleAttribute("aria-current", dotIndex === index);
+      dot.classList.toggle("is-active", dotIndex === index);
+    });
+  };
+  const stopTimer = () => { if (timer) window.clearInterval(timer); timer = null; };
+  const startTimer = () => {
+    stopTimer();
+    if (reduceMotion || paused || document.hidden) return;
+    timer = window.setInterval(() => setCurrent(index + 1), 10000);
+  };
+  const move = (amount) => { setCurrent(index + amount); startTimer(); };
+  previous?.addEventListener("click", () => move(-1));
+  next?.addEventListener("click", () => move(1));
+  dots.forEach((dot) => dot.addEventListener("click", () => { setCurrent(Number(dot.dataset.homeHeroDot)); startTimer(); }));
+  hero.addEventListener("mouseenter", () => { paused = true; stopTimer(); });
+  hero.addEventListener("mouseleave", () => { paused = false; startTimer(); });
+  hero.addEventListener("focusin", () => { paused = true; stopTimer(); });
+  hero.addEventListener("focusout", (event) => { if (!hero.contains(event.relatedTarget)) { paused = false; startTimer(); } });
+  document.addEventListener("visibilitychange", startTimer);
+  setCurrent(0);
+  startTimer();
+})();
+
 (() => {
   const focus = document.querySelector("[data-home-focus]");
   if (!focus) return;

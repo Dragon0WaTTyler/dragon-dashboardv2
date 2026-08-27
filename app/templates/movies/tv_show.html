@@ -6,19 +6,21 @@
 {% block content %}
 <div class="movies-v2 movies-v2--detail movies-v2--tv" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
 <div class="movies-v2__atmosphere" aria-hidden="true"></div>
+<nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a><a href="{{ url_for('movies.shows') }}" aria-current="page">Shows</a><a href="{{ url_for('movies.library') }}">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
 {% if movie.backdrop_url or movie.poster_url %}<div class="movie-detail__backdrop" aria-hidden="true"><img src="{{ movie.backdrop_url or movie.poster_url }}" alt=""></div>{% endif %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
 <article class="movie-detail">
   <div class="movie-detail__poster" data-media-frame>
     {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
   </div>
-  <div class="movie-detail__content movie-detail__content--hero">
+  <div class="movie-detail__content movie-detail__content--hero tv-series-hero">
     <header>
-      <span class="eyebrow">Series{% if movie.year %} · {{ movie.year }}{% endif %}</span>
+      <span class="eyebrow">Series{% if movie.year %} · {{ movie.year }}{% endif %}{% if movie.tmdb_rating is not none %} · ★ {{ '%.1f'|format(movie.tmdb_rating) }}{% endif %}</span>
       <h1>{{ movie.title }}</h1>
       {% if movie.original_title and movie.original_title != movie.title %}<p class="muted">{{ movie.original_title }}</p>{% endif %}
       {% if movie.tagline %}<p class="movie-detail__tagline">{{ movie.tagline }}</p>{% endif %}
       {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
+      <div class="tv-series-hero__meta"><span>{{ workspace.catalog.total_seasons or workspace.seasons|length or '—' }} seasons</span><span>{{ workspace.catalog.total_episodes or '—' }} episodes</span>{% if movie.genres %}<span>{{ movie.genres|map(attribute='name')|list|join(' · ') }}</span>{% endif %}</div>
       <div class="movie-detail__quick-actions">
         <form method="post" action="{{ url_for('movies.update_favorite', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="favorite" value="{{ '0' if movie.is_favorite else '1' }}"><button class="button button--quiet" type="submit">{{ 'Remove favorite' if movie.is_favorite else 'Favorite' }}</button></form>
         {% if custom_lists %}<form method="post" action="{{ url_for('movies.add_movie_to_selected_custom_list', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="visually-hidden" for="custom-list-{{ movie.id }}">Custom list</label><select id="custom-list-{{ movie.id }}" name="custom_list_id">{% for custom_list in custom_lists %}<option value="{{ custom_list.id }}">{{ custom_list.title }}</option>{% endfor %}</select><button class="button button--quiet" type="submit">Add to list</button></form>{% endif %}
@@ -63,9 +65,9 @@
     {% endif %}
   </div>
   <div class="movie-detail__content movie-detail__content--secondary">
-    <section class="detail-section" aria-labelledby="tv-seasons-title">
+    <section class="detail-section tv-series-seasons" aria-labelledby="tv-seasons-title">
       <div class="movie-release-browser__header">
-        <div><span class="eyebrow">Season browser</span><h2 id="tv-seasons-title">All seasons</h2></div>
+        <div><span class="eyebrow">Season browser</span><h2 id="tv-seasons-title">Seasons</h2><p class="muted">Choose a season to see its episodes without leaving this series.</p></div>
       </div>
       <div class="tv-season-grid">
         {% for season in workspace.seasons %}
@@ -73,7 +75,7 @@
           <span class="tv-season-card__poster">
             {% if season.poster_url %}<img src="{{ season.poster_url }}" alt="{{ season.name }}" loading="lazy" width="240" height="360">{% else %}<span class="media-fallback" aria-hidden="true">S{{ season.season_number }}</span>{% endif %}
           </span>
-          <div>
+          <div class="tv-season-card__copy">
             <span class="eyebrow">{{ 'Specials' if season.is_specials else 'Season ' ~ season.season_number }}</span>
             <h3>{{ season.name }}</h3>
             <p>{{ season.episode_count }} episodes{% if season.air_date %} · {{ season.air_date }}{% endif %}</p>

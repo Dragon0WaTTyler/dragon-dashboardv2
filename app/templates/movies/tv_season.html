@@ -6,6 +6,7 @@
 {% block content %}
 <div class="movies-v2 movies-v2--detail movies-v2--tv" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
 <div class="movies-v2__atmosphere" aria-hidden="true"></div>
+<nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a><a href="{{ url_for('movies.shows') }}" aria-current="page">Shows</a><a href="{{ url_for('movies.library') }}">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
 {% if movie.backdrop_url or movie.poster_url %}<div class="movie-detail__backdrop" aria-hidden="true"><img src="{{ movie.backdrop_url or movie.poster_url }}" alt=""></div>{% endif %}
 <a class="back-link" href="{{ url_for('movies.detail', movie_id=movie.id) }}">← Back to series</a>
 <article class="movie-detail">
@@ -225,9 +226,9 @@
     {% endif %}
     {% if jackett_search_available %}
     {% set first_episode = workspace.episodes|first %}
-    <section
+    <details
       id="release-browser"
-      class="movie-release-browser detail-section"
+      class="movie-release-browser detail-section movie-release-browser--secondary"
       data-inline-release-browser
       data-media-type="tv"
       data-tmdb-id="{{ movie.external_ids.tmdb_id }}"
@@ -238,6 +239,7 @@
       data-seasons-template="{{ url_for('movies.api_tv_seasons', tmdb_id=999999999) }}"
       data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}"
     >
+      <summary><span class="eyebrow">Watch options</span><strong>Find sources for this season</strong><span aria-hidden="true">+</span></summary>
       <div class="movie-release-browser__header">
         <div><span class="eyebrow">Manual quality comparison</span><h2>Search Jackett for Season {{ workspace.season.season_number }}</h2></div>
       </div>
@@ -253,7 +255,8 @@
         <ul data-release-diagnostics-list></ul>
       </details>
       <div class="release-list" data-release-list></div>
-    </section>
+    </div>
+    </details>
     {% endif %}
     {% if selected_episode %}
     <section class="movie-release-browser detail-section" aria-labelledby="selected-episode-title">
@@ -300,6 +303,7 @@
               <span>{% if episode.has_exact_source %}Exact source{% elif episode.has_fallback_source %}Season-pack fallback{% else %}No source{% endif %}</span>
               {% if selected_episode and episode.episode_number == selected_episode.episode_number %}<span>Open now</span>{% endif %}
             </div>
+            <span class="tv-episode-tile__action">{% if episode.progress and not episode.progress.completed %}Resume{% elif episode.progress and episode.progress.completed %}Replay{% else %}Play episode{% endif %} <span aria-hidden="true">→</span></span>
           </div>
         </a>
         {% endfor %}

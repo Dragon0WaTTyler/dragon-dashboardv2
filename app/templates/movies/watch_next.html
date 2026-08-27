@@ -3,6 +3,8 @@
 {% block title %}Watch next · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
 {% block content %}
+<div class="movies-v2 movies-v2--library">
+<nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a><a href="{{ url_for('movies.shows') }}">Shows</a><a href="{{ url_for('movies.library') }}" aria-current="page">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
 <header class="page-header">
   <div>
     <span class="eyebrow">A deliberate queue</span>
@@ -31,4 +33,5 @@
 {% else %}
 {{ empty_state('Your watch-next queue is clear', 'Add a title or move something to Want to watch when you are ready.') }}
 {% endif %}
+ </div>
 {% endblock %}

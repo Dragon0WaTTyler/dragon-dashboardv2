@@ -1165,6 +1165,7 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/2#episode-player")
     release_browser = page.locator("[data-inline-release-browser]")
     release_browser.wait_for()
+    release_browser.evaluate("element => { element.open = true; }")
     assert release_browser.get_by_role("button", name="Find full-season packs").is_visible()
     assert release_browser.locator("[data-season-select]").input_value() == "1"
     assert release_browser.locator("[data-season-select]").is_disabled()

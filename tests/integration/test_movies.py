@@ -119,11 +119,14 @@ def test_movie_pages_are_protected_and_render_local_data(authenticated_client, a
     movie_id = add_movie(app)
     assert app.test_client().get("/movies").status_code == 302
 
-    listing = authenticated_client.get("/movies?q=arrival&genre=Science+Fiction")
+    listing = authenticated_client.get("/movies/library?q=arrival&genre=Science+Fiction")
+    home = authenticated_client.get("/movies")
     detail = authenticated_client.get(f"/movies/{movie_id}")
     assert listing.status_code == 200
     listing_html = listing.get_data(as_text=True)
     assert "Arrival" in listing_html
+    assert home.status_code == 200
+    assert 'id="movie-library"' not in home.get_data(as_text=True)
     assert 'data-ambient-level="subtle"' in listing_html
     assert "js/movies-ambient.js" in listing_html
     assert "js/movies-feedback.js" in listing_html
@@ -133,6 +136,20 @@ def test_movie_pages_are_protected_and_render_local_data(authenticated_client, a
     assert 'data-ambient-level="subtle"' in detail_html
     assert "js/movies-ambient.js" in detail_html
     assert "js/movies-feedback.js" in detail_html
+
+
+def test_movies_library_is_a_dedicated_page(authenticated_client, app):
+    add_movie(app, title="Library page title", normalized_title="library page title")
+
+    home = authenticated_client.get("/movies")
+    library = authenticated_client.get("/movies/library?status=watching")
+
+    assert home.status_code == 200
+    assert library.status_code == 200
+    assert "My Library" in library.get_data(as_text=True)
+    assert "Library page title" in library.get_data(as_text=True)
+    assert 'href="/movies/library"' in home.get_data(as_text=True)
+    assert 'id="movie-library"' not in home.get_data(as_text=True)
 
 
 def test_movie_collections_are_authenticated_and_do_not_require_tmdb_for_the_index(
@@ -1025,7 +1042,7 @@ def test_movies_browse_route_restores_movie_filter_url_state(authenticated_clien
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "Browse movies" in html
+    assert "Movies" in html
     assert 'value="18" selected' in html
     assert 'value="rating" selected' in html
     assert 'href="/movies/discover/movie/603"' in html

@@ -308,6 +308,93 @@ def _snapshot_request() -> tuple[dict, str]:
 @bp.get("")
 @login_required
 def index():
+    library_context = _library_context()
+    filters = library_context["filters"]
+    preferences = library_context["preferences"]
+    continue_items = [
+        movie_item(movie)
+        for movie in MovieRepository.continue_watching(library_ids=library_context["library_ids"])
+    ]
+    want_to_watch = [
+        movie_item(movie)
+        for movie in MovieRepository.watch_next(limit=12, library_ids=library_context["library_ids"])
+    ]
+    personal_pick = MovieService.what_should_i_watch()
+    availability_region = str(
+        request.args.get("region") or preferences.get("preferred_region") or "US"
+    ).upper()
+    if len(availability_region) != 2 or not availability_region.isalpha():
+        availability_region = "US"
+    selected_provider_id = request.args.get("provider", type=int)
+    availability = provider_context(
+        region=availability_region,
+        selected_provider_id=selected_provider_id,
+    )
+    because_you_watched = MovieService.because_you_watched(
+        anchor_id=request.args.get("because")
+    )
+    recommendations = MovieService.recommendation_pool(
+        category=filters["category"], source=filters["source"]
+    )["items"]
+    recommendation = recommendations[0] if recommendations else None
+    home_focus = continue_items[0] if continue_items else personal_pick or recommendation
+    home_focus_kind = (
+        "resume" if continue_items else "personal" if personal_pick else "recommendation"
+    )
+    hero_candidates: list[dict] = []
+    seen_hero_ids: set[str] = set()
+    for candidate in [*continue_items, *want_to_watch, personal_pick, *recommendations]:
+        if not candidate or not candidate.get("id"):
+            continue
+        candidate_id = str(candidate["id"])
+        if candidate_id in seen_hero_ids:
+            continue
+        seen_hero_ids.add(candidate_id)
+        hero_candidates.append(
+            {
+                key: candidate.get(key)
+                for key in (
+                    "id",
+                    "title",
+                    "media_type",
+                    "year",
+                    "runtime_minutes",
+                    "personal_score",
+                    "genre_names",
+                    "overview",
+                    "progress",
+                    "status",
+                    "is_favorite",
+                    "poster_url",
+                    "backdrop_url",
+                    "eligibility_reason",
+                )
+            }
+        )
+        if len(hero_candidates) >= 8:
+            break
+    return render_template(
+        "movies/index.html",
+        active_module="movies",
+        **library_context,
+        continue_watching=continue_items,
+        want_to_watch=want_to_watch,
+        home_focus=home_focus,
+        home_focus_kind=home_focus_kind,
+        hero_candidates=hero_candidates,
+        personal_pick=personal_pick,
+        because_you_watched=because_you_watched,
+        because_anchor_id=request.args.get("because", type=int),
+        availability=availability,
+        discovery_rails=discovery_rails(),
+        recommendation=recommendation,
+        recommendations=recommendations,
+        movie_preferences=preferences,
+    )
+
+
+def _library_context() -> dict:
+    """Build the shared, URL-driven Library page state for Home and /library."""
     filters, errors = parse_movie_filters(request.args)
     from app.admin.control_center import preference_store
 
@@ -341,61 +428,31 @@ def index():
         offset=offset,
         library_ids=library_sync.library_ids,
     )
-    continue_items = [
-        movie_item(movie)
-        for movie in MovieRepository.continue_watching(library_ids=library_sync.library_ids)
-    ]
-    want_to_watch = [
-        movie_item(movie)
-        for movie in MovieRepository.watch_next(limit=12, library_ids=library_sync.library_ids)
-    ]
-    personal_pick = MovieService.what_should_i_watch()
-    availability_region = str(
-        request.args.get("region") or preferences.get("preferred_region") or "US"
-    ).upper()
-    if len(availability_region) != 2 or not availability_region.isalpha():
-        availability_region = "US"
-    selected_provider_id = request.args.get("provider", type=int)
-    availability = provider_context(
-        region=availability_region,
-        selected_provider_id=selected_provider_id,
-    )
-    because_you_watched = MovieService.because_you_watched(
-        anchor_id=request.args.get("because")
-    )
-    recommendations = MovieService.recommendation_pool(
-        category=filters["category"], source=filters["source"]
-    )["items"]
-    recommendation = recommendations[0] if recommendations else None
-    home_focus = continue_items[0] if continue_items else personal_pick or recommendation
-    home_focus_kind = (
-        "resume" if continue_items else "personal" if personal_pick else "recommendation"
-    )
+    return {
+        "movies": [movie_item(movie) for movie in movies],
+        "filters": filters,
+        "filter_errors": errors,
+        "filter_options": MovieRepository.filter_options(library_sync.library_ids),
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "has_previous": page > 1,
+        "has_next": offset + len(movies) < total,
+        "library_sync_error": library_sync.error,
+        "preferences": preferences,
+        "library_ids": library_sync.library_ids,
+    }
+
+
+@bp.get("/library")
+@login_required
+def library():
+    context = _library_context()
     return render_template(
-        "movies/index.html",
+        "movies/library.html",
         active_module="movies",
-        movies=[movie_item(movie) for movie in movies],
-        filters=filters,
-        filter_errors=errors,
-        filter_options=MovieRepository.filter_options(library_sync.library_ids),
-        page=page,
-        per_page=per_page,
-        total=total,
-        has_previous=page > 1,
-        has_next=offset + len(movies) < total,
-        library_sync_error=library_sync.error,
-        continue_watching=continue_items,
-        want_to_watch=want_to_watch,
-        home_focus=home_focus,
-        home_focus_kind=home_focus_kind,
-        personal_pick=personal_pick,
-        because_you_watched=because_you_watched,
-        because_anchor_id=request.args.get("because", type=int),
-        availability=availability,
-        discovery_rails=discovery_rails(),
-        recommendation=recommendation,
-        recommendations=recommendations,
-        movie_preferences=preferences,
+        **context,
+        movie_preferences=context["preferences"],
     )
 
 

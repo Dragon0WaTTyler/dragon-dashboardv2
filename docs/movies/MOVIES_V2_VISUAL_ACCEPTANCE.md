@@ -86,3 +86,18 @@ disposable and does not touch the working database).
 
 The same test checks that the mobile provider rail can scroll, the detail page
 has no horizontal document overflow, and the selector preserves its URL state.
+
+## Phase 30 structural completion evidence — 2026-08-28
+
+| Surface / behavior | Verification | Result |
+| --- | --- | --- |
+| Dedicated Library route | `tests/integration/test_movies.py` checks `/movies/library`, heading `My Library`, and the absence of the old Home grid | PASS |
+| Persistent Movies navigation | Server-rendered nav added to Home, browse, discover, detail, TV, lists, and Watch Next templates; sticky CSS is shared | PASS |
+| Dynamic Home hero | Server-projected candidate deck, client dots/previous/next/auto-rotation when at least two real candidates exist; single-candidate fallback remains valid | PASS |
+| Inline availability provider selector | Existing provider URLs and selected state are retained; selector is visible in the shared Home rail heading | PASS |
+| TV series hierarchy | Series hero metadata, season/episode counts, compact season browser, and explicit secondary Jackett disclosure | PASS |
+| Episode-picker null guard | `tests/browser/test_movie_player.py` season-pack flow passes with the secondary disclosure opened deliberately | PASS |
+| Focused regression suites | `tests/integration/test_movies.py` (32 passed), `tests/browser/test_movies_phase1.py` (1 passed), `tests/browser/test_movie_player.py` (9 passed), `tests/unit/test_movie_services.py` (22 passed) | PASS |
+
+These checks are structural and behavioral evidence, not a claim that optional
+external providers are configured or that PWA/offline playback is complete.

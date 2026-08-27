@@ -705,3 +705,34 @@ The initial Phase 0 audit itself made no code, schema, route, provider, Jackett,
 playback, source, or existing-state change. The sections above now record the
 completed, separately verified Movies V2 milestones and their explicitly
 deferred boundaries.
+
+## Verified Phase 30 structural delta — 2026-08-28
+
+The latest implementation pass keeps the existing Movie, library, progress,
+TMDB, Playback, Jackett, subtitle, and snapshot ownership boundaries intact.
+It adds presentation/routing composition only:
+
+- `/movies/library` is now the dedicated paginated personal-library workspace;
+  Home keeps discovery, Continue Watching, Want to Watch, provider, and
+  recommendation rails without a second full library grid.
+- All Movies/TV surfaces share a sticky internal navigation with Home, Movies,
+  Shows, Library, and Search entry points. The global Dragon navigation remains
+  unchanged.
+- Home projects a server-provided hero candidate deck. Previous/next/dot
+  controls and a bounded ten-second rotation are client-only; no rotation writes
+  progress, library state, or playback state. A single candidate remains a
+  valid non-rotating hero.
+- Provider availability is surfaced by an inline, URL-backed provider selector
+  shared by the Movies and TV rails. Availability metadata is still not a
+  playback source.
+- TV series detail now gives seasons/episode counts and a compact season browser;
+  Jackett/manual release discovery is an explicitly secondary disclosure. The
+  player/source, subtitle, local-runtime, exact-episode, and season-pack paths
+  remain Playback-owned.
+- The legacy media search picker now guards absent TV selection state before
+  reading season/episode fields, preventing the previously observed null
+  `season` read during episode-picker hydration.
+
+This delta is confirmed by the focused integration and browser suites listed in
+the Phase 30 evidence below. It does not add a model, migration, provider,
+source, route API, or snapshot field beyond the dedicated HTML page route.

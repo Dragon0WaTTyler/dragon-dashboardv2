@@ -10,20 +10,22 @@
   <a href="{{ url_for('movies.index') }}" aria-current="page">Home</a>
   <a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a>
   <a href="{{ url_for('movies.shows') }}">Shows</a>
-  <a href="#movie-library">Library</a>
+  <a href="{{ url_for('movies.library') }}">Library</a>
   <button type="button" data-dialog-open="movie-discovery-dialog" aria-controls="movie-discovery-dialog" aria-expanded="false">Search</button>
 </nav>
 {% if home_focus %}
 <section
   class="movie-personal-hero"
   data-home-focus
+  data-home-hero
+  data-home-hero-items="{{ hero_candidates|tojson|forceescape }}"
   data-pick-endpoint="{{ url_for('movies.api_what_should_i_watch') }}"
   data-detail-template="{{ url_for('movies.detail', movie_id=999999999) }}"
   aria-labelledby="movie-personal-hero-title"
 >
   {% if home_focus.backdrop_url or home_focus.poster_url %}
   <div class="movie-personal-hero__art" aria-hidden="true">
-    <img src="{{ home_focus.backdrop_url or home_focus.poster_url }}" alt="">
+    <img data-home-focus-art src="{{ home_focus.backdrop_url or home_focus.poster_url }}" alt="">
   </div>
   {% endif %}
   <div class="movie-personal-hero__eyebrow">
@@ -34,17 +36,18 @@
     <div>
       <h2 id="movie-personal-hero-title"><a data-home-focus-title href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{{ home_focus.title }}</a></h2>
       <p class="movie-personal-hero__meta" data-home-focus-meta>{{ [home_focus.media_type|upper, home_focus.year, '★ ' ~ ('%.1f'|format(home_focus.personal_score)) if home_focus.personal_score is not none else '', home_focus.runtime_minutes ~ ' min' if home_focus.runtime_minutes else '', home_focus.genre_names[:2]|join(' · ')]|select|join(' · ') }}</p>
-      {% if home_focus.overview %}<p class="movie-personal-hero__overview">{{ home_focus.overview }}</p>{% endif %}
+      {% if home_focus.overview %}<p class="movie-personal-hero__overview" data-home-focus-overview>{{ home_focus.overview }}</p>{% else %}<p class="movie-personal-hero__overview" data-home-focus-overview hidden></p>{% endif %}
       {% if home_focus_kind == 'resume' and home_focus.progress %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.progress.percent }}% watched{% if home_focus.progress.remaining_seconds %} · {{ (home_focus.progress.remaining_seconds / 60)|round|int }} min left{% endif %}</p>{% elif home_focus_kind == 'personal' %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.eligibility_reason }}</p>{% else %}<p class="movie-personal-hero__progress" data-home-focus-progress>A title to consider when your personal list is clear.</p>{% endif %}
     </div>
     <div class="movie-personal-hero__actions">
       <a class="button button--primary" data-home-focus-primary href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{% if home_focus_kind == 'resume' %}Resume{% else %}Watch{% endif %}</a>
       <a class="button button--secondary" href="{{ url_for('movies.detail', movie_id=home_focus.id) }}">Details</a>
       <a class="button button--quiet" href="{{ url_for('movies.detail', movie_id=home_focus.id) }}#actions-title">{{ home_focus.status|replace('_', ' ')|title }}</a>
-      <form method="post" action="{{ url_for('movies.update_favorite', movie_id=home_focus.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="favorite" value="{{ '0' if home_focus.is_favorite else '1' }}"><button class="button button--quiet" type="submit">{{ 'Unfavorite' if home_focus.is_favorite else 'Favorite' }}</button></form>
+      <form data-home-focus-favorite-form method="post" action="{{ url_for('movies.update_favorite', movie_id=home_focus.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input data-home-focus-favorite-value type="hidden" name="favorite" value="{{ '0' if home_focus.is_favorite else '1' }}"><button data-home-focus-favorite-button class="button button--quiet" type="submit">{{ 'Unfavorite' if home_focus.is_favorite else 'Favorite' }}</button></form>
       {% if personal_pick %}<button class="button button--quiet" type="button" data-home-focus-shuffle>Another pick</button>{% endif %}
     </div>
   </div>
+  {% if hero_candidates|length > 1 %}<div class="movie-personal-hero__controls" aria-label="Hero titles"><button type="button" data-home-hero-previous aria-label="Previous featured title">‹</button><div data-home-hero-dots>{% for candidate in hero_candidates %}<button type="button" data-home-hero-dot="{{ loop.index0 }}" aria-label="Show {{ candidate.title }}"{% if loop.first %} aria-current="true"{% endif %}></button>{% endfor %}</div><button type="button" data-home-hero-next aria-label="Next featured title">›</button></div>{% endif %}
 </section>
 {% endif %}
 {% if recommendation and dragon_feature('movies', 'recommendation') %}
@@ -72,7 +75,7 @@
 <section class="movie-now" aria-labelledby="continue-watching-title">
   <div class="movie-now__heading">
     <div><span class="eyebrow">Pick up instantly</span><h2 id="continue-watching-title">Continue watching</h2></div>
-    <a class="button button--quiet" href="{{ url_for('movies.watch_next') }}">See watch next</a>
+    <div class="movie-now__heading-actions">{% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary" type="button" data-recommendation-open aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}<a class="button button--quiet" href="{{ url_for('movies.watch_next') }}">See watch next</a></div>
   </div>
   {% if continue_watching %}
   <div class="movie-now__grid movie-rail" data-movie-rail>
@@ -129,7 +132,7 @@
 </section>
 {% for rail in availability.rails %}
 <section class="movie-discovery-rail movie-discovery-rail--provider" data-discovery-rail="{{ rail.id }}" aria-labelledby="{{ rail.id }}-title">
-  <div class="movie-now__heading"><div><span class="eyebrow">TMDB availability</span><h2 id="{{ rail.id }}-title">{{ rail.title }}</h2><p>{{ rail.subtitle }}</p></div><a class="movie-rail__all" href="{{ url_for('movies.browse', media_type=rail.content_type, provider=rail.provider_id, region=availability.region) }}">View all</a></div>
+  <div class="movie-now__heading"><div><span class="eyebrow">TMDB availability</span><h2 id="{{ rail.id }}-title" aria-label="{{ rail.title }}">{{ 'Movies' if rail.content_type == 'movie' else 'TV Series' }} on <details class="movie-provider-selector"><summary>{{ rail.provider_name }} <span aria-hidden="true">⌄</span></summary><div class="movie-provider-selector__menu" role="menu" aria-label="Choose availability provider">{% for provider in availability.providers %}<a role="menuitem" href="{{ url_for('movies.index', provider=provider.id, region=availability.region) }}"{% if provider.id == rail.provider_id %} aria-current="true"{% endif %}>{% if provider.logo_url %}<img src="{{ provider.logo_url }}" alt="" width="24" height="24">{% endif %}<span>{{ provider.name }}</span></a>{% endfor %}</div></details></h2><p>{{ rail.subtitle }}</p></div><a class="movie-rail__all" href="{{ url_for('movies.browse', media_type=rail.content_type, provider=rail.provider_id, region=availability.region) }}">View all</a></div>
   <div class="movie-discovery-rail__items movie-rail" data-movie-rail>
     {% for item in rail['items'] %}<article class="movie-discovery-rail__item"><a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">{% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="220" height="330">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}{% if item.rating is not none %}<span class="movie-card-rating">★ {{ '%.1f'|format(item.rating) }}</span>{% endif %}</a><div class="movie-discovery-rail__copy"><div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Year unknown' }}</p></div></div></article>{% endfor %}
   </div>
@@ -174,14 +177,6 @@
   </div>
 </section>
 {% endfor %}
-<div id="movie-library" class="movie-actions">
-  <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index') }}">All</a><a href="{{ url_for('movies.index', status='want_to_watch') }}">Want to watch</a><a href="{{ url_for('movies.index', status='watching') }}">Watching</a><a href="{{ url_for('movies.index', status='watched') }}">Watched</a><a href="{{ url_for('movies.index', favorite='1') }}">Favorites</a><a href="{{ url_for('movies.custom_lists') }}">Custom lists</a><a href="{{ url_for('movies.watch_next') }}">Watch next</a></nav>
-  <div class="movie-actions__controls">
-    {% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary movie-actions__recommend" type="button" data-recommendation-open aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}
-    <button class="button button--secondary movie-actions__add" type="button" data-dialog-open="movie-discovery-dialog" aria-controls="movie-discovery-dialog" aria-expanded="false">+ Add title</button>
-  </div>
-</div>
-
 <dialog id="movie-discovery-dialog" class="movie-discovery-dialog" aria-labelledby="movie-discovery-title">
 <button class="icon-button movie-discovery-dialog__close" type="button" data-dialog-close aria-label="Close movie search">×</button>
 <section
@@ -216,60 +211,5 @@
 </section>
 </dialog>
 
-{% if library_sync_error %}<div class="notice notice--error" role="status">Notion could not refresh. Showing the last locally synced Notion items. {{ library_sync_error }}</div>{% endif %}
-
-<form class="filter-bar" method="get" aria-label="Filter movies">
-  <label class="field filter-bar__search"><span>Search</span><input name="q" type="search" value="{{ filters.q }}" placeholder="Title or original title"></label>
-  <label class="field"><span>Status</span><select name="status"><option value="">All</option>{% for value in filter_options.statuses %}<option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ value|replace('_', ' ')|title }}</option>{% endfor %}</select></label>
-  <label class="field"><span>Genre</span><select name="genre"><option value="">All</option>{% for value in filter_options.genres %}<option value="{{ value }}"{% if filters.genre == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
-  <label class="field"><span>Sort</span><select name="sort"><option value="recently_updated"{% if filters.sort == 'recently_updated' %} selected{% endif %}>Recently updated</option><option value="title_asc"{% if filters.sort == 'title_asc' %} selected{% endif %}>Title A–Z</option><option value="year_desc"{% if filters.sort == 'year_desc' %} selected{% endif %}>Newest year</option><option value="score_desc"{% if filters.sort == 'score_desc' %} selected{% endif %}>Top rated</option></select></label>
-  <label class="field"><span>View</span><select name="view"><option value="grid"{% if filters.view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if filters.view == 'list' %} selected{% endif %}>Compact list</option></select></label>
-  <div class="filter-bar__actions">
-    <button class="button button--secondary" type="button" data-dialog-open="movie-filter-dialog" aria-controls="movie-filter-dialog" aria-expanded="false">More filters</button>
-    <dialog id="movie-filter-dialog" class="filter-dialog" aria-labelledby="movie-filter-title">
-      <div class="filter-dialog__header"><div><span class="eyebrow">Refine library</span><h2 id="movie-filter-title">More filters</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close more filters">×</button></div>
-      <div class="filter-dialog__panel">
-        <label class="field"><span>Category</span><select name="category"><option value="">All</option>{% for value in filter_options.categories %}<option value="{{ value }}"{% if filters.category == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
-        <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for value in filter_options.sources %}<option value="{{ value }}"{% if filters.source == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
-        <label class="field"><span>Year from</span><input name="year_min" inputmode="numeric" value="{{ filters.year_min or '' }}"></label>
-        <label class="field"><span>Year to</span><input name="year_max" inputmode="numeric" value="{{ filters.year_max or '' }}"></label>
-        <label class="field"><span>Score from</span><input name="score_min" inputmode="decimal" value="{{ filters.score_min if filters.score_min is not none else '' }}"></label>
-        <label class="field"><span>Score to</span><input name="score_max" inputmode="decimal" value="{{ filters.score_max if filters.score_max is not none else '' }}"></label>
-        <div class="filter-dialog__actions">
-          <button class="button button--primary" type="submit">Apply filters</button>
-          <a class="button button--secondary" href="{{ url_for('movies.index') }}">Reset</a>
-        </div>
-      </div>
-    </dialog>
-    <button class="button button--primary" type="submit">Apply</button>
-    <a class="button button--quiet" href="{{ url_for('movies.index') }}">Reset</a>
-  </div>
-</form>
-{% if filter_errors %}<div class="notice notice--error" role="alert">Some filters are invalid. Reset them or enter supported values.</div>{% endif %}
-
-{% if movies %}
-<div class="movie-grid{% if filters.view == 'list' %} movie-grid--list{% endif %}" aria-label="Movie results">
-  {% for movie in movies %}
-  <article class="movie-tile">
-    <a class="movie-tile__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}">
-      {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="300" height="450"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
-    </a>
-    <div class="movie-tile__body">
-      <h2><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h2>
-      <p>{{ movie.year or 'Year unknown' }}{% if dragon_feature('movies', 'personal_score') and movie.personal_score is not none %} · {{ '%.1f'|format(movie.personal_score) }}/5{% endif %}</p>
-      <div>{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}{% if movie.is_favorite %} {{ badge('Favorite', 'accent') }}{% endif %}</div>
-      {% if dragon_feature('movies', 'progress') and movie.progress %}<progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>{% endif %}
-    </div>
-  </article>
-  {% endfor %}
-</div>
-<nav class="pagination" aria-label="Movie results pages">
-  {% if has_previous %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page-1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, favorite='1' if filters.favorite else '', year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Previous</a>{% endif %}
-  <span>Page {{ page }}</span>
-  {% if has_next %}<a class="button button--secondary" href="{{ url_for('movies.index', page=page+1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, favorite='1' if filters.favorite else '', year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Next</a>{% endif %}
-</nav>
-{% else %}
-{{ empty_state('No Notion titles match this view', 'Use the search above to find a movie or series and add it to Notion.') }}
-{% endif %}
 </div>
 {% endblock %}

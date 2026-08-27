@@ -191,6 +191,16 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     assert page.get_by_role("heading", name="Movies on Netflix").is_visible()
     assert page.get_by_role("heading", name="TV Series on Netflix").is_visible()
     assert page.get_by_role("heading", name="Because you watched Watched Anchor").is_visible()
+    hero_dots = page.locator("[data-home-hero-dot]")
+    if hero_dots.count() >= 2:
+        hero_title = page.locator("[data-home-focus-title]")
+        first_hero_title = hero_title.inner_text()
+        page.locator("[data-home-hero-next]").click()
+        page.wait_for_function(
+            "first => document.querySelector('[data-home-focus-title]')?.textContent !== first",
+            first_hero_title,
+        )
+        assert hero_title.inner_text() != first_hero_title
     selector = page.locator("#because-anchor")
     assert selector.is_visible()
     selector.select_option(label="Second Anchor")

@@ -1,6 +1,6 @@
 # Cinejoy â†’ Dragon Movies V2 Feature Matrix
 
-Status: Phase 29 product-parity audit on 2026-08-27. This is an evidence-backed
+Status: Phase 30 product-parity audit on 2026-08-28. This is an evidence-backed
 comparison of the implemented Dragon Movies V2 surface, not an authorization to
 copy Cinejoy code or architecture.
 
@@ -152,3 +152,30 @@ filters, detail hierarchy and responsive navigation. It must not adopt Cinejoyâ€
 data ownership, telemetry, embed configuration, identifiers or unverified feature
 claims. The completed V2 implementation keeps those ownership and playback
 boundaries intact while adapting only the approved cinematic UX ideas.
+
+## Phase 30 implementation notes
+
+The matrix decisions above are now reflected in the local Flask/Jinja surface:
+
+- Library is a dedicated `/movies/library` route, while Home is rail-first and
+  no longer renders a duplicate full library manager.
+- Movies and TV templates use one sticky internal navigation pattern. Search
+  remains a dialog entry point and the global Dragon nav is untouched.
+- The Home hero rotates only a real server-projected set of personal/resume/
+  recommendation candidates. It pauses for hover/focus/hidden tabs and does not
+  persist carousel state. With one candidate it intentionally stays static.
+- Provider browsing is an inline selected-provider control backed by existing
+  region/provider URL state. It is availability metadata, not a Dragon source.
+- TV detail exposes season/episode counts and keeps Jackett/manual release
+  discovery behind a secondary disclosure. Existing exact-episode, season-pack,
+  local playback, subtitle, and auto-next boundaries remain unchanged.
+- The media picker guards missing TV selection before dereferencing season or
+  episode, covering the previously observed null-selection regression.
+
+## Acceptance boundary
+
+Phase 30 is a structural/UI milestone, not a data-model milestone. No Cinejoy
+React code, Firebase/Firestore ownership, telemetry, provider URLs, fake
+quality/download claims, hardcoded episodes, or new Dragon schema was copied.
+The PWA row remains deferred, and optional provider availability/source behavior
+is still dependent on the existing server configuration.

@@ -1,0 +1,87 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import badge, empty_state %}
+{% block title %}My Library · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-library-1">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-library-page-1" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script>{% endblock %}
+{% block content %}
+<div class="movies-v2 movies-v2--library" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
+  <div class="movies-v2__atmosphere" aria-hidden="true"></div>
+  <nav class="movie-v2-nav" aria-label="Movies navigation">
+    <a href="{{ url_for('movies.index') }}">Home</a>
+    <a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a>
+    <a href="{{ url_for('movies.shows') }}">Shows</a>
+    <a href="{{ url_for('movies.library') }}" aria-current="page">Library</a>
+    <button type="button" data-dialog-open="movie-discovery-dialog" aria-controls="movie-discovery-dialog" aria-expanded="false">Search</button>
+  </nav>
+
+  <header class="movies-page-heading">
+    <div><span class="eyebrow">Your collection</span><h1>My Library</h1><p>Keep your personal titles, progress, and lists in one focused workspace.</p></div>
+    <div class="movie-actions__controls">
+      {% if dragon_feature('movies', 'recommendation') %}<button class="button button--secondary" type="button" data-recommendation-open aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}
+      <button class="button button--primary" type="button" data-dialog-open="movie-discovery-dialog" aria-controls="movie-discovery-dialog" aria-expanded="false">+ Add title</button>
+    </div>
+  </header>
+
+  <nav class="quick-links" aria-label="Library views">
+    <a href="{{ url_for('movies.library') }}"{% if not filters.status and not filters.favorite %} aria-current="page"{% endif %}>All</a>
+    <a href="{{ url_for('movies.library', status='want_to_watch') }}"{% if filters.status == 'want_to_watch' %} aria-current="page"{% endif %}>Want to watch</a>
+    <a href="{{ url_for('movies.library', status='watching') }}"{% if filters.status == 'watching' %} aria-current="page"{% endif %}>Watching</a>
+    <a href="{{ url_for('movies.library', status='watched') }}"{% if filters.status == 'watched' %} aria-current="page"{% endif %}>Watched</a>
+    <a href="{{ url_for('movies.library', favorite='1') }}"{% if filters.favorite %} aria-current="page"{% endif %}>Favorites</a>
+    <a href="{{ url_for('movies.custom_lists') }}">Custom lists</a>
+    <a href="{{ url_for('movies.watch_next') }}">Watch next</a>
+  </nav>
+
+  {% if library_sync_error %}<div class="notice notice--error" role="status">Notion could not refresh. Showing the last locally synced Notion items. {{ library_sync_error }}</div>{% endif %}
+
+  <form class="filter-bar" method="get" aria-label="Filter library">
+    <label class="field filter-bar__search"><span>Search</span><input name="q" type="search" value="{{ filters.q }}" placeholder="Title or original title"></label>
+    <label class="field"><span>Status</span><select name="status"><option value="">All</option>{% for value in filter_options.statuses %}<option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ value|replace('_', ' ')|title }}</option>{% endfor %}</select></label>
+    <label class="field"><span>Genre</span><select name="genre"><option value="">All</option>{% for value in filter_options.genres %}<option value="{{ value }}"{% if filters.genre == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+    <label class="field"><span>Sort</span><select name="sort"><option value="recently_updated"{% if filters.sort == 'recently_updated' %} selected{% endif %}>Recently updated</option><option value="title_asc"{% if filters.sort == 'title_asc' %} selected{% endif %}>Title A–Z</option><option value="year_desc"{% if filters.sort == 'year_desc' %} selected{% endif %}>Newest year</option><option value="score_desc"{% if filters.sort == 'score_desc' %} selected{% endif %}>Top rated</option></select></label>
+    <label class="field"><span>View</span><select name="view"><option value="grid"{% if filters.view == 'grid' %} selected{% endif %}>Grid</option><option value="list"{% if filters.view == 'list' %} selected{% endif %}>Compact list</option></select></label>
+    <div class="filter-bar__actions">
+      <button class="button button--secondary" type="button" data-dialog-open="movie-filter-dialog" aria-controls="movie-filter-dialog" aria-expanded="false">More filters</button>
+      <dialog id="movie-filter-dialog" class="filter-dialog" aria-labelledby="movie-filter-title">
+        <div class="filter-dialog__header"><div><span class="eyebrow">Refine library</span><h2 id="movie-filter-title">More filters</h2></div><button class="icon-button" type="button" data-dialog-close aria-label="Close more filters">×</button></div>
+        <div class="filter-dialog__panel">
+          <label class="field"><span>Category</span><select name="category"><option value="">All</option>{% for value in filter_options.categories %}<option value="{{ value }}"{% if filters.category == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+          <label class="field"><span>Source</span><select name="source"><option value="">All</option>{% for value in filter_options.sources %}<option value="{{ value }}"{% if filters.source == value %} selected{% endif %}>{{ value }}</option>{% endfor %}</select></label>
+          <label class="field"><span>Year from</span><input name="year_min" inputmode="numeric" value="{{ filters.year_min or '' }}"></label>
+          <label class="field"><span>Year to</span><input name="year_max" inputmode="numeric" value="{{ filters.year_max or '' }}"></label>
+          <label class="field"><span>Score from</span><input name="score_min" inputmode="decimal" value="{{ filters.score_min if filters.score_min is not none else '' }}"></label>
+          <label class="field"><span>Score to</span><input name="score_max" inputmode="decimal" value="{{ filters.score_max if filters.score_max is not none else '' }}"></label>
+          <div class="filter-dialog__actions"><button class="button button--primary" type="submit">Apply filters</button><a class="button button--secondary" href="{{ url_for('movies.library') }}">Reset</a></div>
+        </div>
+      </dialog>
+      <button class="button button--primary" type="submit">Apply</button>
+      <a class="button button--quiet" href="{{ url_for('movies.library') }}">Reset</a>
+    </div>
+  </form>
+  {% if filter_errors %}<div class="notice notice--error" role="alert">Some filters are invalid. Reset them or enter supported values.</div>{% endif %}
+
+  {% if movies %}
+  <div class="movie-grid{% if filters.view == 'list' %} movie-grid--list{% endif %}" aria-label="Library results">
+    {% for movie in movies %}
+    <article class="movie-tile">
+      <a class="movie-tile__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}">{% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="300" height="450"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}</a>
+      <div class="movie-tile__body"><h2><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h2><p>{{ movie.year or 'Year unknown' }}{% if dragon_feature('movies', 'personal_score') and movie.personal_score is not none %} · {{ '%.1f'|format(movie.personal_score) }}/5{% endif %}</p><div>{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}{% if movie.is_favorite %} {{ badge('Favorite', 'accent') }}{% endif %}</div>{% if dragon_feature('movies', 'progress') and movie.progress %}<progress class="progress-track" value="{{ movie.progress.percent }}" max="100" aria-label="{{ movie.progress.percent }} percent watched">{{ movie.progress.percent }}%</progress>{% endif %}</div>
+    </article>
+    {% endfor %}
+  </div>
+  <nav class="pagination" aria-label="Library results pages">
+    {% if has_previous %}<a class="button button--secondary" href="{{ url_for('movies.library', page=page-1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, favorite='1' if filters.favorite else '', year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Previous</a>{% endif %}<span>Page {{ page }}</span>{% if has_next %}<a class="button button--secondary" href="{{ url_for('movies.library', page=page+1, per_page=per_page, q=filters.q, status=filters.status, genre=filters.genre, category=filters.category, source=filters.source, sort=filters.sort, view=filters.view, favorite='1' if filters.favorite else '', year_min=filters.year_min, year_max=filters.year_max, score_min=filters.score_min, score_max=filters.score_max) }}">Next</a>{% endif %}
+  </nav>
+  {% else %}{{ empty_state('No titles match this view', 'Use Add title to find a movie or series, then keep it in your personal library.') }}{% endif %}
+
+  <dialog id="movie-discovery-dialog" class="movie-discovery-dialog" aria-labelledby="movie-discovery-title">
+    <button class="icon-button movie-discovery-dialog__close" type="button" data-dialog-close aria-label="Close movie search">×</button>
+    <section id="movie-discovery" class="movie-discovery" data-media-discovery data-library-endpoint="{{ url_for('movies.api_library') }}" data-search-endpoint="{{ url_for('movies.api_search') }}" data-releases-endpoint="{{ url_for('movies.api_releases') }}" data-seasons-template="{{ url_for('movies.api_tv_seasons', tmdb_id=999999999) }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}" data-import-endpoint="{{ url_for('movies.api_import') }}" data-details-prefix="{{ url_for('movies.index') }}" data-discover-movie-template="{{ url_for('movies.discover', media_type='movie', tmdb_id=999999999) }}" data-discover-tv-template="{{ url_for('movies.discover', media_type='tv', tmdb_id=999999999) }}" aria-labelledby="movie-discovery-title">
+      <div class="movie-discovery__header"><div><span class="eyebrow">Add to library</span><h2 id="movie-discovery-title">Find a movie or series</h2></div></div>
+      <div class="movie-discovery__intro"><p>Search your library first. If it is missing, Dragon checks TMDB so you can add it deliberately.</p></div>
+      <form class="movie-discovery__form" data-discovery-form><label class="field movie-discovery__query"><span>Title, original title, alias, year, or tmdb:ID</span><input type="search" data-discovery-query minlength="2" maxlength="160" placeholder="Search a movie or series" autocomplete="off" required></label><label class="field"><span>Type</span><select data-discovery-type><option value="all">Movies &amp; series</option><option value="movie">Movies</option><option value="tv">Series</option></select></label><button class="button button--primary" type="submit" data-discovery-submit>Search</button></form>
+      <p class="movie-discovery__status" data-discovery-status role="status" aria-live="polite">Searches stay server-side, so your API keys never enter the browser.</p><div class="movie-discovery__recent" data-discovery-recent hidden><span>Recent searches</span><div data-discovery-recent-items></div><button class="button button--quiet" type="button" data-discovery-recent-clear>Clear</button></div><div class="movie-discovery__results" data-discovery-results hidden></div>
+    </section>
+  </dialog>
+</div>
+{% endblock %}

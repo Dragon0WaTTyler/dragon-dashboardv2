@@ -194,6 +194,10 @@ async function openReleasePicker(item) {
 }
 
 async function loadSeasons() {
+  if (!state.selectedMedia?.tmdb_id) {
+    elements.releaseStatus.textContent = "Choose a title before selecting a season.";
+    return;
+  }
   elements.releaseStatus.textContent = "Loading seasons from TMDB…";
   elements.seasonSelect.disabled = true;
   elements.episodeSelect.disabled = true;
@@ -201,7 +205,7 @@ async function loadSeasons() {
     const data = await api(`/media/api/tv/${state.selectedMedia.tmdb_id}/seasons`);
     const seasons = (data.seasons || []).filter((season) => season.season_number > 0);
     elements.seasonSelect.replaceChildren(...seasons.map((season) => option(season.season_number, `${season.name} · ${season.episode_count} episodes`)));
-    const preferred = state.selectedMedia.season;
+    const preferred = state.selectedMedia?.season;
     if (preferred && seasons.some((season) => season.season_number === preferred)) elements.seasonSelect.value = String(preferred);
     elements.seasonSelect.disabled = seasons.length === 0;
     await loadEpisodes();
@@ -211,6 +215,10 @@ async function loadSeasons() {
 }
 
 async function loadEpisodes() {
+  if (!state.selectedMedia?.tmdb_id) {
+    elements.releaseStatus.textContent = "Choose a title before selecting an episode.";
+    return;
+  }
   const season = Number(elements.seasonSelect.value);
   if (!season) return;
   elements.episodeSelect.disabled = true;

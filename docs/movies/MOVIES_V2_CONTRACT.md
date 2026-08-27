@@ -471,3 +471,26 @@ Phase 1 is foundation-only: audit/backup, canonical identity, library and
 progress migration path, duplicate-progress handling, centralized completion,
 and What Should I Watch against canonical unwatched entries. It deliberately
 does not include Cinejoy-like UI implementation or a snapshot exporter.
+
+## Phase 30 implementation boundary — 2026-08-28
+
+This contract remains frozen. The latest structural pass implements only the
+presentation/routing work that is compatible with these invariants:
+
+- `/movies/library` is a dedicated view over the existing paginated repository;
+  it does not introduce `LibraryEntry` fields or alter lifecycle semantics.
+- The Home hero candidate deck is a read-only projection. Carousel movement,
+  auto-rotation, focus, and reduced-motion behavior never write a snapshot,
+  progress row, lifecycle state, favorite, or playback session.
+- Provider selector UI consumes existing availability metadata and URL state;
+  it cannot launch or masquerade as a Dragon playback source.
+- TV season/episode presentation and the secondary Jackett disclosure preserve
+  the frozen episode identity, scoped progress, source/acquisition, subtitle,
+  local-runtime, and auto-next contracts.
+- The media picker now treats a missing selected TV item as an explicit empty
+  state before reading season/episode fields. This is a defensive client fix,
+  not a change to episode identity or persistence.
+
+No migration is created by this pass. The known episode-progress uniqueness
+  risk and the required duplicate inventory/mapping procedure in Section 8
+  remain unchanged and still require a separately approved data migration.

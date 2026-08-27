@@ -1421,6 +1421,7 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 .movies-v2 .movie-now,
 .movies-v2 .movie-discovery-rail { margin-bottom: clamp(42px, 5vw, 74px); }
 .movies-v2 .movie-now__heading { margin-bottom: 16px; }
+.movies-v2 .movie-now__heading-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .movies-v2 .movie-now__heading h2,
 .movies-v2 .movie-discovery__header h2 { font-size: clamp(1.45rem, 2.15vw, 2.05rem); }
 .movie-now__heading .eyebrow,
@@ -1564,6 +1565,61 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movies-v2--detail .movie-detail__content h1 { font-size: clamp(2.35rem, 12vw, 4.5rem); }
   .movies-v2--detail .movie-detail__overview { grid-column: 1 / -1; }
   .movies-v2--detail .definition-grid { grid-column: 1 / -1; }
+}
+
+.tv-series-hero__meta { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 18px; color: rgb(255 255 255 / 72%); font-size: .82rem; }
+.tv-series-hero__meta span + span { padding-left: 14px; border-left: 1px solid rgb(255 255 255 / 20%); }
+.tv-series-seasons .movie-release-browser__header p { margin: 8px 0 0; }
+.movie-release-browser--secondary { padding: 0; overflow: hidden; border-color: rgb(255 255 255 / 11%); background: rgb(15 16 21 / 58%); }
+.movie-release-browser--secondary > summary { display: flex; gap: 12px; align-items: center; padding: 17px 20px; cursor: pointer; list-style: none; }
+.movie-release-browser--secondary > summary::-webkit-details-marker { display: none; }
+.movie-release-browser--secondary > summary strong { margin-inline-end: auto; }
+.movie-release-browser--secondary > summary > span:last-child { color: #e4364b; font-size: 1.3rem; }
+.movie-release-browser--secondary[open] > summary { border-bottom: 1px solid rgb(255 255 255 / 10%); }
+.movie-release-browser--secondary[open] > :not(summary) { margin-inline: 20px; }
+.movie-release-browser--secondary[open] > .release-list { margin-bottom: 20px; }
+.tv-episode-tile__action { display: inline-flex; gap: 6px; align-items: center; margin-top: 4px; color: #ffd9df; font-size: .78rem; font-weight: 700; }
+
+/* Structural V2 pass: keep the local nav in the cinematic viewport while the
+   global Dragon header remains the primary application chrome. */
+.movies-v2 .movie-v2-nav {
+  position: sticky;
+  top: 76px;
+  z-index: 20;
+  width: max-content;
+  max-width: min(100%, 680px);
+  margin: 0 0 14px auto;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 24%);
+}
+.movies-v2 .movie-personal-hero {
+  min-height: clamp(500px, 62vh, 760px);
+  margin-top: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.movie-personal-hero__controls { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: auto; }
+.movie-personal-hero__controls > button { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid rgb(255 255 255 / 20%); border-radius: 50%; background: rgb(8 9 12 / 48%); color: #fff; font-size: 1.5rem; cursor: pointer; }
+.movie-personal-hero__controls > button:hover, .movie-personal-hero__controls > button:focus-visible { border-color: rgb(228 54 75 / 76%); background: rgb(228 54 75 / 26%); outline: none; }
+.movie-personal-hero__controls [data-home-hero-dots] { display: flex; gap: 7px; }
+.movie-personal-hero__controls [data-home-hero-dot] { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: rgb(255 255 255 / 32%); cursor: pointer; }
+.movie-personal-hero__controls [data-home-hero-dot].is-active, .movie-personal-hero__controls [data-home-hero-dot][aria-current="true"] { background: #e4364b; box-shadow: 0 0 0 3px rgb(228 54 75 / 22%); }
+.movies-page-heading { display: flex; gap: 24px; align-items: end; justify-content: space-between; margin: 12px 0 24px; }
+.movies-page-heading h1 { margin: 8px 0 0; font-size: clamp(2.5rem, 6vw, 5.5rem); letter-spacing: -.06em; line-height: .9; }
+.movies-page-heading p { max-width: 56ch; margin: 12px 0 0; color: var(--color-text-muted); }
+.movies-v2--library .quick-links { margin-bottom: 26px; }
+.movie-provider-selector { position: relative; display: inline-block; font: inherit; }
+.movie-provider-selector summary { display: inline-flex; gap: 7px; align-items: center; cursor: pointer; list-style: none; color: #fff; }
+.movie-provider-selector summary::-webkit-details-marker { display: none; }
+.movie-provider-selector summary span { color: #e4364b; font-size: .8em; }
+.movie-provider-selector__menu { position: absolute; z-index: 30; top: calc(100% + 9px); left: 0; display: grid; min-width: 220px; max-height: 280px; overflow: auto; padding: 6px; border: 1px solid rgb(255 255 255 / 15%); border-radius: 14px; background: rgb(17 18 23 / 96%); box-shadow: 0 18px 46px rgb(0 0 0 / 42%); }
+.movie-provider-selector__menu a { display: flex; gap: 9px; align-items: center; padding: 9px 10px; border-radius: 9px; color: var(--color-text-muted); font-size: .82rem; text-decoration: none; }
+.movie-provider-selector__menu a:hover, .movie-provider-selector__menu a:focus-visible, .movie-provider-selector__menu a[aria-current="true"] { background: rgb(255 255 255 / 10%); color: #fff; outline: none; }
+.movie-provider-selector__menu img { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; }
+@media (max-width: 760px) {
+  .movies-v2 .movie-v2-nav { top: 62px; width: 100%; max-width: 100%; margin: 0 0 12px; }
+  .movies-v2 .movie-personal-hero { min-height: 560px; border-radius: 0; }
+  .movie-personal-hero__controls { justify-content: center; }
+  .movies-page-heading { display: grid; align-items: start; }
 }
 
 /* Phase 1 availability browsing and shared rail controls. */
@@ -2363,4 +2419,25 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movies-v2--detail .movie-detail__poster { grid-column: 1; grid-row: 2; justify-self: end; width: min(36vw, 168px); margin: 20px var(--movie-detail-hero-padding) 30px 0; }
   .movies-v2--detail .movie-detail > .movie-player { grid-column: 1; grid-row: 3; width: auto; max-width: 100%; margin-inline: 0; }
   .movies-v2--detail .movie-detail__content--secondary { grid-column: 1; grid-row: 4; }
+}
+
+/* Movies V2 structural completion: persistent floating navigation and a
+   canvas-led hero that does not read as a dashboard card. */
+.movies-v2 .movie-v2-nav { position: sticky; top: 76px; z-index: 20; width: max-content; max-width: min(100%, 680px); margin: 0 0 14px auto; box-shadow: 0 10px 28px rgb(0 0 0 / 24%); }
+.movies-v2 .movie-personal-hero { min-height: clamp(500px, 62vh, 760px); margin-top: 0; border-radius: 0; box-shadow: none; }
+.movie-personal-hero__controls { display: flex; gap: 10px; align-items: center; justify-content: flex-end; margin-top: auto; }
+.movie-personal-hero__controls > button { display: grid; width: 38px; height: 38px; place-items: center; border: 1px solid rgb(255 255 255 / 20%); border-radius: 50%; background: rgb(8 9 12 / 48%); color: #fff; font-size: 1.5rem; cursor: pointer; }
+.movie-personal-hero__controls > button:hover, .movie-personal-hero__controls > button:focus-visible { border-color: rgb(228 54 75 / 76%); background: rgb(228 54 75 / 26%); outline: none; }
+.movie-personal-hero__controls [data-home-hero-dots] { display: flex; gap: 7px; }
+.movie-personal-hero__controls [data-home-hero-dot] { width: 8px; height: 8px; padding: 0; border: 0; border-radius: 50%; background: rgb(255 255 255 / 32%); cursor: pointer; }
+.movie-personal-hero__controls [data-home-hero-dot].is-active, .movie-personal-hero__controls [data-home-hero-dot][aria-current="true"] { background: #e4364b; box-shadow: 0 0 0 3px rgb(228 54 75 / 22%); }
+.movies-page-heading { display: flex; gap: 24px; align-items: end; justify-content: space-between; margin: 12px 0 24px; }
+.movies-page-heading h1 { margin: 8px 0 0; font-size: clamp(2.5rem, 6vw, 5.5rem); letter-spacing: -.06em; line-height: .9; }
+.movies-page-heading p { max-width: 56ch; margin: 12px 0 0; color: var(--color-text-muted); }
+.movies-v2--library .quick-links { margin-bottom: 26px; }
+@media (max-width: 760px) {
+  .movies-v2 .movie-v2-nav { top: 62px; width: 100%; max-width: 100%; margin: 0 0 12px; }
+  .movies-v2 .movie-personal-hero { min-height: 560px; border-radius: 0; }
+  .movie-personal-hero__controls { justify-content: center; }
+  .movies-page-heading { display: grid; align-items: start; }
 }
