@@ -1,7 +1,7 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-polish-1">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-final-correction-3">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=release-browser-1" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script><script type="module" src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-7"></script>{% endblock %}
 {% block content %}
 <div class="movies-v2 movies-v2--detail" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
@@ -33,7 +33,7 @@
     <dl class="definition-grid">
       <div><dt>Score</dt><dd>{% if movie.personal_score is not none %}{% if movie.personal_score_label %}{{ movie.personal_score_label }} · {% endif %}{{ '%.1f / 5'|format(movie.personal_score) }}{% else %}Not rated{% endif %}</dd></div>
       <div><dt>Runtime</dt><dd>{{ movie.runtime_minutes ~ ' min' if movie.runtime_minutes else 'Unknown' }}</dd></div>
-      <div><dt>Genres</dt><dd>{{ movie.genres|map(attribute='name')|join(', ') if movie.genres else 'Unknown' }}</dd></div>
+      <div><dt>Genres</dt><dd>{{ movie.genre_names|join(', ') if movie.genre_names else 'Unknown' }}</dd></div>
       <div><dt>Source</dt><dd>{{ movie.source }}</dd></div>
       {% if movie.tmdb_rating is not none %}<div><dt>TMDB rating</dt><dd>{{ '%.1f / 10'|format(movie.tmdb_rating) }}</dd></div>{% endif %}
       {% if movie.original_language %}<div><dt>Original language</dt><dd>{{ movie.original_language|upper }}</dd></div>{% endif %}

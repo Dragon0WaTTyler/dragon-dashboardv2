@@ -38,3 +38,22 @@ The populated discovery and rich-detail records used for the complete captures
 were created in a disposable SQLite file outside the repository. They exercise
 existing rendering paths only; no fallback labels, runtime fixtures, catalog
 records, or cache data were added to Dragon itself.
+
+## Final correction audit — 2026-08-27
+
+The following fresh captures were inspected in a separate disposable local
+fixture after the final correction pass. The fixture populated existing UI
+paths only; it did not alter the application database or runtime contracts.
+
+| Capture | Result | Rendered finding |
+| --- | --- | --- |
+| A. Home hero | PASS | `TV · 2019 · 61 min · Drama · History` renders as human-readable text; no Python dict/list representation is visible. |
+| B. Standard discovery rail | PASS | The populated poster rail shows seven full cards plus horizontal continuation at the desktop capture size; artwork is dominant and the rating overlay remains compact. |
+| C. Top 10 | PASS | Large translucent ranks remain legible behind the poster cards while the posters stay primary. |
+| D. Home Add title area | PASS | The home flow shows only the `+ Add title` trigger. Its dialog opens a focused search surface and closes with Escape; the importer is not embedded in the canvas. |
+| E. Discover movie detail hero | PASS | The first viewport is backdrop-led with layered gradients, title, year, certification, runtime, rating, genres, actions, synopsis, and a secondary poster. |
+| F. Detail lower modules | PASS | Overview, collapsed `Watch options & sources`, trailer, cast, review, and related-title modules were all rendered from populated existing metadata. |
+
+The existing local movie-detail path was also captured after the correction:
+its hero now uses the same backdrop-first composition while retaining Resume,
+status/score, favorite, trailer, player, and source controls.

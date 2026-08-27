@@ -211,6 +211,7 @@ def movie_item(movie: Movie) -> dict[str, Any]:
         # cards without changing any library or playback contract.
         "overview": movie.overview,
         "genres": list(movie.genres or []),
+        "genre_names": _entry_names(movie.genres),
         "backdrop_url": str(tmdb_detail.get("backdrop_url") or ""),
         "progress": progress_dict(progress),
         "watch_target": _watch_target(progress),

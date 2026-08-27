@@ -2203,3 +2203,81 @@ body.is-player-embed-fullscreen { overflow: hidden; }
 .movies-v2 .filter-bar__actions { display: flex; flex: 0 1 auto; gap: 8px; align-items: end; }
 .movies-v2 .filter-bar__actions .button { min-height: 42px; border-radius: 999px; }
 .movies-v2--tv .tv-season-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 240px)); }
+
+/* Final correction pass: retain the cinematic hierarchy at every entry point. */
+.movies-v2 { --movie-rail-poster: clamp(164px, 12.4vw, 188px); --movie-want-poster: clamp(142px, 11vw, 168px); }
+.movie-v2-nav button { min-height: 42px; padding-inline: clamp(13px, 1.4vw, 19px); border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.movie-v2-nav button:hover, .movie-v2-nav button:focus-visible { color: var(--color-text); text-decoration: underline; text-underline-offset: 5px; }
+.movies-v2 .movie-want__item { flex-basis: var(--movie-want-poster); }
+.movie-discovery-rail--ranked .movie-discovery-rail__item { isolation: isolate; padding-left: clamp(28px, 2.8vw, 44px); }
+.movie-discovery-rail--ranked .movie-discovery-rail__item > a,
+.movie-discovery-rail--ranked .movie-discovery-rail__copy { position: relative; z-index: 1; }
+.movie-discovery-rail--ranked .movie-discovery-rail__rank { z-index: 0; bottom: 48px; left: 0; color: rgb(255 255 255 / 42%); font-size: clamp(5.8rem, 8.3vw, 9.5rem); font-weight: 760; line-height: .62; pointer-events: none; }
+.movie-discovery-dialog { position: relative; width: min(980px, calc(100vw - 32px)); max-height: min(760px, calc(100dvh - 32px)); margin: auto; padding: 0; overflow: auto; border: 1px solid rgb(255 255 255 / 12%); border-radius: 20px; background: #111217; color: var(--color-text); box-shadow: 0 28px 80px rgb(0 0 0 / 52%); }
+.movie-discovery-dialog::backdrop { background: rgb(0 0 0 / 66%); }
+.movie-discovery-dialog .movie-discovery { max-width: none; margin: 0; }
+.movie-discovery-dialog__close { position: absolute; z-index: 2; top: 14px; right: 14px; }
+.movies-v2 .movie-discovery-rail__items { display: grid; grid-auto-flow: column; grid-auto-columns: var(--movie-rail-poster); overflow-x: auto; scroll-snap-type: x proximity; }
+.movies-v2 .movie-discovery-rail__item { width: var(--movie-rail-poster); }
+.movie-discover-hero { position: relative; isolation: isolate; display: grid; grid-template-columns: minmax(0, 1fr) clamp(148px, 16vw, 248px); align-items: end; min-height: clamp(520px, 55vw, 760px); margin: 12px 0 0; padding: clamp(28px, 5vw, 74px); overflow: hidden; border-radius: 24px; background: #0d0e12; box-shadow: 0 32px 78px rgb(0 0 0 / 36%); }
+.movie-discover-hero::after { position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, rgb(8 9 12 / 96%) 0%, rgb(8 9 12 / 77%) 41%, rgb(8 9 12 / 24%) 76%, rgb(8 9 12 / 62%) 100%), linear-gradient(0deg, rgb(8 9 12 / 96%) 2%, transparent 62%); content: ""; }
+.movie-discover-hero__art { position: absolute; z-index: -2; inset: 0; }
+.movie-discover-hero__art img { width: 100%; height: 100%; object-fit: cover; }
+.movie-discover-hero__back { position: absolute; top: 24px; left: clamp(28px, 5vw, 74px); color: rgb(255 255 255 / 72%); }
+.movie-discover-hero__content { max-width: min(690px, 100%); }
+.movie-discover-hero h1 { max-width: 10ch; margin: 12px 0 0; font-size: clamp(3.6rem, 7.6vw, 8rem); letter-spacing: -.06em; line-height: .85; }
+.movie-discover-hero__original, .movie-discover-hero__meta, .movie-discover-hero__state { margin: 10px 0 0; color: rgb(255 255 255 / 70%); }
+.movie-discover-hero__meta { font-weight: 650; }
+.movie-discover-hero__overview { display: -webkit-box; max-width: 59ch; margin: 18px 0 0; overflow: hidden; color: rgb(255 255 255 / 80%); font-size: clamp(1rem, 1.4vw, 1.18rem); line-height: 1.62; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.movie-discover-hero__actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+.movie-discover-hero__actions .button { min-height: 44px; }
+.movie-discover-hero__state { font-size: .82rem; }
+.movie-discover-hero__poster { align-self: end; justify-self: end; width: min(100%, 248px); overflow: hidden; border-radius: 14px; box-shadow: 0 24px 58px rgb(0 0 0 / 46%); }
+.movie-discover-hero__poster img { display: block; width: 100%; height: auto; }
+.movie-discover-detail { max-width: 1180px; margin: 0 auto; padding: clamp(36px, 6vw, 88px) 0 72px; }
+.movie-discover-detail .detail-section { margin-top: clamp(38px, 5vw, 68px); }
+.movie-discover-detail__overview { margin-top: 0 !important; }
+.movies-v2--discover-detail .movie-release-browser { padding: 0; border: 1px solid rgb(255 255 255 / 11%); border-radius: 16px; background: rgb(18 19 24 / 72%); }
+.movies-v2--discover-detail .movie-release-browser > summary { padding: 17px 20px; color: rgb(255 255 255 / 84%); font-weight: 700; cursor: pointer; }
+.movies-v2--discover-detail .movie-release-browser[open] > :not(summary) { margin-inline: 20px; }
+.movies-v2--discover-detail .movie-release-browser[open] > .release-list { margin-bottom: 20px; }
+@media (max-width: 760px) {
+  .movie-v2-nav button { min-height: 44px; }
+  .movie-discovery-dialog { width: min(100vw - 20px, 620px); max-height: calc(100dvh - 20px); }
+  .movie-discover-hero { grid-template-columns: 1fr; min-height: 590px; padding: 56px 22px 28px; border-radius: 18px; }
+  .movie-discover-hero::after { background: linear-gradient(0deg, rgb(8 9 12 / 98%) 4%, rgb(8 9 12 / 54%) 75%, rgb(8 9 12 / 26%) 100%); }
+  .movie-discover-hero__back { top: 20px; left: 22px; }
+  .movie-discover-hero h1 { font-size: clamp(3rem, 15vw, 5.4rem); }
+  .movie-discover-hero__poster { display: none; }
+  .movie-discover-detail { padding-inline: 2px; }
+  .movie-discovery-rail--ranked .movie-discovery-rail__item { padding-left: 24px; }
+  .movie-discovery-rail--ranked .movie-discovery-rail__rank { bottom: 44px; font-size: 6.4rem; }
+}
+
+/* Local details use the same backdrop-first hierarchy as TMDB discovery. */
+.movies-v2--detail .movie-detail__backdrop { height: min(76vw, 790px); opacity: .76; mask-image: linear-gradient(to bottom, #000 10%, transparent 94%); }
+.movies-v2--detail .movie-detail {
+  --movie-detail-hero-padding: clamp(28px, 5vw, 74px);
+  isolation: isolate;
+  grid-template-columns: minmax(0, 1fr) clamp(148px, 17vw, 248px);
+  min-height: clamp(520px, 55vw, 760px);
+  margin-top: 12px;
+  padding: 0;
+  align-items: end;
+  overflow: hidden;
+  border-radius: 24px;
+}
+.movies-v2--detail .movie-detail::before { position: absolute; z-index: -1; inset: 0; background: linear-gradient(90deg, rgb(8 9 12 / 96%) 0%, rgb(8 9 12 / 74%) 46%, rgb(8 9 12 / 30%) 76%, rgb(8 9 12 / 65%) 100%), linear-gradient(0deg, rgb(8 9 12 / 96%) 2%, transparent 66%); content: ""; }
+.movies-v2--detail .movie-detail__content--hero { grid-column: 1; grid-row: 1; max-width: min(690px, 100%); padding: clamp(62px, 9vw, 128px) 0 clamp(36px, 5vw, 72px) var(--movie-detail-hero-padding); }
+.movies-v2--detail .movie-detail__content--hero header { padding-bottom: 0; }
+.movies-v2--detail .movie-detail__content--hero .definition-grid { margin-top: 26px; }
+.movies-v2--detail .movie-detail__poster { grid-column: 2; grid-row: 1; align-self: end; margin: 0 var(--movie-detail-hero-padding) clamp(36px, 5vw, 72px) 0; border: 0; border-radius: 14px; }
+.movies-v2--detail .movie-detail > .movie-player { grid-row: 2; width: 100%; max-width: 100%; margin-top: clamp(54px, 7vw, 88px); margin-inline: 0; }
+.movies-v2--detail .movie-detail__content--secondary { grid-row: 3; }
+@media (max-width: 760px) {
+  .movies-v2--detail .movie-detail { --movie-detail-hero-padding: 22px; grid-template-columns: minmax(0, 1fr); min-height: 590px; padding: 0; border-radius: 18px; }
+  .movies-v2--detail .movie-detail__content--hero { grid-column: 1; grid-row: 1; padding: 72px var(--movie-detail-hero-padding) 30px; }
+  .movies-v2--detail .movie-detail__poster { grid-column: 1; grid-row: 2; justify-self: end; width: min(36vw, 168px); margin: 20px var(--movie-detail-hero-padding) 30px 0; }
+  .movies-v2--detail .movie-detail > .movie-player { grid-column: 1; grid-row: 3; width: auto; max-width: 100%; margin-inline: 0; }
+  .movies-v2--detail .movie-detail__content--secondary { grid-column: 1; grid-row: 4; }
+}

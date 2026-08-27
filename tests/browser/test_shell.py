@@ -264,7 +264,7 @@ def test_library_grid_thumbnails_and_rtl_direction(page, live_app, app):
     assert page.locator("[data-live-youtube-duration]").first.inner_text() == "12:47"
 
 
-def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app):
+def test_movie_recommendation_and_more_filters_keep_search_out_of_home_flow(page, live_app, app):
     with app.app_context():
         db.session.add_all(
             [
@@ -312,12 +312,14 @@ def test_movie_recommendation_and_more_filters_stay_in_flow(page, live_app, app)
     sign_in(page, live_app)
     page.goto(f"{live_app}/movies")
     discovery = page.locator("#movie-discovery")
+    search_dialog = page.locator("#movie-discovery-dialog")
+    assert discovery.is_hidden()
+    page.get_by_role("button", name="+ Add title", exact=True).click()
+    search_dialog.wait_for(state="visible")
+    assert search_dialog.evaluate("dialog => dialog.open") is True
     assert discovery.is_visible()
-    discovery_box = discovery.bounding_box()
-    filters_box = page.locator(".filter-bar").bounding_box()
-    assert discovery_box and filters_box
-    assert abs(discovery_box["x"] - filters_box["x"]) <= 1
-    assert abs(discovery_box["width"] - filters_box["width"]) <= 1
+    page.keyboard.press("Escape")
+    search_dialog.wait_for(state="hidden")
     filters = page.get_by_role("button", name="More filters", exact=True)
     assert filters.get_attribute("aria-expanded") == "false"
     filters.click()

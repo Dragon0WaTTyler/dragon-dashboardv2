@@ -1,7 +1,7 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge, empty_state %}
 {% block title %}Movies · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-polish-1">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-final-correction-2">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-recommendation-rotation-4" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script>{% endblock %}
 {% block content %}
 <div class="movies-v2" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
@@ -11,7 +11,7 @@
   <a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a>
   <a href="{{ url_for('movies.shows') }}">Shows</a>
   <a href="#movie-library">Library</a>
-  <a href="#movie-discovery">Search</a>
+  <button type="button" data-dialog-open="movie-discovery-dialog" aria-controls="movie-discovery-dialog" aria-expanded="false">Search</button>
 </nav>
 {% if home_focus %}
 <section
@@ -33,7 +33,7 @@
   <div class="movie-personal-hero__content">
     <div>
       <h2 id="movie-personal-hero-title"><a data-home-focus-title href="{{ url_for('movies.detail', movie_id=home_focus.id) }}{% if home_focus_kind == 'resume' %}#movie-player{% endif %}">{{ home_focus.title }}</a></h2>
-      <p class="movie-personal-hero__meta" data-home-focus-meta>{{ [home_focus.media_type|title, home_focus.year, '★ ' ~ ('%.1f'|format(home_focus.personal_score)) if home_focus.personal_score is not none else '', home_focus.runtime_minutes ~ ' min' if home_focus.runtime_minutes else '', home_focus.genres[:2]|join(' · ')]|select|join(' · ') }}</p>
+      <p class="movie-personal-hero__meta" data-home-focus-meta>{{ [home_focus.media_type|upper, home_focus.year, '★ ' ~ ('%.1f'|format(home_focus.personal_score)) if home_focus.personal_score is not none else '', home_focus.runtime_minutes ~ ' min' if home_focus.runtime_minutes else '', home_focus.genre_names[:2]|join(' · ')]|select|join(' · ') }}</p>
       {% if home_focus.overview %}<p class="movie-personal-hero__overview">{{ home_focus.overview }}</p>{% endif %}
       {% if home_focus_kind == 'resume' and home_focus.progress %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.progress.percent }}% watched{% if home_focus.progress.remaining_seconds %} · {{ (home_focus.progress.remaining_seconds / 60)|round|int }} min left{% endif %}</p>{% elif home_focus_kind == 'personal' %}<p class="movie-personal-hero__progress" data-home-focus-progress>{{ home_focus.eligibility_reason }}</p>{% else %}<p class="movie-personal-hero__progress" data-home-focus-progress>A title to consider when your personal list is clear.</p>{% endif %}
     </div>
@@ -126,7 +126,7 @@
     <div><span class="eyebrow">For you</span><h2 id="because-you-watched-title">Because you watched {{ because_you_watched.anchor.title }}</h2></div>
   </div>
   <div class="movie-discovery-rail__items movie-rail">
-    {% for item in because_you_watched.items %}
+  {% for item in because_you_watched["items"] %}
     <article class="movie-discovery-rail__item">
       <a data-media-frame href="{{ item.detail_url }}" aria-label="View {{ item.title }}">{% if item.poster_url %}<img data-media-image src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="220" height="330">{% else %}<span class="media-fallback" aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}</a>
       <div class="movie-discovery-rail__copy"><div><h3><a href="{{ item.detail_url }}">{{ item.title }}</a></h3><p>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }}{% endif %}</p></div></div>
@@ -161,10 +161,12 @@
   <nav class="quick-links" aria-label="Movie views"><a href="{{ url_for('movies.index') }}">All</a><a href="{{ url_for('movies.index', status='want_to_watch') }}">Want to watch</a><a href="{{ url_for('movies.index', status='watching') }}">Watching</a><a href="{{ url_for('movies.index', status='watched') }}">Watched</a><a href="{{ url_for('movies.index', favorite='1') }}">Favorites</a><a href="{{ url_for('movies.custom_lists') }}">Custom lists</a><a href="{{ url_for('movies.watch_next') }}">Watch next</a></nav>
   <div class="movie-actions__controls">
     {% if recommendation and dragon_feature('movies', 'recommendation') %}<button class="button button--secondary movie-actions__recommend" type="button" data-recommendation-open aria-controls="movie-recommendation" aria-expanded="false">What should I watch?</button>{% endif %}
-    <a class="button button--secondary movie-actions__add" href="#movie-discovery">+ Add title</a>
+    <button class="button button--secondary movie-actions__add" type="button" data-dialog-open="movie-discovery-dialog" aria-controls="movie-discovery-dialog" aria-expanded="false">+ Add title</button>
   </div>
 </div>
 
+<dialog id="movie-discovery-dialog" class="movie-discovery-dialog" aria-labelledby="movie-discovery-title">
+<button class="icon-button movie-discovery-dialog__close" type="button" data-dialog-close aria-label="Close movie search">×</button>
 <section
   id="movie-discovery"
   class="movie-discovery"
@@ -195,6 +197,7 @@
   <div class="movie-discovery__recent" data-discovery-recent hidden><span>Recent searches</span><div data-discovery-recent-items></div><button class="button button--quiet" type="button" data-discovery-recent-clear>Clear</button></div>
   <div class="movie-discovery__results" data-discovery-results hidden></div>
 </section>
+</dialog>
 
 {% if library_sync_error %}<div class="notice notice--error" role="status">Notion could not refresh. Showing the last locally synced Notion items. {{ library_sync_error }}</div>{% endif %}
 

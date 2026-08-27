@@ -1,66 +1,64 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ media.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}" defer></script>{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-final-correction-2">{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movies-v2-final-correction-1" defer></script>{% endblock %}
 {% block content %}
-<a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
-<article class="movie-detail">
-  <div class="movie-detail__poster" data-media-frame>
-    {% if media.poster_url %}<img data-media-image src="{{ media.poster_url }}" alt="Poster for {{ media.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ media.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ media.title[:1]|upper }}</span>{% endif %}
-  </div>
-  <div class="movie-detail__content movie-detail__content--hero">
-    <header>
-      <span class="eyebrow">{{ media.media_type|title }}{% if media.year %} · {{ media.year }}{% endif %}</span>
-      <h1>{{ media.title }}</h1>
-      {% if media.original_title and media.original_title != media.title %}<p class="muted">{{ media.original_title }}</p>{% endif %}
-      {{ badge('Outside your Notion library', '') }}
-    </header>
-    {% if media.overview %}<p class="movie-detail__overview">{{ media.overview }}</p>{% endif %}
-    <dl class="definition-grid">
-      <div><dt>Rating</dt><dd>{{ ('%.1f / 10')|format(media.rating) if media.rating is defined and media.rating is not none else 'Unknown' }}</dd></div>
-      <div><dt>Runtime</dt><dd>{{ media.runtime_minutes ~ ' min' if media.runtime_minutes else 'Unknown' }}</dd></div>
-      <div><dt>Genres</dt><dd>{{ media.genres|map(attribute='name')|join(', ') if media.genres else 'Unknown' }}</dd></div>
-      <div><dt>Source</dt><dd>TMDB preview</dd></div>
-    </dl>
-  </div>
-  <div class="movie-detail__content movie-detail__content--secondary">
-    <section
-      id="release-browser"
-      class="movie-release-browser detail-section"
-      data-inline-release-browser
-      data-media-type="{{ media.media_type }}"
-      data-tmdb-id="{{ media.tmdb_id }}"
-      data-library-endpoint="{{ url_for('movies.api_library') }}"
-      data-import-endpoint="{{ url_for('movies.api_import') }}"
-      data-releases-endpoint="{{ url_for('movies.api_releases') }}"
-      data-seasons-template="{{ url_for('movies.api_tv_seasons', tmdb_id=999999999) }}"
-      data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}"
-    >
-      <div class="movie-release-browser__header">
-        <div><span class="eyebrow">{{ 'Series browser' if media.media_type == 'tv' else 'Movie actions' }}</span><h2>{{ 'Open the series before choosing an episode' if media.media_type == 'tv' else 'Add it now or pick a release' }}</h2></div>
-        <button class="button button--secondary" type="button" data-library-add>{{ '+ Add season 1 to Notion' if media.media_type == 'tv' else '+ Add to Notion' }}</button>
+{% set genre_names = media.genres|map(attribute='name')|select|list %}
+{% set backdrop_url = media.tmdb_detail.backdrop_url or media.backdrop_url or media.poster_url %}
+{% set trailers = media.tmdb_detail.trailers or [] %}
+{% set related = media.tmdb_detail.similar or media.tmdb_detail.recommendations or [] %}
+<div class="movies-v2 movies-v2--discover-detail">
+  <div class="movies-v2__atmosphere" aria-hidden="true"></div>
+  <section class="movie-discover-hero" aria-labelledby="discover-title">
+    {% if backdrop_url %}<div class="movie-discover-hero__art" aria-hidden="true"><img src="{{ backdrop_url }}" alt=""></div>{% endif %}
+    <a class="back-link movie-discover-hero__back" href="{{ url_for('movies.index') }}">← Back to movies</a>
+    <div class="movie-discover-hero__content">
+      <span class="eyebrow">{{ media.type_label|upper }}{% if media.year %} · {{ media.year }}{% endif %}{% if media.tmdb_detail.certification %} · {{ media.tmdb_detail.certification }}{% endif %}</span>
+      <h1 id="discover-title">{{ media.title }}</h1>
+      {% if media.original_title and media.original_title != media.title %}<p class="movie-discover-hero__original">{{ media.original_title }}</p>{% endif %}
+      {% if media.tmdb_detail.tagline %}<p class="movie-detail__tagline">{{ media.tmdb_detail.tagline }}</p>{% endif %}
+      <p class="movie-discover-hero__meta">{{ [media.runtime_minutes ~ ' min' if media.runtime_minutes else '', '★ ' ~ ('%.1f'|format(media.rating)) if media.rating is not none else '', genre_names[:3]|join(' · ')]|select|join(' · ') }}</p>
+      {% if media.overview %}<p class="movie-discover-hero__overview">{{ media.overview }}</p>{% endif %}
+      <div class="movie-discover-hero__actions" aria-label="Movie actions">
+        <button class="button button--primary" type="button" data-library-add>+ Add to library</button>
+        <button class="button button--secondary" type="button" data-release-browser-open aria-controls="release-browser">Watch options</button>
+        {% if trailers %}<a class="button button--quiet" href="{{ trailers[0].url }}" rel="noreferrer">Trailer</a>{% endif %}
       </div>
-      <p class="movie-release-browser__summary" data-release-summary>{% if media.media_type == 'tv' %}Save the series first if you want it to appear in Movies immediately. After that, choose a season and episode here or later from the local detail page.{% else %}Use + when you just want the title in Notion. Use release search when you want to attach a playable magnet right now.{% endif %}</p>
+      <p class="movie-discover-hero__state">Outside your library · metadata from TMDB</p>
+    </div>
+    {% if media.poster_url %}<div class="movie-discover-hero__poster" data-media-frame><img data-media-image src="{{ media.poster_url }}" alt="Poster for {{ media.title }}" width="300" height="450"></div>{% endif %}
+  </section>
+
+  <article class="movie-discover-detail">
+    <section class="detail-section movie-discover-detail__overview" aria-labelledby="discover-overview-title">
+      <span class="eyebrow">About this title</span><h2 id="discover-overview-title">Overview</h2>
+      <dl class="definition-grid">
+        <div><dt>Rating</dt><dd>{{ ('%.1f / 10')|format(media.rating) if media.rating is not none else 'Unknown' }}</dd></div>
+        <div><dt>Runtime</dt><dd>{{ media.runtime_minutes ~ ' min' if media.runtime_minutes else 'Unknown' }}</dd></div>
+        <div><dt>Genres</dt><dd>{{ genre_names|join(', ') if genre_names else 'Unknown' }}</dd></div>
+        <div><dt>Source</dt><dd>TMDB preview</dd></div>
+      </dl>
+    </section>
+
+    <details id="release-browser" class="movie-release-browser detail-section" data-inline-release-browser data-media-type="{{ media.media_type }}" data-tmdb-id="{{ media.tmdb_id }}" data-library-endpoint="{{ url_for('movies.api_library') }}" data-import-endpoint="{{ url_for('movies.api_import') }}" data-releases-endpoint="{{ url_for('movies.api_releases') }}" data-seasons-template="{{ url_for('movies.api_tv_seasons', tmdb_id=999999999) }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) }}">
+      <summary>Watch options &amp; sources</summary>
+      <div class="movie-release-browser__header"><div><span class="eyebrow">Optional source discovery</span><h2>{{ 'Choose a season and episode' if media.media_type == 'tv' else 'Add to library or find a release' }}</h2></div><button class="button button--secondary" type="button" data-library-add>{{ '+ Add season 1 to library' if media.media_type == 'tv' else '+ Add to library' }}</button></div>
+      <p class="movie-release-browser__summary" data-release-summary>{% if media.media_type == 'tv' %}Save the series first, then choose a season and episode whenever you want source discovery.{% else %}Add this title to your library, or search releases only when you want to attach a playable source.{% endif %}</p>
       {% if media.media_type == 'tv' %}
-      <div class="movie-release-browser__controls">
-        <label class="field"><span>Season</span><select data-season-select><option value="">Choose a season</option></select></label>
-        <label class="field"><span>Episode</span><select data-episode-select disabled><option value="">Choose an episode</option></select></label>
-        <button class="button button--secondary" type="button" data-season-pack-load>Find best season pack</button>
-      </div>
+      <div class="movie-release-browser__controls"><label class="field"><span>Season</span><select data-season-select><option value="">Choose a season</option></select></label><label class="field"><span>Episode</span><select data-episode-select disabled><option value="">Choose an episode</option></select></label><button class="button button--secondary" type="button" data-season-pack-load>Find best season pack</button></div>
       {% else %}
-      <div class="movie-release-browser__controls">
-        <button class="button button--primary" type="button" data-release-load>Find releases</button>
-      </div>
+      <div class="movie-release-browser__controls"><button class="button button--secondary" type="button" data-release-load>Find releases</button></div>
       {% endif %}
       <p class="movie-release-browser__status" data-release-status role="status" aria-live="polite"></p>
-      <details class="movie-release-browser__diagnostics" data-release-diagnostics hidden>
-        <summary>Queries tried</summary>
-        <ul data-release-diagnostics-list></ul>
-      </details>
+      <details class="movie-release-browser__diagnostics" data-release-diagnostics hidden><summary>Queries tried</summary><ul data-release-diagnostics-list></ul></details>
       <div class="release-list" data-release-list></div>
-    </section>
-    {% if media.directors or media.cast %}<section class="detail-section"><h2>Credits</h2>{% if media.directors %}<p><strong>Directed by</strong> {{ media.directors|map(attribute='name')|join(', ') }}</p>{% endif %}{% if media.cast %}<p><strong>Cast</strong> {{ media.cast|map(attribute='name')|join(', ') }}</p>{% endif %}</section>{% endif %}
-  </div>
-</article>
+    </details>
+
+    {% if trailers %}<section class="detail-section movie-detail__media-rail"><span class="eyebrow">TMDB videos</span><h2>Trailers</h2><div class="movie-detail__trailer-list">{% for trailer in trailers %}<a class="movie-detail__trailer" href="{{ trailer.url }}" rel="noreferrer"><span aria-hidden="true">▶</span><strong>{{ trailer.name }}</strong><small>{{ 'Official trailer' if trailer.official else 'Trailer' }}</small></a>{% endfor %}</div></section>{% endif %}
+    {% if media.cast %}<section class="detail-section movie-detail__cast"><span class="eyebrow">Credits</span><h2>Cast</h2><div class="movie-detail__cast-rail">{% for person in media.cast %}<article>{% if person.profile_url %}<img src="{{ person.profile_url }}" alt="{{ person.name }}" loading="lazy" width="120" height="120">{% else %}<span aria-hidden="true">{{ person.name[:1]|upper }}</span>{% endif %}<strong>{{ person.name }}</strong>{% if person.character %}<small>{{ person.character }}</small>{% endif %}</article>{% endfor %}</div></section>{% endif %}
+    {% if media.tmdb_detail.reviews %}<section class="detail-section movie-detail__reviews"><span class="eyebrow">TMDB member reviews</span><h2>Reviews</h2>{% for review in media.tmdb_detail.reviews %}<article><strong>{{ review.author }}</strong><p>{{ review.content }}</p>{% if review.url %}<a href="{{ review.url }}" rel="noreferrer">Read on TMDB</a>{% endif %}</article>{% endfor %}</section>{% endif %}
+    {% if related %}<section class="detail-section movie-detail__related"><span class="eyebrow">TMDB catalog</span><h2>More like this</h2><div class="movie-detail__related-rail">{% for item in related %}<a href="{{ url_for('movies.discover', media_type=item.media_type, tmdb_id=item.tmdb_id) }}">{% if item.poster_url %}<img src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="160" height="240">{% else %}<span aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}<strong>{{ item.title }}</strong><small>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</small></a>{% endfor %}</div></section>{% endif %}
+  </article>
+</div>
 {% endblock %}

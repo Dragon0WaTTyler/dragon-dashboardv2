@@ -490,6 +490,7 @@ const showMovieToast = (message, level = "success") => {
   const episodeSelect = browser.querySelector("[data-episode-select]");
   const loadButton = browser.querySelector("[data-release-load]");
   const seasonPackButton = browser.querySelector("[data-season-pack-load]");
+  const addButtons = [...document.querySelectorAll("[data-library-add]")];
   const addButton = browser.querySelector("[data-library-add]");
   const status = browser.querySelector("[data-release-status]");
   const releaseList = browser.querySelector("[data-release-list]");
@@ -702,8 +703,10 @@ const showMovieToast = (message, level = "success") => {
   };
 
   const addToLibrary = async () => {
-    addButton.disabled = true;
-    addButton.setAttribute("aria-busy", "true");
+    addButtons.forEach((button) => {
+      button.disabled = true;
+      button.setAttribute("aria-busy", "true");
+    });
     status.textContent = mediaType === "tv"
       ? "Saving the series to Notion with season 1 so it appears in your library…"
       : "Saving the movie to Notion…";
@@ -720,8 +723,10 @@ const showMovieToast = (message, level = "success") => {
       window.location.assign(payload.detail_url);
     } catch (error) {
       status.textContent = error.message;
-      addButton.disabled = false;
-      addButton.removeAttribute("aria-busy");
+      addButtons.forEach((button) => {
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      });
     }
   };
 
@@ -777,5 +782,11 @@ const showMovieToast = (message, level = "success") => {
     if (mediaType === "movie") loadReleases();
   });
   seasonPackButton?.addEventListener("click", () => loadReleases("season_pack"));
-  addButton?.addEventListener("click", addToLibrary);
+  addButtons.forEach((button) => button.addEventListener("click", addToLibrary));
+  document.querySelectorAll("[data-release-browser-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      browser.open = true;
+      browser.scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+  });
 })();

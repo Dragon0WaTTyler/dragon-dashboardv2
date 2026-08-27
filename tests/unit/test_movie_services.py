@@ -12,6 +12,7 @@ from app.movies.services import (
     MovieService,
     ProgressConflictError,
     completion_threshold,
+    movie_item,
     parse_movie_filters,
     tv_season_workspace,
     tv_show_workspace,
@@ -35,6 +36,18 @@ def test_movie_filter_validation():
         {"status": "invalid", "sort": "random", "view": "cinema", "year_min": "x"}
     )
     assert set(errors) == {"status", "sort", "view", "year_min"}
+
+
+def test_movie_item_exposes_human_readable_genre_names():
+    movie = Movie(
+        title="Genre test",
+        normalized_title="genre test",
+        genres=[{"name": "Drama"}, {"name": "Science Fiction"}],
+    )
+
+    item = movie_item(movie)
+
+    assert item["genre_names"] == ["Drama", "Science Fiction"]
 
 
 def test_movie_repository_keeps_a_500_title_library_page_bounded(app):
