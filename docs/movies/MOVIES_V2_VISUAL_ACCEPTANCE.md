@@ -109,7 +109,7 @@ repository under `C:\Users\walid\Pictures\movies-v2-phase1`:
 
 | IDs | Capture files / surface | Result |
 | --- | --- | --- |
-| A–N | `A-home-hero-candidate-a.png`, `A-home-hero-candidate-b.png`, `A-home-hero-continue.png`, `B-browse-by-provider.png`, `I-provider-selector-open.png`, `D-movies-on-provider.png`, `E-tv-on-provider.png`, `L-because-you-watched-changed.png`, `G-top-10.png` and existing detail captures | PASS; Because native select popup is marked PARTIAL for platform-owned popup pixels, behavior PASS |
+| A–N | `A-home-hero-candidate-a.png`, `A-home-hero-candidate-b.png`, `A-home-hero-continue.png`, `G-want-to-watch.png`, `B-browse-by-provider.png`, `I-provider-selector-open.png`, `D-movies-on-provider.png`, `E-tv-on-provider.png`, `L-because-you-watched-changed.png`, `G-top-10.png` and existing detail captures | PASS; Because native select popup is marked PARTIAL for platform-owned popup pixels, behavior PASS |
 | O–R | `O-library-top.png`, `P-library-filters.png`, `AG-library-mobile.png`, plus Home capture proving no `#movie-library` | PASS |
 | S–X | `H-detail-hero.png`, `M-enrichment.png`, `N-watch-options.png`, `K-trailers.png`, `J-cast.png`, `L-reviews.png`, `M-more-like-this.png` | PASS |
 | Y–AB | `Y-series-detail-hero.png`, `Z-series-seasons.png`, `AA-season-page.png`, `AB-episode-cards.png` | PASS |

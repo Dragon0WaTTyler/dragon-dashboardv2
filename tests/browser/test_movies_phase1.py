@@ -102,6 +102,16 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
             external_ids={"tmdb_id": "705", "tmdb_type": "movie"},
             metadata_state={"tmdb_detail": {"backdrop_url": backdrop_two}},
         )
+        want = Movie(
+            title="Want To Watch Feature",
+            normalized_title="want to watch feature",
+            media_type="movie",
+            year=2025,
+            status="want_to_watch",
+            poster_url=poster,
+            overview="A saved title ready for a deliberate first watch.",
+            external_ids={"tmdb_id": "706", "tmdb_type": "movie"},
+        )
         anchor = Movie(
             title="Watched Anchor",
             normalized_title="watched anchor",
@@ -178,7 +188,7 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
                 }
             },
         )
-        db.session.add_all([resume, resume_two, anchor, anchor_two])
+        db.session.add_all([resume, resume_two, want, anchor, anchor_two])
         db.session.flush()
         db.session.add(
             MovieProgress(movie_id=resume.id, current_seconds=600, duration_seconds=1800)
@@ -241,6 +251,7 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.get_by_role("heading", name="Because you watched Second Anchor").wait_for()
     page.screenshot(path=str(phase1_dir / "L-because-you-watched-changed.png"), full_page=True)
     page.screenshot(path=str(phase1_dir / "A-home-hero-continue.png"), full_page=True)
+    page.locator(".movie-want").screenshot(path=str(phase1_dir / "G-want-to-watch.png"))
     captures = {
         "B-browse-by-provider.png": ".movie-provider-browser",
         "C-because-selector.png": ".movie-because-selector",
