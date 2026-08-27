@@ -97,7 +97,7 @@ has no horizontal document overflow, and the selector preserves its URL state.
 | Inline availability provider selector | Existing provider URLs and selected state are retained; selector is visible in the shared Home rail heading | PASS |
 | TV series hierarchy | Series hero metadata, season/episode counts, compact season cards, inline selected-season episode browser, and explicit secondary Jackett disclosure | PASS |
 | Episode-picker null guard | `tests/browser/test_movie_player.py` season-pack flow passes with the secondary disclosure opened deliberately | PASS |
-| Focused regression suites | `tests/integration/test_movies.py` (32 passed), `tests/browser/test_movies_phase1.py` (1 passed), `tests/browser/test_movie_player.py` (9 passed), `tests/unit/test_movie_services.py` (22 passed) | PASS |
+| Focused regression suites | `tests/integration/test_movies.py` (33 passed), `tests/browser/test_movies_phase1.py` (1 passed), `tests/browser/test_movie_player.py` (9 passed), `tests/unit/test_movie_services.py` (22 passed), Movies API contracts included; combined run 72 passed | PASS |
 
 These checks are structural and behavioral evidence, not a claim that optional
 external providers are configured or that PWA/offline playback is complete.
