@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from random import SystemRandom
 from typing import Any
+
+UTC = getattr(datetime, "UTC", timezone.utc)
 
 from sqlalchemy import case, func
 from sqlalchemy.orm import selectinload

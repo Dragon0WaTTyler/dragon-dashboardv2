@@ -10,8 +10,10 @@ import hashlib
 import json
 import re
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
+
+UTC = getattr(datetime, "UTC", timezone.utc)
 
 from sqlalchemy.orm import selectinload
 
