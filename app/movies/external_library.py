@@ -5,7 +5,7 @@ import time
 import unicodedata
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from flask import current_app
@@ -21,6 +21,8 @@ from app.movies.models import Movie
 from app.movies.repositories import MovieRepository
 from app.movies.services import MovieService
 from app.playback.models import PlaybackSource
+
+UTC = timezone.utc  # noqa: UP017 - keep Python 3.10 compatibility
 
 
 @dataclass(slots=True)
