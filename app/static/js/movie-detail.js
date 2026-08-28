@@ -1404,8 +1404,8 @@
       const currentMeta = selectedSourceMeta();
       if (
         requestToken !== packRequestToken
-        || currentMeta?.sourceId !== meta?.sourceId
-        || (currentMeta?.season !== null && Number(currentMeta.season) !== season)
+        || (currentMeta && currentMeta.sourceId !== meta?.sourceId)
+        || (currentMeta && currentMeta.season !== null && Number(currentMeta.season) !== season)
       ) {
         return;
       }
@@ -1432,7 +1432,10 @@
       syncEpisodeUrl({ replace: true });
       void loadSavedProgress();
       if (meta?.seasonPack) syncPackLaunchState();
-      else launch.disabled = false;
+      else {
+        setPackStatus("");
+        launch.disabled = false;
+      }
     } catch (error) {
       packEpisode.disabled = true;
       setPackStatus(String(error?.message || "Episode lookup is unavailable."));
