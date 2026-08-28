@@ -1,0 +1,83 @@
+{#
+  Canonical detail primitives.
+
+  These macros deliberately receive only the normalized presentation contract.
+  Saved-library actions and actual player markup stay in the route-specific
+  template so a discovery visit cannot create personal or playback state.
+#}
+
+{% macro catalog_modules(presentation) -%}
+  {% set catalog = presentation.catalog %}
+  <div class="movie-detail__catalog-modules" data-detail-catalog-modules>
+    {% if catalog.trailers %}
+    <section class="detail-section movie-detail__media-rail movie-rail-section" aria-labelledby="detail-trailers-title">
+      <span class="eyebrow">TMDB videos</span><h2 id="detail-trailers-title">Trailers</h2>
+      <div class="movie-detail__trailer-list movie-rail" data-movie-rail>
+        {% for trailer in catalog.trailers %}
+        <a class="movie-detail__trailer" href="{{ trailer.url }}" rel="noreferrer">
+          <span class="movie-detail__trailer-art">{% if trailer.thumbnail_url %}<img src="{{ trailer.thumbnail_url }}" alt="" loading="lazy" width="320" height="180">{% endif %}<span class="movie-detail__trailer-play" aria-hidden="true">▶</span></span>
+          <strong>{{ trailer.name }}</strong><small>{{ 'Official trailer' if trailer.official else 'Trailer' }}</small>
+        </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    {% if catalog.cast %}
+    <section class="detail-section movie-detail__cast movie-rail-section" aria-labelledby="detail-cast-title">
+      <span class="eyebrow">Credits</span><h2 id="detail-cast-title">Cast</h2>
+      <div class="movie-detail__cast-rail movie-rail" data-movie-rail tabindex="0">
+        {% for person in catalog.cast %}
+        <article>{% if person.profile_url %}<img src="{{ person.profile_url }}" alt="{{ person.name }}" loading="lazy" width="120" height="120">{% else %}<span aria-hidden="true">{{ person.name[:1]|upper }}</span>{% endif %}<strong>{{ person.name }}</strong>{% if person.character %}<small>{{ person.character }}</small>{% endif %}</article>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+    {% if catalog.reviews %}
+    <section class="detail-section movie-detail__reviews" aria-labelledby="detail-reviews-title">
+      <span class="eyebrow">TMDB member reviews</span><h2 id="detail-reviews-title">Reviews</h2>
+      {% for review in catalog.reviews %}
+      <article><strong>{{ review.author }}</strong><p class="movie-detail__review-copy">{{ review.content }}</p><details><summary>Read more</summary><p>{{ review.content }}</p></details>{% if review.url %}<a href="{{ review.url }}" rel="noreferrer">Read on TMDB</a>{% endif %}</article>
+      {% endfor %}
+    </section>
+    {% endif %}
+    {% if catalog.related %}
+    <section class="detail-section movie-detail__related movie-rail-section" aria-labelledby="detail-related-title">
+      <span class="eyebrow">TMDB catalog</span><h2 id="detail-related-title">More like this</h2>
+      <div class="movie-detail__related-rail movie-rail" data-movie-rail>
+        {% for item in catalog.related %}
+        <a href="{{ url_for('movies.discover', media_type=item.media_type, tmdb_id=item.tmdb_id) }}">{% if item.poster_url %}<img src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="160" height="240">{% else %}<span aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}<strong>{{ item.title }}</strong><small>{{ item.year or 'Year unknown' }}{% if item.rating is defined and item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</small></a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+{% macro catalog_identity(presentation, eyebrow='', heading_id='') -%}
+  {% set catalog = presentation.catalog %}
+  <header class="movie-detail__catalog-identity" data-detail-catalog-identity>
+    <span class="eyebrow">{{ eyebrow or (catalog.media_type|title) }}{% if catalog.year %} · {{ catalog.year }}{% endif %}{% if catalog.certification %} · {{ catalog.certification }}{% endif %}</span>
+    <h1{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ catalog.title }}</h1>
+    {% if catalog.original_title and catalog.original_title != catalog.title %}<p class="movie-discover-hero__original muted">{{ catalog.original_title }}</p>{% endif %}
+    {% if catalog.tagline %}<p class="movie-detail__tagline">{{ catalog.tagline }}</p>{% endif %}
+    {{ caller() if caller else '' }}
+  </header>
+  {% if catalog.overview %}<p class="movie-detail__overview movie-discover-hero__overview">{{ catalog.overview }}</p>{% endif %}
+{%- endmacro %}
+
+{% macro episode_card(movie_id, season_number, episode, active=false, detailed=false) -%}
+  <a class="movie-tile tv-episode-tile{% if active %} is-active{% endif %}" href="{{ url_for('movies.tv_episode', movie_id=movie_id, season_number=season_number, episode_number=episode.episode_number) }}">
+    <span class="movie-tile__poster tv-episode-tile__poster" data-media-frame>
+      {% if episode.still_url %}<img src="{{ episode.still_url }}" alt="{{ episode.name }}" loading="lazy" width="480" height="270">{% else %}<span class="media-fallback" aria-hidden="true">E{{ '%02d'|format(episode.episode_number) }}</span>{% endif %}
+    </span>
+    <div class="movie-tile__body tv-episode-tile__body">
+      <span class="eyebrow">S{{ '%02d'|format(season_number) }}E{{ '%02d'|format(episode.episode_number) }}</span>
+      <h3>{{ episode.name }}</h3>
+      {% if episode.overview %}<p class="tv-episode-tile__overview">{{ episode.overview }}</p>{% elif detailed %}<p class="tv-episode-tile__overview">Open this episode route to show the player and source controls.</p>{% endif %}
+      <div class="tv-episode-tile__meta">{% if episode.runtime_minutes %}<span>{{ episode.runtime_minutes }} min</span>{% endif %}{% if episode.air_date %}<span>{{ episode.air_date }}</span>{% endif %}<span>{% if episode.progress and episode.progress.completed %}Watched{% elif episode.progress %}{{ episode.progress.percent }}% watched{% else %}Not started{% endif %}</span></div>
+      {% if episode.progress %}<progress class="progress-track" value="{{ episode.progress.percent }}" max="100" aria-label="{{ episode.progress.percent }} percent watched">{{ episode.progress.percent }}%</progress>{% endif %}
+      {% if detailed %}<div class="tv-episode-tile__badges"><span>{% if episode.has_exact_source %}Exact source{% elif episode.has_fallback_source %}Season-pack fallback{% else %}No source{% endif %}</span>{% if active %}<span>Open now</span>{% endif %}</div>{% endif %}
+      <span class="tv-episode-tile__action">{% if episode.progress and not episode.progress.completed %}Resume{% elif episode.progress and episode.progress.completed %}Replay{% else %}Play episode{% endif %} <span aria-hidden="true">→</span></span>
+    </div>
+  </a>
+{%- endmacro %}

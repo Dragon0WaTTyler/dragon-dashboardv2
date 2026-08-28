@@ -1,5 +1,6 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
+{% from "movies/components/detail_primitives.html" import catalog_identity, catalog_modules %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-series-cinematic-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=release-browser-1" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script><script type="module" src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-7"></script>{% endblock %}
@@ -14,11 +15,7 @@
     {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
   </div>
   <div class="movie-detail__content movie-detail__content--hero">
-    <header>
-      <span class="eyebrow">{{ movie.media_type|title }}{% if movie.year %} · {{ movie.year }}{% endif %}{% if movie.certification %} · {{ movie.certification }}{% endif %}</span>
-      <h1>{{ movie.title }}</h1>
-      {% if movie.original_title and movie.original_title != movie.title %}<p class="muted">{{ movie.original_title }}</p>{% endif %}
-      {% if movie.tagline %}<p class="movie-detail__tagline">{{ movie.tagline }}</p>{% endif %}
+    {% call catalog_identity(presentation) %}
       {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
       <div class="movie-detail__quick-actions" aria-label="Primary movie actions">
         {% if embed_player_sources or player_sources %}<a class="button button--primary" href="#movie-player">{{ 'Resume' if movie.progress and movie.progress.current_seconds else 'Watch' }}</a>{% endif %}
@@ -27,10 +24,9 @@
         {% if custom_lists %}<form method="post" action="{{ url_for('movies.add_movie_to_selected_custom_list', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="visually-hidden" for="custom-list-{{ movie.id }}">Custom list</label><select id="custom-list-{{ movie.id }}" name="custom_list_id">{% for custom_list in custom_lists %}<option value="{{ custom_list.id }}">{{ custom_list.title }}</option>{% endfor %}</select><button class="button button--quiet" type="submit">Add to list</button></form>{% endif %}
         {% if movie.trailer_url %}<a class="button button--quiet" href="{{ movie.trailer_url }}" rel="noreferrer">Trailer</a>{% endif %}
         <a class="button button--quiet" href="{{ url_for('ai.workspace', mode='film_analysis', context_type='movie', context_id=movie.id) }}">Ask AI</a>
-        <form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh details</button></form>
+        <details class="movie-detail__admin-tools"><summary>Catalog tools</summary><form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh details</button></form></details>
       </div>
-    </header>
-    {% if movie.overview %}<p class="movie-detail__overview">{{ movie.overview }}</p>{% endif %}
+    {% endcall %}
     <dl class="definition-grid">
       <div><dt>Score</dt><dd>{% if movie.personal_score is not none %}{% if movie.personal_score_label %}{{ movie.personal_score_label }} · {% endif %}{{ '%.1f / 5'|format(movie.personal_score) }}{% else %}Not rated{% endif %}</dd></div>
       <div><dt>Runtime</dt><dd>{{ movie.runtime_minutes ~ ' min' if movie.runtime_minutes else 'Unknown' }}</dd></div>
@@ -335,11 +331,7 @@
     </details>
     {% endif %}
     {% if movie.progress %}<section class="detail-section"><h2>Playback progress</h2><progress class="progress-track" value="{{ movie.progress.percent }}" max="100">{{ movie.progress.percent }}%</progress><p class="muted">{{ movie.progress.percent }}% watched</p></section>{% endif %}
-    {% if movie.trailers %}<section class="detail-section movie-detail__media-rail movie-rail-section"><span class="eyebrow">TMDB videos</span><h2>Trailers</h2><div class="movie-detail__trailer-list movie-rail" data-movie-rail>{% for trailer in movie.trailers %}<a class="movie-detail__trailer" href="{{ trailer.url }}" rel="noreferrer"><span class="movie-detail__trailer-art">{% if trailer.thumbnail_url %}<img src="{{ trailer.thumbnail_url }}" alt="" loading="lazy" width="320" height="180">{% endif %}<span class="movie-detail__trailer-play" aria-hidden="true">▶</span></span><strong>{{ trailer.name }}</strong><small>{{ 'Official trailer' if trailer.official else 'Trailer' }}</small></a>{% endfor %}</div></section>{% endif %}
-    {% if movie.cast %}<section class="detail-section movie-detail__cast movie-rail-section"><span class="eyebrow">Credits</span><h2>Cast</h2><div class="movie-detail__cast-rail movie-rail" data-movie-rail tabindex="0">{% for person in movie.cast %}<article>{% if person.profile_url %}<img src="{{ person.profile_url }}" alt="{{ person.name }}" loading="lazy" width="120" height="120">{% else %}<span aria-hidden="true">{{ person.name[:1]|upper }}</span>{% endif %}<strong>{{ person.name }}</strong>{% if person.character %}<small>{{ person.character }}</small>{% endif %}</article>{% endfor %}</div></section>{% endif %}
-    {% if movie.reviews %}<section class="detail-section movie-detail__reviews"><span class="eyebrow">TMDB member reviews</span><h2>Reviews</h2>{% for review in movie.reviews %}<article><strong>{{ review.author }}</strong><p class="movie-detail__review-copy">{{ review.content }}</p><details><summary>Read more</summary><p>{{ review.content }}</p></details>{% if review.url %}<a href="{{ review.url }}" rel="noreferrer">Read on TMDB</a>{% endif %}</article>{% endfor %}</section>{% endif %}
-    {% set related = movie.related or [] %}
-    {% if related %}<section class="detail-section movie-detail__related movie-rail-section"><span class="eyebrow">TMDB catalog</span><h2>More like this</h2><div class="movie-detail__related-rail movie-rail" data-movie-rail>{% for item in related %}<a href="{{ url_for('movies.discover', media_type=item.media_type, tmdb_id=item.tmdb_id) }}">{% if item.poster_url %}<img src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="160" height="240">{% else %}<span aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}<strong>{{ item.title }}</strong><small>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</small></a>{% endfor %}</div></section>{% endif %}
+    {{ catalog_modules(presentation) }}
     <section class="detail-section" aria-labelledby="actions-title">
       <h2 id="actions-title">Your library</h2>
       <div class="detail-actions">

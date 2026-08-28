@@ -1,5 +1,6 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
+{% from "movies/components/detail_primitives.html" import episode_card %}
 {% block title %}{{ movie.title }} · Season {{ workspace.season.season_number }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-series-cinematic-2">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-9" defer></script>{% endblock %}
@@ -285,26 +286,7 @@
       </div>
       <div class="movie-grid tv-episode-grid">
         {% for episode in workspace.episodes %}
-        <a class="movie-tile tv-episode-tile{% if selected_episode and episode.episode_number == selected_episode.episode_number %} is-active{% endif %}" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.season.season_number, episode_number=episode.episode_number) }}">
-          <span class="movie-tile__poster tv-episode-tile__poster" data-media-frame>
-            {% if episode.still_url %}<img src="{{ episode.still_url }}" alt="{{ episode.name }}" loading="lazy" width="480" height="270">{% else %}<span class="media-fallback" aria-hidden="true">E{{ episode.episode_number }}</span>{% endif %}
-          </span>
-          <div class="movie-tile__body tv-episode-tile__body">
-            <span class="eyebrow">Episode {{ '%02d'|format(episode.episode_number) }}</span>
-            <h3>S{{ workspace.season.season_number }}E{{ '%02d'|format(episode.episode_number) }} · {{ episode.name }}</h3>
-            <p class="tv-episode-tile__overview">{{ episode.overview or 'Open this episode route to show the player and source controls.' }}</p>
-            {% if episode.progress %}<progress class="progress-track" value="{{ episode.progress.percent }}" max="100" aria-label="{{ episode.progress.percent }} percent watched">{{ episode.progress.percent }}%</progress>{% endif %}
-            <div class="tv-episode-tile__meta">
-              {% if episode.runtime_minutes %}<span>{{ episode.runtime_minutes }} min</span>{% endif %}
-              <span>{% if episode.progress %}{{ episode.progress.percent }}% watched{% else %}Not started{% endif %}</span>
-            </div>
-            <div class="tv-episode-tile__badges">
-              <span>{% if episode.has_exact_source %}Exact source{% elif episode.has_fallback_source %}Season-pack fallback{% else %}No source{% endif %}</span>
-              {% if selected_episode and episode.episode_number == selected_episode.episode_number %}<span>Open now</span>{% endif %}
-            </div>
-            <span class="tv-episode-tile__action">{% if episode.progress and not episode.progress.completed %}Resume{% elif episode.progress and episode.progress.completed %}Replay{% else %}Play episode{% endif %} <span aria-hidden="true">→</span></span>
-          </div>
-        </a>
+        {{ episode_card(movie.id, workspace.season.season_number, episode, selected_episode and episode.episode_number == selected_episode.episode_number, true) }}
         {% endfor %}
       </div>
     </section>

@@ -1,5 +1,6 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
+{% from "movies/components/detail_primitives.html" import catalog_identity, catalog_modules, episode_card %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
 {% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-series-cinematic-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movies-v2-series-rails-1" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script>{% endblock %}
@@ -14,11 +15,7 @@
     {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
   </div>
   <div class="movie-detail__content movie-detail__content--hero movie-discover-hero__content tv-series-hero">
-    <header>
-      <span class="eyebrow">{{ 'SERIES' }}{% if movie.year %} · {{ movie.year }}{% endif %}{% if movie.certification %} · {{ movie.certification }}{% endif %}</span>
-      <h1>{{ movie.title }}</h1>
-      {% if movie.original_title and movie.original_title != movie.title %}<p class="movie-discover-hero__original muted">{{ movie.original_title }}</p>{% endif %}
-      {% if movie.tagline %}<p class="movie-detail__tagline">{{ movie.tagline }}</p>{% endif %}
+    {% call catalog_identity(presentation, 'SERIES') %}
       <p class="movie-discover-hero__meta"><span>{{ workspace.catalog.total_seasons or workspace.seasons|length or '—' }} seasons</span>{% if workspace.catalog.total_episodes %}<span>{{ workspace.catalog.total_episodes }} episodes</span>{% endif %}{% if movie.tmdb_rating is not none %}<span>★ {{ '%.1f'|format(movie.tmdb_rating) }}</span>{% endif %}{% if movie.genres %}<span>{{ movie.genres|map(attribute='name')|list|join(' · ') }}</span>{% endif %}</p>
       <div class="tv-series-hero__state">{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }} · In your library{% if movie.is_favorite %} · Favorite{% endif %}</div>
       <div class="movie-detail__quick-actions">
@@ -30,8 +27,7 @@
       </div>
       {% if workspace.resume_target %}<p class="tv-series-resume-context"><strong>Resume S{{ '%02d'|format(workspace.resume_target.season) }}E{{ '%02d'|format(workspace.resume_target.episode) }}</strong>{% if workspace.resume_target.progress %} · {{ workspace.resume_target.progress.percent }}% watched · {{ (workspace.resume_target.progress.remaining_seconds // 60) }} min remaining{% endif %}</p>{% endif %}
       <details class="movie-detail__admin-tools"><summary>Catalog tools</summary><form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh series details</button></form></details>
-    </header>
-    {% if movie.overview %}<p class="movie-detail__overview movie-discover-hero__overview">{{ movie.overview }}</p>{% endif %}
+    {% endcall %}
   </div>
 </article>
 <article class="movie-detail__content movie-detail__content--secondary movie-discover-detail">
@@ -92,27 +88,12 @@
       </div>
       <div class="tv-episode-grid">
         {% for episode in selected_season_workspace.episodes %}
-        <a class="movie-tile tv-episode-tile{% if selected_season_workspace.resume_target and selected_season_workspace.resume_target.episode == episode.episode_number %} is-active{% endif %}" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=selected_season_workspace.season.season_number, episode_number=episode.episode_number) }}">
-          <span class="movie-tile__poster tv-episode-tile__poster" data-media-frame>
-            {% if episode.still_url %}<img src="{{ episode.still_url }}" alt="{{ episode.name }}" loading="lazy" width="480" height="270">{% else %}<span class="media-fallback" aria-hidden="true">E{{ '%02d'|format(episode.episode_number) }}</span>{% endif %}
-          </span>
-          <div class="movie-tile__body tv-episode-tile__body">
-            <span class="eyebrow">S{{ '%02d'|format(selected_season_workspace.season.season_number) }}E{{ '%02d'|format(episode.episode_number) }}</span>
-            <h3>{{ episode.name }}</h3>
-            {% if episode.overview %}<p class="tv-episode-tile__overview">{{ episode.overview }}</p>{% endif %}
-            <div class="tv-episode-tile__meta">{% if episode.runtime_minutes %}<span>{{ episode.runtime_minutes }} min</span>{% endif %}{% if episode.air_date %}<span>{{ episode.air_date }}</span>{% endif %}<span>{% if episode.progress and episode.progress.completed %}Watched{% elif episode.progress %}{{ episode.progress.percent }}% watched{% else %}Not started{% endif %}</span></div>
-            {% if episode.progress %}<progress class="progress-track" value="{{ episode.progress.percent }}" max="100" aria-label="{{ episode.progress.percent }} percent watched">{{ episode.progress.percent }}%</progress>{% endif %}
-            <span class="tv-episode-tile__action">{% if episode.progress and not episode.progress.completed %}Resume{% elif episode.progress and episode.progress.completed %}Replay{% else %}Play episode{% endif %} <span aria-hidden="true">→</span></span>
-          </div>
-        </a>
+        {{ episode_card(movie.id, selected_season_workspace.season.season_number, episode, selected_season_workspace.resume_target and selected_season_workspace.resume_target.episode == episode.episode_number) }}
         {% endfor %}
       </div>
     </section>
     {% endif %}
-    {% if movie.cast %}<section class="detail-section movie-detail__cast movie-rail-section" aria-labelledby="tv-cast-title"><span class="eyebrow">Credits</span><h2 id="tv-cast-title">Cast</h2><div class="movie-detail__cast-rail movie-rail" data-movie-rail tabindex="0">{% for person in movie.cast %}<article>{% if person.profile_url %}<img src="{{ person.profile_url }}" alt="{{ person.name }}" loading="lazy" width="120" height="120">{% else %}<span aria-hidden="true">{{ person.name[:1]|upper }}</span>{% endif %}<strong>{{ person.name }}</strong>{% if person.character %}<small>{{ person.character }}</small>{% endif %}</article>{% endfor %}</div></section>{% endif %}
-    {% if movie.trailers %}<section class="detail-section movie-detail__media-rail movie-rail-section" aria-labelledby="tv-trailers-title"><span class="eyebrow">TMDB videos</span><h2 id="tv-trailers-title">Trailers</h2><div class="movie-detail__trailer-list movie-rail" data-movie-rail>{% for trailer in movie.trailers %}<a class="movie-detail__trailer" href="{{ trailer.url }}" rel="noreferrer"><span class="movie-detail__trailer-art">{% if trailer.thumbnail_url %}<img src="{{ trailer.thumbnail_url }}" alt="" loading="lazy" width="320" height="180">{% endif %}<span class="movie-detail__trailer-play" aria-hidden="true">▶</span></span><strong>{{ trailer.name }}</strong><small>{{ 'Official trailer' if trailer.official else 'Trailer' }}</small></a>{% endfor %}</div></section>{% endif %}
-    {% if movie.reviews %}<section class="detail-section movie-detail__reviews" aria-labelledby="tv-reviews-title"><span class="eyebrow">TMDB member reviews</span><h2 id="tv-reviews-title">Reviews</h2>{% for review in movie.reviews %}<article><strong>{{ review.author }}</strong><p class="movie-detail__review-copy">{{ review.content }}</p>{% if review.url %}<a href="{{ review.url }}" rel="noreferrer">Read on TMDB</a>{% endif %}</article>{% endfor %}</section>{% endif %}
-    {% if movie.related %}<section class="detail-section movie-detail__related movie-rail-section" aria-labelledby="tv-related-title"><span class="eyebrow">TMDB catalog</span><h2 id="tv-related-title">More like this</h2><div class="movie-detail__related-rail movie-rail" data-movie-rail>{% for item in movie.related %}<a href="{{ url_for('movies.discover', media_type=item.media_type, tmdb_id=item.tmdb_id) }}">{% if item.poster_url %}<img src="{{ item.poster_url }}" alt="Poster for {{ item.title }}" loading="lazy" width="160" height="240">{% else %}<span aria-hidden="true">{{ item.title[:1]|upper }}</span>{% endif %}<strong>{{ item.title }}</strong><small>{{ item.year or 'Year unknown' }}{% if item.rating is not none %} · {{ '%.1f'|format(item.rating) }} TMDB{% endif %}</small></a>{% endfor %}</div></section>{% endif %}
+    {{ catalog_modules(presentation) }}
     <section class="detail-section tv-series-watch-options" aria-labelledby="tv-watch-options-title"><span class="eyebrow">Sources</span><h2 id="tv-watch-options-title">Watch options</h2><p class="muted">Choose an episode to see its configured playback sources and optional Jackett releases. Personal progress stays attached to the selected episode.</p>{% if selected_season_workspace %}<a class="button button--quiet" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=selected_season_workspace.season.season_number) }}">Open season watch options</a>{% endif %}</section>
   </div>
 </article>

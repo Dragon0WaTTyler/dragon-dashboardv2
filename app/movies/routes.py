@@ -39,6 +39,7 @@ from app.movies.external_library import (
 )
 from app.movies.integrations import MediaIntegrationError
 from app.movies.models import Movie
+from app.movies.presentation import canonical_detail_presentation
 from app.movies.rails import discovery_rails, provider_context
 from app.movies.repositories import MovieRepository
 from app.movies.scoring import notion_score_options, score_option_for_input
@@ -842,6 +843,7 @@ def detail(movie_id: str):
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
     movie = hydrate_movie_detail_if_needed(movie)
+    detail_record = movie_detail(movie)
     if movie.media_type == "tv":
         workspace = tv_show_workspace(movie)
         season_values = [
@@ -867,7 +869,12 @@ def detail(movie_id: str):
         return render_template(
             "movies/tv_show.html",
             active_module="movies",
-            movie=movie_detail(movie),
+            movie=detail_record,
+            presentation=canonical_detail_presentation(
+                detail_record,
+                is_saved=True,
+                personal={"lists": MovieService.custom_lists(current_user.id)},
+            ),
             workspace=workspace,
             selected_season_workspace=selected_season_workspace,
             custom_lists=MovieService.custom_lists(current_user.id),
@@ -898,7 +905,16 @@ def detail(movie_id: str):
     return render_template(
         "movies/detail.html",
         active_module="movies",
-        movie=movie_detail(movie),
+        movie=detail_record,
+        presentation=canonical_detail_presentation(
+            detail_record,
+            is_saved=True,
+            personal={"lists": MovieService.custom_lists(current_user.id)},
+            playback={
+                "can_play": bool(embed_player_sources or player_sources),
+                "configured_sources_present": bool(embed_player_sources or player_sources),
+            },
+        ),
         score_options=_movie_score_options(),
         vidsrc_enabled=_vidsrc_is_usable_candidate(movie),
         local_player_enabled=local_player_enabled,
@@ -928,6 +944,7 @@ def tv_season(movie_id: str, season_number: int):
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
     movie = hydrate_movie_detail_if_needed(movie)
+    detail_record = movie_detail(movie)
     if season_number < 0:
         abort(404)
     workspace = tv_season_workspace(movie, season_number=season_number)
@@ -951,7 +968,15 @@ def tv_season(movie_id: str, season_number: int):
     return render_template(
         "movies/tv_season.html",
         active_module="movies",
-        movie=movie_detail(movie),
+        movie=detail_record,
+        presentation=canonical_detail_presentation(
+            detail_record,
+            is_saved=True,
+            playback={
+                "can_play": bool(embed_player_sources or player_sources),
+                "configured_sources_present": bool(embed_player_sources or player_sources),
+            },
+        ),
         workspace=workspace,
         selected_episode=None,
         player_sources=player_sources,
@@ -981,6 +1006,7 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
     movie = hydrate_movie_detail_if_needed(movie)
+    detail_record = movie_detail(movie)
     if season_number < 0 or episode_number < 1:
         abort(404)
     workspace = tv_season_workspace(
@@ -1022,7 +1048,15 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
     return render_template(
         "movies/tv_season.html",
         active_module="movies",
-        movie=movie_detail(movie),
+        movie=detail_record,
+        presentation=canonical_detail_presentation(
+            detail_record,
+            is_saved=True,
+            playback={
+                "can_play": bool(embed_player_sources or player_sources),
+                "configured_sources_present": bool(embed_player_sources or player_sources),
+            },
+        ),
         workspace=workspace,
         selected_episode=workspace["selected_episode"],
         player_sources=player_sources,
@@ -1081,6 +1115,11 @@ def discover(media_type: str, tmdb_id: int):
         "movies/discover.html",
         active_module="movies",
         media=item,
+        presentation=canonical_detail_presentation(
+            item,
+            is_saved=False,
+            playback={"can_preview": bool(item["preview_player_sources"])},
+        ),
     )
 
 
