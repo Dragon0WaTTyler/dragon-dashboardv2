@@ -165,7 +165,7 @@ const showMovieToast = (message, level = "success") => {
     previous.innerHTML = "‹";
     next.innerHTML = "›";
     controls.append(previous, next);
-    section.append(controls);
+    rail.append(controls);
     const update = () => {
       const max = rail.scrollWidth - rail.clientWidth - 2;
       previous.disabled = rail.scrollLeft <= 2;

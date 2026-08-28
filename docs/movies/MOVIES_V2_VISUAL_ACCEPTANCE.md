@@ -115,3 +115,41 @@ repository under `C:\Users\walid\Pictures\movies-v2-phase1`:
 | Y–AB | `Y-series-detail-hero.png`, `Z-series-seasons.png`, `AA-season-page.png`, `AB-episode-cards.png` | PASS |
 | AC–AE | `AC-episode-context.png`, `AD-episode-player-playing.png`, browser `pageerror` collection is empty | PASS |
 | AF–AI | `O-home-mobile.png`, `AG-library-mobile.png`, `AH-series-detail-mobile.png`, `AI-episode-mobile.png` | PASS |
+
+## Phase 31 final width / rail correction — 2026-08-28
+
+This pass is layout-only. It keeps the accepted Movies/TV routes, player/source
+hooks, progress state, snapshots, and schema unchanged. Fresh screenshots were
+captured from the disposable seeded browser fixtures at
+`C:\Users\walid\Pictures\movies-v2-phase1`.
+
+| ID | Surface | Viewport | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| A | Home hero + global/local navigation | 1600 | PASS | `A-home-1600.png`; canvas starts at a 48px gutter and the hero fills it |
+| B | Continue Watching / Home rails | 1600 | PASS | `B-home-rails-1600.png`; rails use the same wide left edge |
+| C | Home after scroll | 1600 | PASS | `C-home-after-scroll-1600.png`; sticky local nav remains in the header-safe band |
+| D | Library canvas | 1600 | PASS | `D-library-1600.png`; title, filters, and grid share the wide canvas |
+| E | Library filters + grid | 1600 | PASS | `E-library-filters-1600.png`; no narrow centered strip |
+| F | TV Series on provider rail | 1600 | PASS | `F-provider-tv-1600.png`; controls are left-middle/right-middle overlays |
+| G | Same provider rail after horizontal scroll | 1600 | PASS | `G-provider-tv-scrolled-1600.png`; edge controls remain separated |
+| H | Movie detail hero | 1600 | PASS | `H-detail-1600.png`; detail hero participates in the Movies canvas |
+| I | Lower movie detail modules | 1600 | PASS | `I-detail-lower-1600.png`; lower content is full-width with readable inner copy |
+| J | Series detail hero | 1600 | PASS | `J-series-detail-1600.png`; no narrow centered island |
+| K | Season / episode workspace | 1600 | PASS | `K-season-page-1600.png`; episode area uses the same canvas |
+| L | Episode player shell | 1600 | PASS | `L-episode-player-1600.png`; player behavior unchanged |
+| M | Home | 1024 | PASS | `M-home-1024.png`; responsive gutter and no document overflow |
+| N | Home | 390 | PASS | `N-home-390.png`; local nav can scroll horizontally without page overflow |
+| O | Library | 390 | PASS | `O-library-390.png`; mobile gutters remain usable |
+| P | Series detail | 390 | PASS | `P-series-390.png`; series layout remains stable on mobile |
+
+Root cause: the shared `.page-frame` capped every Movies route at the global
+`--content-width` (1320px) and contributed a 48px top padding, while detail
+wrappers added their own max-widths. The correction is one scoped
+`.page-frame:has(.movies-v2)` canvas rule with responsive gutters, reduced
+Movies-only top padding, and explicit full-width detail wrappers. No global
+Dragon layout rule was changed.
+
+The shared `data-movie-rail` primitive now mounts its controls inside the rail;
+CSS centers the overlay on the media viewport, anchors the first control to the
+left edge, and the second to the right edge. Controls still disable at the true ends and
+retain touch, keyboard, reduced-motion, and chunked-scroll behavior.

@@ -1627,6 +1627,67 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movies-page-heading { display: grid; align-items: start; }
 }
 
+/* Movies canvas correction: widen only the Movies/TV domain while retaining
+   Dragon's shared shell for every other module. */
+.page-frame:has(.movies-v2) {
+  width: calc(100% - clamp(32px, 6vw, 96px));
+  max-width: none;
+  padding-block-start: clamp(8px, 1vw, 16px);
+  padding-inline: 0;
+}
+.page-frame:has(.movies-v2) > .movies-v2 {
+  width: 100%;
+  max-width: none;
+}
+.movies-v2 .movie-detail,
+.movies-v2 .movie-discover-detail {
+  width: 100%;
+  max-width: none;
+}
+
+/* Shared rail controls are edge overlays, vertically aligned to the media
+   viewport. The primitive mounts them inside each rail so 50% is exact. */
+.movies-v2 .movie-rail-section,
+.movies-v2 .movie-rail { position: relative; }
+.movies-v2 .movie-rail__controls {
+  position: absolute;
+  inset-inline: 0;
+  top: 50%;
+  z-index: 4;
+  display: block;
+  height: 0;
+  margin: 0;
+  pointer-events: none;
+}
+.movies-v2 .movie-rail__control {
+  position: absolute;
+  top: 0;
+  width: 42px;
+  height: 42px;
+  border-color: rgb(255 255 255 / 24%);
+  background: rgb(8 9 12 / 84%);
+  box-shadow: 0 8px 22px rgb(0 0 0 / 32%);
+  pointer-events: auto;
+  transform: translateY(-50%);
+}
+.movies-v2 .movie-rail__control:first-child { left: 6px; }
+.movies-v2 .movie-rail__control:last-child { right: 6px; }
+
+@media (max-width: 720px) {
+  .page-frame:has(.movies-v2) {
+    width: calc(100% - 32px);
+    padding-block-start: 8px;
+  }
+  .movies-v2 .movie-v2-nav {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .movies-v2 .movie-v2-nav::-webkit-scrollbar { display: none; }
+  .movies-v2 .movie-rail__control { width: 38px; height: 38px; }
+  .movies-v2 .movie-rail__control:first-child { left: 2px; }
+  .movies-v2 .movie-rail__control:last-child { right: 2px; }
+}
+
 /* Phase 1 availability browsing and shared rail controls. */
 .movie-rail-section { position: relative; }
 .movie-rail__controls { display: flex; gap: 8px; justify-content: flex-end; margin: -42px 0 18px; position: relative; z-index: 2; }

@@ -52,7 +52,7 @@ class Phase1Provider:
                     "year": 2025 - index,
                     "rating": 7.8 - (index / 10),
                 }
-                for index in range(1, 7)
+                for index in range(1, 11)
             ],
             "page": 1,
             "total_pages": 1,
@@ -215,9 +215,10 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         app.extensions["dragon_tmdb_catalog_provider"] = Phase1Provider()
         app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDSRC_ENABLED=True)
 
-    page.set_viewport_size({"width": 1280, "height": 900})
+    page.set_viewport_size({"width": 1600, "height": 900})
     evidence_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
     evidence_dir.mkdir(parents=True, exist_ok=True)
+    phase1_dir = evidence_dir
     page_errors = []
     page.on("pageerror", lambda error: page_errors.append(str(error)))
     _sign_in(page, live_app)
@@ -233,6 +234,34 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     assert page.get_by_role("heading", name="Movies on Netflix").is_visible()
     assert page.get_by_role("heading", name="TV Series on Netflix").is_visible()
     assert page.get_by_role("heading", name="Because you watched Watched Anchor").is_visible()
+    canvas = page.locator(".page-frame").bounding_box()
+    assert canvas is not None
+    assert 32 <= canvas["x"] <= 64
+    assert canvas["width"] >= 1400
+    page.screenshot(path=str(phase1_dir / "A-home-1600.png"), full_page=False)
+    page.locator(".movie-now").first.scroll_into_view_if_needed()
+    page.screenshot(path=str(phase1_dir / "B-home-rails-1600.png"), full_page=False)
+    page.evaluate("window.scrollTo(0, 520)")
+    page.screenshot(path=str(phase1_dir / "C-home-after-scroll-1600.png"), full_page=False)
+    provider_tv = page.locator("[data-discovery-rail='provider_tv']")
+    provider_rail = provider_tv.locator("[data-movie-rail]")
+    provider_controls = provider_tv.locator(".movie-rail__control")
+    provider_rail_box = provider_rail.bounding_box()
+    assert provider_rail_box is not None
+    assert provider_controls.count() == 2
+    left_control_box = provider_controls.first.bounding_box()
+    right_control_box = provider_controls.last.bounding_box()
+    assert left_control_box is not None and right_control_box is not None
+    assert left_control_box["x"] <= provider_rail_box["x"] + 12
+    assert (
+        right_control_box["x"] + right_control_box["width"]
+        >= provider_rail_box["x"] + provider_rail_box["width"] - 12
+    )
+    provider_tv.screenshot(path=str(phase1_dir / "F-provider-tv-1600.png"))
+    provider_controls.last.click()
+    page.wait_for_timeout(250)
+    provider_tv.screenshot(path=str(phase1_dir / "G-provider-tv-scrolled-1600.png"))
+    page.evaluate("window.scrollTo(0, 0)")
     provider_selector = page.locator(".movie-provider-selector").first
     provider_selector.locator("summary").click()
     assert provider_selector.get_by_role("menu").is_visible()
@@ -247,7 +276,6 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.evaluate("window.scrollTo(0, 0)")
     hero_dots = page.locator("[data-home-hero-dot]")
     assert hero_dots.count() >= 2
-    phase1_dir = evidence_dir
     page.screenshot(path=str(phase1_dir / "A-home-hero-candidate-a.png"), full_page=True)
     hero_title = page.locator("[data-home-focus-title]")
     first_hero_title = hero_title.inner_text()
@@ -317,6 +345,12 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         assert locator.is_visible(), f"missing screenshot surface: {selector}"
         locator.screenshot(path=str(phase1_dir / filename))
     page.screenshot(path=str(phase1_dir / "detail-desktop.png"), full_page=True)
+    page.set_viewport_size({"width": 1600, "height": 900})
+    page.goto(f"{live_app}/movies/{anchor_id}")
+    page.locator(".movie-detail__related-rail").wait_for()
+    page.screenshot(path=str(phase1_dir / "H-detail-1600.png"), full_page=False)
+    page.locator(".movie-detail__content--secondary").scroll_into_view_if_needed()
+    page.screenshot(path=str(phase1_dir / "I-detail-lower-1600.png"), full_page=False)
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(f"{live_app}/movies?because={anchor_id}")
     page.locator(".movie-provider-browser").wait_for()
@@ -346,12 +380,18 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         assert page.evaluate(
             "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
         )
-    page.set_viewport_size({"width": 1280, "height": 844})
+        if width == 1024:
+            page.screenshot(path=str(phase1_dir / "M-home-1024.png"), full_page=False)
+        if width == 390:
+            page.screenshot(path=str(phase1_dir / "N-home-390.png"), full_page=False)
+    page.set_viewport_size({"width": 1600, "height": 844})
     page.goto(f"{live_app}/movies/library")
     page.get_by_role("heading", name="My Library").wait_for()
     assert page.locator("#movie-library").count() == 0
     page.screenshot(path=str(phase1_dir / "O-library-top.png"), full_page=True)
     page.locator(".filter-bar").screenshot(path=str(phase1_dir / "P-library-filters.png"))
+    page.screenshot(path=str(phase1_dir / "D-library-1600.png"), full_page=False)
+    page.locator(".filter-bar").screenshot(path=str(phase1_dir / "E-library-filters-1600.png"))
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(f"{live_app}/movies/library")
     page.get_by_role("heading", name="My Library").wait_for()
@@ -359,4 +399,5 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
     )
     page.screenshot(path=str(phase1_dir / "AG-library-mobile.png"), full_page=True)
+    page.screenshot(path=str(phase1_dir / "O-library-390.png"), full_page=False)
     assert not page_errors, page_errors
