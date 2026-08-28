@@ -1,7 +1,7 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ media.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-preview-1">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-series-cinematic-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movies-v2-preview-1" defer></script>{% endblock %}
 {% block content %}
 {% set genre_names = media.genres|map(attribute='name')|select|list %}
@@ -12,7 +12,7 @@
 <div class="movies-v2 movies-v2--discover-detail">
   <div class="movies-v2__atmosphere" aria-hidden="true"></div>
   <nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}"{% if media.media_type == 'movie' %} aria-current="page"{% endif %}>Movies</a><a href="{{ url_for('movies.shows') }}"{% if media.media_type == 'tv' %} aria-current="page"{% endif %}>Shows</a><a href="{{ url_for('movies.library') }}">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
-  <section class="movie-discover-hero" aria-labelledby="discover-title">
+  <section class="movie-discover-hero movie-cinematic-hero" aria-labelledby="discover-title">
     {% if backdrop_url %}<div class="movie-discover-hero__art" aria-hidden="true"><img src="{{ backdrop_url }}" alt=""></div>{% endif %}
     <a class="back-link movie-discover-hero__back" href="{{ url_for('movies.index') }}">← Back to movies</a>
     <div class="movie-discover-hero__content">

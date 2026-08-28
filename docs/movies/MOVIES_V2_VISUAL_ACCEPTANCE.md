@@ -187,3 +187,37 @@ both true ends. The focused Movies suite completed with 72 passing tests; the
 browser fixture collected no page errors. Existing baseline console noise (the
 known favicon 404 and CSP warnings from unrelated legacy hooks) remains outside
 this presentation-only pass.
+
+## Phase 33 unified detail and true full-bleed canvas — 2026-08-28
+
+This pass is limited to Movies/TV presentation. It keeps the global Dragon
+header, routes, data model, playback/source boundaries, progress semantics,
+Jackett integration, snapshots, and database unchanged. The shared page frame
+is now edge-to-edge only when its direct child is `.movies-v2`; inner rails use
+an explicit readable safe area. The local Movies nav remains a fixed overlay
+below the global header and contributes no flow height.
+
+Local library movies, stateless TMDB previews, and local TV details now opt into
+the same `movie-cinematic-hero` primitive. Local actions remain personal
+(resume/watch, status, favorite, lists, trailer, refresh), while discovery keeps
+its stateless Add to library and preview actions. The TV hero has a compact
+resume CTA, centered poster, bounded height, compact season cards, and a 16:9
+episode grid that preserves real progress and deep-link routes.
+
+The browser fixtures write a focused A–P matrix outside the repository at
+`C:\Users\walid\Pictures\movies-v2-unified-detail`:
+
+| ID | Surface | Viewport | Result |
+| --- | --- | --- | --- |
+| A–C | Local movie hero, personal actions, lower modules | 1600 | PASS |
+| D–H | Local series hero/resume, season selector, episodes, season page | 1600 | PASS |
+| I–J | Stateless discovery movie hero and lower modules | 1600 | PASS |
+| K–L | Stateless discovery TV hero and preview surface | 1600 | PASS |
+| M–O | Full-bleed Home, local Movie, local Series | 1600 | PASS |
+| P | Local Series responsive detail | 390 | PASS |
+
+The existing smoke checks continue to assert no document overflow at mobile
+widths, fixed-nav stability, rail-control ownership/end states, selected-season
+deep links, player/source selection, subtitles, autoplay-next, and real progress
+resume behavior. `pageerror` remains empty; the known favicon/CSP console noise
+is pre-existing and not introduced by this pass.

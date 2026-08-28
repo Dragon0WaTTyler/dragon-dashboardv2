@@ -219,6 +219,8 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     evidence_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
     evidence_dir.mkdir(parents=True, exist_ok=True)
     phase1_dir = evidence_dir
+    unified_dir = Path(r"C:\Users\walid\Pictures\movies-v2-unified-detail")
+    unified_dir.mkdir(parents=True, exist_ok=True)
     page_errors = []
     page.on("pageerror", lambda error: page_errors.append(str(error)))
     _sign_in(page, live_app)
@@ -236,8 +238,8 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     assert page.get_by_role("heading", name="Because you watched Watched Anchor").is_visible()
     canvas = page.locator(".page-frame").bounding_box()
     assert canvas is not None
-    assert 32 <= canvas["x"] <= 64
-    assert canvas["width"] >= 1400
+    assert canvas["x"] == pytest.approx(0, abs=1)
+    assert canvas["width"] >= 1598
     local_nav = page.locator(".movie-v2-nav")
     hero = page.locator(".movie-personal-hero")
     nav_box_before = local_nav.bounding_box()
@@ -368,6 +370,7 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         path=str(phase1_dir / "J-generic-rail-1600.png")
     )
     page.screenshot(path=str(phase1_dir / "home-desktop.png"), full_page=True)
+    page.screenshot(path=str(unified_dir / "M-home-fullbleed-1600.png"), full_page=False)
     page.get_by_role("link", name="Browse titles available on Netflix").click()
     page.wait_for_url(f"{live_app}/movies?provider=8&region=US")
     assert page.get_by_role("heading", name="Movies on Netflix").is_visible()
@@ -380,6 +383,17 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     preview.wait_for()
     assert page.locator("[data-preview-viewport]").is_hidden()
     page.screenshot(path=str(phase1_dir / "U-preview-player-on-demand.png"), full_page=True)
+    page.screenshot(path=str(unified_dir / "I-external-movie-hero-1600.png"), full_page=False)
+    page.locator(".movie-discover-detail").screenshot(
+        path=str(unified_dir / "J-external-movie-lower-1600.png")
+    )
+    page.goto(f"{live_app}/movies/discover/tv/901")
+    page.locator(".movie-discover-hero").wait_for()
+    page.screenshot(path=str(unified_dir / "K-external-tv-hero-1600.png"), full_page=False)
+    if page.locator("[data-discover-player]").count():
+        page.locator("[data-discover-player]").screenshot(
+            path=str(unified_dir / "L-external-tv-preview-1600.png")
+        )
 
     page.goto(f"{live_app}/movies/{anchor_id}")
     page.locator(".movie-detail__related-rail").wait_for()
@@ -407,11 +421,17 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.locator(".movie-detail__related-rail").wait_for()
     page.screenshot(path=str(phase1_dir / "H-detail-1600.png"), full_page=False)
     page.screenshot(path=str(phase1_dir / "C-movie-detail-top-1600.png"), full_page=False)
+    page.screenshot(path=str(unified_dir / "A-local-movie-hero-1600.png"), full_page=False)
+    page.screenshot(path=str(unified_dir / "N-local-movie-fullbleed-1600.png"), full_page=False)
+    page.locator(".movie-detail__quick-actions").screenshot(
+        path=str(unified_dir / "B-local-movie-actions-1600.png")
+    )
     page.locator(".movie-detail__content--secondary").scroll_into_view_if_needed()
     page.locator(".movie-detail__cast").screenshot(
         path=str(phase1_dir / "K-cast-more-like-this-1600.png")
     )
     page.screenshot(path=str(phase1_dir / "I-detail-lower-1600.png"), full_page=False)
+    page.screenshot(path=str(unified_dir / "C-local-movie-lower-1600.png"), full_page=False)
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(f"{live_app}/movies?because={anchor_id}")
     page.locator(".movie-provider-browser").wait_for()

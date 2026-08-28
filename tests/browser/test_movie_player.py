@@ -392,8 +392,10 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
           };
         }"""
     )
-    assert abs(desktop_layout["playerLeft"] - desktop_layout["detailLeft"]) <= 1
-    assert abs(desktop_layout["playerWidth"] - desktop_layout["detailWidth"]) <= 1
+    # Detail heroes are edge-to-edge; player and secondary modules retain the
+    # Movies safe-area inset for readable controls and source metadata.
+    assert 0 < desktop_layout["playerLeft"] - desktop_layout["detailLeft"] <= 64
+    assert desktop_layout["playerWidth"] < desktop_layout["detailWidth"]
     assert desktop_layout["playerTop"] >= max(
         desktop_layout["heroBottom"], desktop_layout["posterBottom"]
     )
@@ -978,6 +980,8 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     page.on("pageerror", lambda error: page_errors.append(str(error)))
     evidence_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
     evidence_dir.mkdir(parents=True, exist_ok=True)
+    unified_dir = Path(r"C:\Users\walid\Pictures\movies-v2-unified-detail")
+    unified_dir.mkdir(parents=True, exist_ok=True)
 
     with app.app_context():
         movie = Movie(
@@ -1175,9 +1179,20 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     assert page.get_by_role("heading", name="Pilot").is_visible()
     page.screenshot(path=str(evidence_dir / "Y-series-detail-hero.png"), full_page=True)
     page.screenshot(path=str(evidence_dir / "J-series-detail-1600.png"), full_page=False)
+    page.screenshot(path=str(unified_dir / "D-local-series-hero-1600.png"), full_page=False)
+    page.screenshot(path=str(unified_dir / "O-local-series-fullbleed-1600.png"), full_page=False)
+    page.locator(".tv-season-summary").screenshot(
+        path=str(unified_dir / "E-local-series-resume-1600.png")
+    )
     page.locator(".tv-series-seasons").screenshot(path=str(evidence_dir / "Z-series-seasons.png"))
     page.locator(".tv-series-seasons").screenshot(
         path=str(evidence_dir / "K-season-workspace-1600.png")
+    )
+    page.locator(".tv-series-seasons").screenshot(
+        path=str(unified_dir / "F-local-series-season-selector-1600.png")
+    )
+    page.locator(".tv-series-episode-preview").screenshot(
+        path=str(unified_dir / "G-local-series-episodes-1600.png")
     )
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(
@@ -1192,6 +1207,7 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     release_browser.evaluate("element => { element.open = true; }")
     page.screenshot(path=str(evidence_dir / "AA-season-page.png"), full_page=True)
     page.screenshot(path=str(evidence_dir / "K-season-page-1600.png"), full_page=False)
+    page.screenshot(path=str(unified_dir / "H-local-season-page-1600.png"), full_page=False)
     page.locator(".tv-episode-grid").screenshot(path=str(evidence_dir / "AB-episode-cards.png"))
     assert release_browser.get_by_role("button", name="Find full-season packs").is_visible()
     assert release_browser.locator("[data-season-select]").input_value() == "1"
@@ -1237,6 +1253,7 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
         "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
     )
     page.screenshot(path=str(evidence_dir / "AI-episode-mobile.png"), full_page=True)
+    page.screenshot(path=str(unified_dir / "P-local-series-mobile-390.png"), full_page=False)
     assert not page_errors, page_errors
 
 

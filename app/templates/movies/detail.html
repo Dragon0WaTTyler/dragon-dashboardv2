@@ -1,7 +1,7 @@
 {% extends "layouts/app.html" %}
 {% from "components/ui.html" import badge %}
 {% block title %}{{ movie.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-final-correction-3">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-series-cinematic-1">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=release-browser-1" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script><script type="module" src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-7"></script>{% endblock %}
 {% block content %}
 <div class="movies-v2 movies-v2--detail" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
@@ -9,7 +9,7 @@
 <nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}"{% if movie.media_type == 'movie' %} aria-current="page"{% endif %}>Movies</a><a href="{{ url_for('movies.shows') }}"{% if movie.media_type == 'tv' %} aria-current="page"{% endif %}>Shows</a><a href="{{ url_for('movies.library') }}">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
 {% if movie.backdrop_url or movie.poster_url %}<div class="movie-detail__backdrop" aria-hidden="true"><img src="{{ movie.backdrop_url or movie.poster_url }}" alt=""></div>{% endif %}
 <a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
-<article class="movie-detail">
+<article class="movie-detail movie-cinematic-hero">
   <div class="movie-detail__poster" data-media-frame>
     {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
   </div>
