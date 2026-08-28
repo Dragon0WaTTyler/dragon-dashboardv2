@@ -143,6 +143,15 @@ const showMovieToast = (message, level = "success") => {
   if (sessionStorage.getItem("dragon:recommendation-dismissed") === "1") section.hidden = true;
 })();
 
+/* Keep the local Movies navigation out of the cinematic shell's overflow
+ * containing block. It remains a viewport overlay while the page scrolls. */
+(() => {
+  const localNav = document.querySelector(".movies-v2 .movie-v2-nav");
+  if (!localNav || localNav.parentElement === document.body) return;
+  localNav.classList.add("movie-v2-nav--overlay");
+  document.body.append(localNav);
+})();
+
 /* Shared, keyboard-friendly controls for horizontal Movies rails. */
 (() => {
   const rails = document.querySelectorAll("[data-movie-rail]");
@@ -154,6 +163,12 @@ const showMovieToast = (message, level = "success") => {
     const section = rail.closest("section") || rail.parentElement;
     if (!section) return;
     section.classList.add("movie-rail-section");
+    const shell = document.createElement("div");
+    shell.className = "movie-rail-shell";
+    shell.dataset.railShell = "true";
+    rail.parentNode.insertBefore(shell, rail);
+    shell.append(rail);
+    rail.classList.add("movie-rail__scroller");
     const controls = document.createElement("div");
     controls.className = "movie-rail__controls";
     const previous = document.createElement("button");
@@ -165,7 +180,7 @@ const showMovieToast = (message, level = "success") => {
     previous.innerHTML = "‹";
     next.innerHTML = "›";
     controls.append(previous, next);
-    rail.append(controls);
+    shell.append(controls);
     const update = () => {
       const max = rail.scrollWidth - rail.clientWidth - 2;
       previous.disabled = rail.scrollLeft <= 2;

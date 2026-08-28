@@ -52,7 +52,7 @@ class Phase1Provider:
                     "year": 2025 - index,
                     "rating": 7.8 - (index / 10),
                 }
-                for index in range(1, 11)
+                for index in range(1, 31)
             ],
             "page": 1,
             "total_pages": 1,
@@ -238,14 +238,32 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     assert canvas is not None
     assert 32 <= canvas["x"] <= 64
     assert canvas["width"] >= 1400
+    local_nav = page.locator(".movie-v2-nav")
+    hero = page.locator(".movie-personal-hero")
+    nav_box_before = local_nav.bounding_box()
+    hero_box = hero.bounding_box()
+    assert nav_box_before is not None and hero_box is not None
+    assert local_nav.evaluate("element => getComputedStyle(element).position") == "fixed"
+    assert hero_box["y"] <= nav_box_before["y"] + nav_box_before["height"]
+    nav_x_before = nav_box_before["x"]
     page.screenshot(path=str(phase1_dir / "A-home-1600.png"), full_page=False)
     page.locator(".movie-now").first.scroll_into_view_if_needed()
     page.screenshot(path=str(phase1_dir / "B-home-rails-1600.png"), full_page=False)
     page.evaluate("window.scrollTo(0, 520)")
     page.screenshot(path=str(phase1_dir / "C-home-after-scroll-1600.png"), full_page=False)
+    page.screenshot(path=str(phase1_dir / "B-home-after-scroll-1600.png"), full_page=False)
     provider_tv = page.locator("[data-discovery-rail='provider_tv']")
     provider_rail = provider_tv.locator("[data-movie-rail]")
     provider_controls = provider_tv.locator(".movie-rail__control")
+    assert provider_rail.evaluate(
+        "element => element.parentElement?.classList.contains('movie-rail-shell')"
+    )
+    assert provider_controls.first.evaluate(
+        "element => element.parentElement?.classList.contains('movie-rail__controls')"
+    )
+    assert provider_controls.first.evaluate(
+        "element => !element.closest('[data-movie-rail]')"
+    )
     provider_rail_box = provider_rail.bounding_box()
     assert provider_rail_box is not None
     assert provider_controls.count() == 2
@@ -257,10 +275,42 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         right_control_box["x"] + right_control_box["width"]
         >= provider_rail_box["x"] + provider_rail_box["width"] - 12
     )
-    provider_tv.screenshot(path=str(phase1_dir / "F-provider-tv-1600.png"))
+    provider_tv.screenshot(path=str(phase1_dir / "E-provider-tv-start-1600.png"))
     provider_controls.last.click()
-    page.wait_for_timeout(250)
-    provider_tv.screenshot(path=str(phase1_dir / "G-provider-tv-scrolled-1600.png"))
+    page.wait_for_timeout(550)
+    prev_x_before = left_control_box["x"]
+    next_x_before = right_control_box["x"]
+    prev_x_after_one = provider_controls.first.bounding_box()["x"]
+    next_x_after_one = provider_controls.last.bounding_box()["x"]
+    assert prev_x_after_one == pytest.approx(prev_x_before, abs=1)
+    assert next_x_after_one == pytest.approx(next_x_before, abs=1)
+    provider_tv.screenshot(path=str(phase1_dir / "F-provider-tv-after-one-1600.png"))
+    for _ in range(8):
+        if provider_controls.last.is_disabled():
+            break
+        provider_controls.last.click()
+        page.wait_for_timeout(550)
+    provider_tv.screenshot(path=str(phase1_dir / "G-provider-tv-after-several-1600.png"))
+    prev_at_end = provider_controls.first.bounding_box()
+    next_at_end = provider_controls.last.bounding_box()
+    assert prev_at_end is not None and next_at_end is not None
+    assert prev_at_end["x"] == pytest.approx(prev_x_before, abs=1)
+    assert next_at_end["x"] == pytest.approx(next_x_before, abs=1)
+    assert provider_controls.last.is_disabled()
+    page.screenshot(path=str(phase1_dir / "H-provider-tv-end-1600.png"), full_page=False)
+    page.wait_for_timeout(550)
+    for _ in range(8):
+        if provider_controls.first.is_disabled():
+            break
+        provider_controls.first.click()
+        page.wait_for_timeout(550)
+    prev_at_start = provider_controls.first.bounding_box()
+    next_at_start = provider_controls.last.bounding_box()
+    assert prev_at_start is not None and next_at_start is not None
+    assert prev_at_start["x"] == pytest.approx(prev_x_before, abs=1)
+    assert next_at_start["x"] == pytest.approx(next_x_before, abs=1)
+    assert provider_controls.first.is_disabled()
+    page.screenshot(path=str(phase1_dir / "I-provider-tv-back-start-1600.png"), full_page=False)
     page.evaluate("window.scrollTo(0, 0)")
     provider_selector = page.locator(".movie-provider-selector").first
     provider_selector.locator("summary").click()
@@ -271,8 +321,12 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     )
     provider_selector.locator("summary").click()
     page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+    page.wait_for_timeout(250)
     nav_top = page.locator(".movie-v2-nav").bounding_box()["y"]
+    nav_after_scroll = page.locator(".movie-v2-nav").bounding_box()
     assert 120 <= nav_top <= 140
+    assert nav_after_scroll is not None
+    assert nav_after_scroll["x"] == pytest.approx(nav_x_before, abs=1)
     page.evaluate("window.scrollTo(0, 0)")
     hero_dots = page.locator("[data-home-hero-dot]")
     assert hero_dots.count() >= 2
@@ -310,6 +364,9 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         locator = page.locator(selector).first
         assert locator.is_visible(), f"missing screenshot surface: {selector}"
         locator.screenshot(path=str(phase1_dir / filename))
+    page.locator("[data-discovery-rail='trending_movies']").first.screenshot(
+        path=str(phase1_dir / "J-generic-rail-1600.png")
+    )
     page.screenshot(path=str(phase1_dir / "home-desktop.png"), full_page=True)
     page.get_by_role("link", name="Browse titles available on Netflix").click()
     page.wait_for_url(f"{live_app}/movies?provider=8&region=US")
@@ -349,7 +406,11 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.goto(f"{live_app}/movies/{anchor_id}")
     page.locator(".movie-detail__related-rail").wait_for()
     page.screenshot(path=str(phase1_dir / "H-detail-1600.png"), full_page=False)
+    page.screenshot(path=str(phase1_dir / "C-movie-detail-top-1600.png"), full_page=False)
     page.locator(".movie-detail__content--secondary").scroll_into_view_if_needed()
+    page.locator(".movie-detail__cast").screenshot(
+        path=str(phase1_dir / "K-cast-more-like-this-1600.png")
+    )
     page.screenshot(path=str(phase1_dir / "I-detail-lower-1600.png"), full_page=False)
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(f"{live_app}/movies?because={anchor_id}")
@@ -363,6 +424,7 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         page.wait_for_timeout(250)
         assert rail.evaluate("element => element.scrollLeft") > before
     page.screenshot(path=str(phase1_dir / "O-home-mobile.png"), full_page=True)
+    page.screenshot(path=str(phase1_dir / "L-home-mobile-390.png"), full_page=False)
     page.goto(f"{live_app}/movies/{anchor_id}")
     page.locator(".movie-detail__related-rail").wait_for()
     assert page.evaluate(

@@ -127,7 +127,7 @@ captured from the disposable seeded browser fixtures at
 | --- | --- | --- | --- | --- |
 | A | Home hero + global/local navigation | 1600 | PASS | `A-home-1600.png`; canvas starts at a 48px gutter and the hero fills it |
 | B | Continue Watching / Home rails | 1600 | PASS | `B-home-rails-1600.png`; rails use the same wide left edge |
-| C | Home after scroll | 1600 | PASS | `C-home-after-scroll-1600.png`; sticky local nav remains in the header-safe band |
+| C | Home after scroll | 1600 | PASS | `C-home-after-scroll-1600.png`; fixed local nav remains in the header-safe band |
 | D | Library canvas | 1600 | PASS | `D-library-1600.png`; title, filters, and grid share the wide canvas |
 | E | Library filters + grid | 1600 | PASS | `E-library-filters-1600.png`; no narrow centered strip |
 | F | TV Series on provider rail | 1600 | PASS | `F-provider-tv-1600.png`; controls are left-middle/right-middle overlays |
@@ -149,7 +149,41 @@ wrappers added their own max-widths. The correction is one scoped
 Movies-only top padding, and explicit full-width detail wrappers. No global
 Dragon layout rule was changed.
 
-The shared `data-movie-rail` primitive now mounts its controls inside the rail;
-CSS centers the overlay on the media viewport, anchors the first control to the
-left edge, and the second to the right edge. Controls still disable at the true ends and
-retain touch, keyboard, reduced-motion, and chunked-scroll behavior.
+The shared `data-movie-rail` primitive now wraps each scroller in a stable
+`.movie-rail-shell`; its controls are siblings of the scroller, centered on the
+card viewport, and anchored to its left and right edges. Controls still disable
+at the true ends and retain touch, keyboard, reduced-motion, and chunked-scroll
+behavior.
+
+## Phase 32 fixed local navigation / stable rail controls — 2026-08-28
+
+This pass is presentation-only. The local Movies navigation is moved to a
+viewport overlay so the cinematic shell cannot establish a scrolling containing
+block; it stays below the unchanged global header and contributes no document
+flow row. Every shared rail now owns a stable shell, with controls outside the
+scrolling track. No backend, playback, provider, snapshot, or schema behavior
+was changed.
+
+| ID | Surface / assertion | Viewport | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| A | Home top: hero plus local overlay nav | 1600 | PASS | `A-home-1600.png` |
+| B | Home after document scroll | 1600 | PASS | `B-home-after-scroll-1600.png` |
+| C | Movie detail top | 1600 | PASS | `C-movie-detail-top-1600.png` |
+| D | Series detail top | 1600 | PASS | `J-series-detail-1600.png` |
+| E | TV provider rail at start | 1600 | PASS | `E-provider-tv-start-1600.png` |
+| F | Same rail after one next click | 1600 | PASS | `F-provider-tv-after-one-1600.png` |
+| G | Same rail after repeated next clicks | 1600 | PASS | `G-provider-tv-after-several-1600.png` |
+| H | True rail end: next disabled | 1600 | PASS | `H-provider-tv-end-1600.png` |
+| I | Returned rail start: previous disabled | 1600 | PASS | `I-provider-tv-back-start-1600.png` |
+| J | Generic discovery rail | 1600 | PASS | `J-generic-rail-1600.png` |
+| K | Cast / related detail surface | 1600 | PASS | `K-cast-more-like-this-1600.png` |
+| L | Compact mobile home nav and hero | 390 | PASS | `L-home-mobile-390.png` |
+
+The browser assertions verify the nav has `position: fixed`, stays at the same
+viewport coordinates after document scrolling, and does not occupy a separate
+flow band. They also verify rail controls are siblings of the scroller, remain
+at stable edge coordinates through multiple clicks, and reach disabled states at
+both true ends. The focused Movies suite completed with 72 passing tests; the
+browser fixture collected no page errors. Existing baseline console noise (the
+known favicon 404 and CSP warnings from unrelated legacy hooks) remains outside
+this presentation-only pass.

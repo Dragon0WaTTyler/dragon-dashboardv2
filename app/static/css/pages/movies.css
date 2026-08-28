@@ -1645,10 +1645,11 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   max-width: none;
 }
 
-/* Shared rail controls are edge overlays, vertically aligned to the media
-   viewport. The primitive mounts them inside each rail so 50% is exact. */
+/* Shared rail controls use a stable shell: scroller and controls are siblings,
+   so scrolling the card track can never move the buttons. */
 .movies-v2 .movie-rail-section,
-.movies-v2 .movie-rail { position: relative; }
+.movies-v2 .movie-rail-shell { position: relative; }
+.movies-v2 .movie-rail-shell { width: 100%; min-width: 0; }
 .movies-v2 .movie-rail__controls {
   position: absolute;
   inset-inline: 0;
@@ -1686,6 +1687,12 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movies-v2 .movie-rail__control { width: 38px; height: 38px; }
   .movies-v2 .movie-rail__control:first-child { left: 2px; }
   .movies-v2 .movie-rail__control:last-child { right: 2px; }
+}
+
+.movies-v2 .movie-personal-hero { margin-top: 0; }
+@media (max-width: 720px) {
+  .movies-v2 .movie-personal-hero { padding-top: clamp(80px, 21vw, 96px); }
+  .movies-v2--library .movies-page-heading { padding-top: 52px; }
 }
 
 /* Phase 1 availability browsing and shared rail controls. */
@@ -2506,4 +2513,43 @@ body.is-player-embed-fullscreen { overflow: hidden; }
   .movies-v2 .movie-personal-hero { min-height: 560px; border-radius: 0; }
   .movie-personal-hero__controls { justify-content: center; }
   .movies-page-heading { display: grid; align-items: start; }
+}
+
+/* Final nav overlay contract (must remain after legacy correction blocks). */
+html body .movies-v2 .movie-v2-nav {
+  position: fixed;
+  top: calc(72px + 48px + 12px);
+  right: clamp(16px, 3vw, 48px);
+  z-index: 30;
+  width: max-content;
+  max-width: min(680px, calc(100vw - 32px));
+  margin: 0;
+}
+html body > .movie-v2-nav--overlay {
+  position: fixed;
+  top: calc(72px + 48px + 12px);
+  right: clamp(16px, 3vw, 48px);
+  z-index: 30;
+  width: max-content;
+  max-width: min(680px, calc(100vw - 32px));
+  margin: 0;
+}
+@media (max-width: 720px) {
+  html body .movies-v2 .movie-v2-nav {
+    top: 72px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-width: none;
+  }
+  html body > .movie-v2-nav--overlay {
+    top: 72px;
+    right: 16px;
+    left: 16px;
+    width: auto;
+    max-width: none;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  html body > .movie-v2-nav--overlay::-webkit-scrollbar { display: none; }
 }
