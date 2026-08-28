@@ -92,6 +92,36 @@ def test_canonical_detail_contract_keeps_catalog_shared_and_personal_state_separ
     }
 
 
+def test_series_contract_keeps_saved_progress_without_losing_discovery_catalog_fields():
+    discovery = {
+        "tmdb_id": 46952,
+        "media_type": "tv",
+        "title": "The Blacklist",
+        "poster_url": "https://image.example/poster.jpg",
+        "genres": [{"name": "Crime"}],
+        "cast": [{"name": "Actor"}],
+        "seasons": [{"season_number": 1, "name": "Season 1", "episode_count": 22}],
+        "tmdb_detail": {
+            "backdrop_url": "https://image.example/backdrop.jpg",
+            "trailers": [{"name": "Trailer", "url": "https://www.youtube.com/watch?v=tv"}],
+            "reviews": [{"author": "Member", "content": "Review"}],
+            "similar": [{"tmdb_id": 47000, "media_type": "tv", "title": "Related"}],
+        },
+    }
+    saved = canonical_detail_presentation(
+        {**discovery, "id": "mov_tv", "status": "watching", "progress": {"percent": 20}},
+        is_saved=True,
+        playback={"can_play": True},
+    )
+    preview = canonical_detail_presentation(discovery, is_saved=False, playback={"can_preview": True})
+
+    for field in ("backdrop_url", "poster_url", "genres", "cast", "trailers", "reviews", "related", "seasons"):
+        assert saved["catalog"][field] == preview["catalog"][field]
+    assert saved["personal"]["is_saved"] is True
+    assert saved["personal"]["progress"] == {"percent": 20}
+    assert preview["personal"]["is_saved"] is False
+
+
 def test_saved_movie_detail_renders_the_shared_catalog_component(app, admin_user):
     with app.app_context():
         movie = Movie(
@@ -124,3 +154,39 @@ def test_saved_movie_detail_renders_the_shared_catalog_component(app, admin_user
     assert page.count('data-detail-catalog-identity') == 1
     assert page.count('data-detail-catalog-modules') == 1
     assert "Related detail" in page
+
+
+def test_discovery_movie_and_series_use_the_same_canonical_shell(app, admin_user):
+    class DiscoveryProvider:
+        configured = True
+
+        def details(self, media_type, tmdb_id):
+            return {
+                "tmdb_id": tmdb_id,
+                "media_type": media_type,
+                "type_label": "Series" if media_type == "tv" else "Movie",
+                "title": "Discovery Detail",
+                "poster_url": "https://image.example/poster.jpg",
+                "genres": [{"name": "Drama"}],
+                "cast": [{"name": "Actor"}],
+                "seasons": [{"season_number": 1, "name": "Season 1", "episode_count": 4}],
+                "tmdb_detail": {
+                    "backdrop_url": "https://image.example/backdrop.jpg",
+                    "trailers": [{"name": "Trailer", "url": "https://www.youtube.com/watch?v=discover"}],
+                    "similar": [{"tmdb_id": tmdb_id + 1, "media_type": media_type, "title": "Related"}],
+                },
+            }
+
+    app.extensions["dragon_tmdb_catalog_provider"] = DiscoveryProvider()
+    for media_type, tmdb_id, expected_kind in (
+        ("movie", 611, "movie"),
+        ("tv", 46952, "series"),
+    ):
+        with app.test_request_context(f"/movies/discover/{media_type}/{tmdb_id}"):
+            login_user(db.session.get(User, 1))
+            page = app.view_functions["movies.discover"](media_type, tmdb_id)
+
+        assert f'data-canonical-detail="{expected_kind}"' in page
+        assert page.count('data-detail-catalog-identity') == 1
+        assert page.count('data-detail-catalog-modules') == 1
+        assert "Watch options &amp; sources" in page

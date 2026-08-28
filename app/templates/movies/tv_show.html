@@ -1,101 +1,19 @@
-{% extends "layouts/app.html" %}
+{% extends "movies/detail_shell.html" %}
 {% from "components/ui.html" import badge %}
-{% from "movies/components/detail_primitives.html" import catalog_identity, catalog_modules, episode_card %}
-{% block title %}{{ movie.title }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-series-cinematic-1">{% endblock %}
+{% from "movies/components/detail_primitives.html" import episode_card %}
 {% block scripts %}<script src="{{ url_for('static', filename='js/movies.js') }}?v=movies-v2-series-rails-1" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script>{% endblock %}
-{% block content %}
-<div class="movies-v2 movies-v2--detail movies-v2--discover-detail movies-v2--tv movies-v2--tv-show" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
-<div class="movies-v2__atmosphere" aria-hidden="true"></div>
-<nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a><a href="{{ url_for('movies.shows') }}" aria-current="page">Shows</a><a href="{{ url_for('movies.library') }}">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
-<a class="back-link" href="{{ url_for('movies.index') }}">← Back to movies</a>
-<article class="movie-detail movie-discover-hero movie-cinematic-hero">
-  {% if movie.backdrop_url or movie.poster_url %}<div class="movie-detail__backdrop movie-discover-hero__art" aria-hidden="true"><img src="{{ movie.backdrop_url or movie.poster_url }}" alt=""></div>{% endif %}
-  <div class="movie-detail__poster movie-discover-hero__poster" data-media-frame>
-    {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
-  </div>
-  <div class="movie-detail__content movie-detail__content--hero movie-discover-hero__content tv-series-hero">
-    {% call catalog_identity(presentation, 'SERIES') %}
-      <p class="movie-discover-hero__meta"><span>{{ workspace.catalog.total_seasons or workspace.seasons|length or '—' }} seasons</span>{% if workspace.catalog.total_episodes %}<span>{{ workspace.catalog.total_episodes }} episodes</span>{% endif %}{% if movie.tmdb_rating is not none %}<span>★ {{ '%.1f'|format(movie.tmdb_rating) }}</span>{% endif %}{% if movie.genres %}<span>{{ movie.genres|map(attribute='name')|list|join(' · ') }}</span>{% endif %}</p>
-      <div class="tv-series-hero__state">{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }} · In your library{% if movie.is_favorite %} · Favorite{% endif %}</div>
-      <div class="movie-detail__quick-actions">
-        {% if workspace.resume_target %}<a class="button button--primary" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.resume_target.season, episode_number=workspace.resume_target.episode) }}">{{ 'Resume' if workspace.resume_target.mode in ['resume', 'current'] else 'Open next episode' }}</a>{% elif workspace.seasons %}<a class="button button--primary" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=(workspace.seasons|selectattr('season_number', 'gt', 0)|map(attribute='season_number')|first or workspace.seasons[0].season_number)) }}">Play series</a>{% endif %}
-        {% if movie.trailers %}<a class="button button--secondary" href="{{ movie.trailers[0].url }}" rel="noreferrer">Trailer</a>{% endif %}
-        {% if workspace.seasons %}<a class="button button--secondary" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=(workspace.seasons|selectattr('season_number', 'gt', 0)|map(attribute='season_number')|first or workspace.seasons[0].season_number)) }}">Watch options</a>{% endif %}
-        <form method="post" action="{{ url_for('movies.update_favorite', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="favorite" value="{{ '0' if movie.is_favorite else '1' }}"><button class="button button--quiet" type="submit">{{ 'Remove favorite' if movie.is_favorite else 'Favorite' }}</button></form>
-        {% if custom_lists %}<form method="post" action="{{ url_for('movies.add_movie_to_selected_custom_list', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="visually-hidden" for="custom-list-{{ movie.id }}">Custom list</label><select id="custom-list-{{ movie.id }}" name="custom_list_id">{% for custom_list in custom_lists %}<option value="{{ custom_list.id }}">{{ custom_list.title }}</option>{% endfor %}</select><button class="button button--quiet" type="submit">Add to list</button></form>{% endif %}
-      </div>
-      {% if workspace.resume_target %}<p class="tv-series-resume-context"><strong>Resume S{{ '%02d'|format(workspace.resume_target.season) }}E{{ '%02d'|format(workspace.resume_target.episode) }}</strong>{% if workspace.resume_target.progress %} · {{ workspace.resume_target.progress.percent }}% watched · {{ (workspace.resume_target.progress.remaining_seconds // 60) }} min remaining{% endif %}</p>{% endif %}
-      <details class="movie-detail__admin-tools"><summary>Catalog tools</summary><form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh series details</button></form></details>
-    {% endcall %}
-  </div>
-</article>
-<article class="movie-detail__content movie-detail__content--secondary movie-discover-detail">
-    <section class="detail-section movie-discover-detail__overview tv-series-overview" aria-labelledby="tv-overview-title">
-      <span class="eyebrow">About this series</span><h2 id="tv-overview-title">Overview</h2>
-      <dl class="definition-grid">
-        <div><dt>Rating</dt><dd>{{ '%.1f / 10'|format(movie.tmdb_rating) if movie.tmdb_rating is not none else 'Unknown' }}</dd></div>
-        <div><dt>Seasons</dt><dd>{{ workspace.catalog.total_seasons or workspace.seasons|length or 'Unknown' }}</dd></div>
-        <div><dt>Episodes</dt><dd>{{ workspace.catalog.total_episodes or 'Unknown' }}</dd></div>
-        <div><dt>Watched</dt><dd>{{ workspace.watched_episodes }} episodes</dd></div>
-        {% if movie.original_language %}<div><dt>Original language</dt><dd>{{ movie.original_language|upper }}</dd></div>{% endif %}
-        {% if movie.countries %}<div><dt>Country</dt><dd>{{ movie.countries|join(', ') }}</dd></div>{% endif %}
-      </dl>
-      {% if movie.release_date or movie.production_companies or movie.provider_availability %}<details class="movie-detail__enrichment"><summary>More details</summary><div class="movie-detail__enrichment-grid">{% if movie.release_date %}<div><span class="eyebrow">First air date</span><strong>{{ movie.release_date }}</strong></div>{% endif %}{% if movie.production_companies %}<div><span class="eyebrow">Studio / network</span><strong>{{ movie.production_companies|map(attribute='name')|join(', ') }}</strong></div>{% endif %}{% if movie.provider_availability %}<div><span class="eyebrow">Streaming availability</span><strong>{{ movie.provider_availability|map(attribute='name')|join(', ') }}</strong><small>Metadata only · not a Dragon playback source</small></div>{% endif %}</div></details>{% endif %}
-    </section>
-    {% if workspace.resume_target %}<section class="detail-section tv-season-summary tv-series-resume-strip"><div><span class="eyebrow">{{ 'Continue where you stopped' if workspace.resume_target.mode in ['resume', 'current'] else 'Up next' }}</span><h2>Season {{ workspace.resume_target.season }}, Episode {{ workspace.resume_target.episode }}</h2><p>{{ workspace.resume_target.name }}</p></div><div class="tv-progress-inline">{% if workspace.resume_target.progress %}<progress class="progress-track" value="{{ workspace.resume_target.progress.percent }}" max="100">{{ workspace.resume_target.progress.percent }}%</progress>{% endif %}<div class="tv-season-summary__meta">{% if workspace.resume_target.progress %}<span>{{ workspace.resume_target.progress.percent }}% watched</span>{% else %}<span>Ready to open the next episode route.</span>{% endif %}</div></div><div class="tv-season-summary__actions"><a class="button button--primary" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.resume_target.season, episode_number=workspace.resume_target.episode) }}">{{ 'Continue where you stopped' if workspace.resume_target.mode in ['resume', 'current'] else 'Open next episode' }}</a></div></section>{% endif %}
-    <section class="detail-section tv-series-seasons" aria-labelledby="tv-seasons-title">
-      <div class="movie-release-browser__header">
-        <div><span class="eyebrow">Season browser</span><h2 id="tv-seasons-title">Seasons</h2><p class="muted">Choose a season to see its episodes without leaving this series.</p></div>
-      </div>
-      {% if workspace.seasons|length == 1 and workspace.seasons[0].season_number > 0 %}
-      {% set only_season = workspace.seasons[0] %}
-      <div class="tv-season-single-summary">
-        <div><span class="eyebrow">Selected season · Miniseries</span><h3>{{ only_season.name or 'Season ' ~ only_season.season_number }}</h3></div>
-        <div><strong>{{ only_season.episode_count }} Episodes</strong><span>{{ only_season.completed_episode_count }}/{{ only_season.episode_count }} watched</span></div>
-        <div><strong>{{ only_season.completion_percent }}% complete</strong><progress class="progress-track" value="{{ only_season.completion_percent }}" max="100">{{ only_season.completion_percent }}%</progress></div>
-      </div>
-      {% else %}
-      <div class="tv-season-grid">
-        {% for season in workspace.seasons %}
-        <a class="tv-season-card{% if selected_season_workspace and selected_season_workspace.season.season_number == season.season_number %} is-active{% endif %}" href="{{ url_for('movies.detail', movie_id=movie.id, season=season.season_number) }}#tv-season-episodes"{% if selected_season_workspace and selected_season_workspace.season.season_number == season.season_number %} aria-current="true"{% endif %}>
-          <span class="tv-season-card__poster">
-            {% if season.poster_url %}<img src="{{ season.poster_url }}" alt="{{ season.name }}" loading="lazy" width="240" height="360">{% else %}<span class="media-fallback" aria-hidden="true">S{{ season.season_number }}</span>{% endif %}
-          </span>
-          <div class="tv-season-card__copy">
-            <span class="eyebrow">{{ 'Specials' if season.is_specials else 'Season ' ~ season.season_number }}</span>
-            <h3>{{ season.name }}</h3>
-            <p>{{ season.episode_count }} episodes{% if season.air_date %} · {{ season.air_date }}{% endif %}</p>
-          </div>
-          <div class="tv-progress-inline">
-            <progress class="progress-track" value="{{ season.completion_percent }}" max="100">{{ season.completion_percent }}%</progress>
-            <div class="tv-season-card__stats">
-              <span>{{ season.completed_episode_count }} watched</span>
-              <span>{{ season.available_episode_count }} local sources</span>
-              <span>{{ season.completion_percent }}% complete</span>
-            </div>
-          </div>
-        </a>
-        {% endfor %}
-      </div>
-      {% endif %}
-    </section>
-    {% if selected_season_workspace %}
-    <section id="tv-season-episodes" class="detail-section tv-series-episode-preview" aria-labelledby="tv-season-episodes-title">
-      <div class="movie-release-browser__header">
-        <div><span class="eyebrow">Episode browser</span><h2 id="tv-season-episodes-title">{{ selected_season_workspace.season.name or ('Season ' ~ selected_season_workspace.season.season_number) }}</h2><p class="muted">Play or resume an episode without leaving the series.</p></div>
-        <a class="button button--quiet" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=selected_season_workspace.season.season_number) }}">Open season page</a>
-      </div>
-      <div class="tv-episode-grid">
-        {% for episode in selected_season_workspace.episodes %}
-        {{ episode_card(movie.id, selected_season_workspace.season.season_number, episode, selected_season_workspace.resume_target and selected_season_workspace.resume_target.episode == episode.episode_number) }}
-        {% endfor %}
-      </div>
-    </section>
-    {% endif %}
-    {{ catalog_modules(presentation) }}
-    <section class="detail-section tv-series-watch-options" aria-labelledby="tv-watch-options-title"><span class="eyebrow">Sources</span><h2 id="tv-watch-options-title">Watch options</h2><p class="muted">Choose an episode to see its configured playback sources and optional Jackett releases. Personal progress stays attached to the selected episode.</p>{% if selected_season_workspace %}<a class="button button--quiet" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=selected_season_workspace.season.season_number) }}">Open season watch options</a>{% endif %}</section>
-  </div>
-</article>
-</div>
+{% block hero_meta %}<span>{{ workspace.catalog.total_seasons or workspace.seasons|length or '—' }} seasons</span>{% if workspace.catalog.total_episodes %}<span> · {{ workspace.catalog.total_episodes }} episodes</span>{% endif %}{% if presentation.catalog.rating is not none %}<span> · ★ {{ '%.1f'|format(presentation.catalog.rating) }}</span>{% endif %}{% if presentation.catalog.genre_names %}<span> · {{ presentation.catalog.genre_names|join(' · ') }}</span>{% endif %}{% endblock %}
+{% block hero_actions %}
+  {% if workspace.resume_target %}<a class="button button--primary" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.resume_target.season, episode_number=workspace.resume_target.episode) }}">{{ 'Resume' if workspace.resume_target.mode in ['resume', 'current'] else 'Open next episode' }}</a>{% elif workspace.seasons %}<a class="button button--primary" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=(workspace.seasons|selectattr('season_number', 'gt', 0)|map(attribute='season_number')|first or workspace.seasons[0].season_number)) }}">Play series</a>{% endif %}
+  {% if presentation.catalog.trailers %}<a class="button button--secondary" href="{{ presentation.catalog.trailers[0].url }}" rel="noreferrer">Trailer</a>{% endif %}
+  {% if workspace.seasons %}<a class="button button--secondary" href="#tv-season-episodes">Episodes</a>{% endif %}
+  <form method="post" action="{{ url_for('movies.update_favorite', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="favorite" value="{{ '0' if movie.is_favorite else '1' }}"><button class="button button--quiet" type="submit">{{ 'Remove favorite' if movie.is_favorite else 'Favorite' }}</button></form>
 {% endblock %}
+{% block hero_context %}<div class="tv-series-hero__state">{{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }} · In your library{% if movie.is_favorite %} · Favorite{% endif %}</div>{% if workspace.resume_target %}<p class="tv-series-resume-context"><strong>Resume S{{ '%02d'|format(workspace.resume_target.season) }}E{{ '%02d'|format(workspace.resume_target.episode) }}</strong>{% if workspace.resume_target.progress %} · {{ workspace.resume_target.progress.percent }}% watched · {{ (workspace.resume_target.progress.remaining_seconds // 60) }} min remaining{% endif %}</p>{% endif %}<details class="movie-detail__admin-tools"><summary>Catalog tools</summary><form method="post" action="{{ url_for('movies.refresh_metadata', movie_id=movie.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="button button--quiet" type="submit">Refresh series details</button></form></details>{% endblock %}
+{% block series_overview_facts %}<div><dt>Seasons</dt><dd>{{ workspace.catalog.total_seasons or workspace.seasons|length or 'Unknown' }}</dd></div><div><dt>Episodes</dt><dd>{{ workspace.catalog.total_episodes or 'Unknown' }}</dd></div><div><dt>Watched</dt><dd>{{ workspace.watched_episodes }} episodes</dd></div>{% endblock %}
+{% block detail_primary %}
+  {% if workspace.resume_target %}<section class="detail-section tv-season-summary tv-series-resume-strip"><div><span class="eyebrow">{{ 'Continue where you stopped' if workspace.resume_target.mode in ['resume', 'current'] else 'Up next' }}</span><h2>Season {{ workspace.resume_target.season }}, Episode {{ workspace.resume_target.episode }}</h2><p>{{ workspace.resume_target.name }}</p></div><div class="tv-progress-inline">{% if workspace.resume_target.progress %}<progress class="progress-track" value="{{ workspace.resume_target.progress.percent }}" max="100">{{ workspace.resume_target.progress.percent }}%</progress>{% endif %}</div><a class="button button--primary" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.resume_target.season, episode_number=workspace.resume_target.episode) }}">Continue</a></section>{% endif %}
+  <section class="detail-section tv-series-seasons" aria-labelledby="tv-seasons-title"><div class="movie-release-browser__header"><div><span class="eyebrow">Season browser</span><h2 id="tv-seasons-title">Seasons</h2><p class="muted">Choose a season to see its episodes without leaving this series.</p></div></div>{% if workspace.seasons|length == 1 and workspace.seasons[0].season_number > 0 %}{% set only_season = workspace.seasons[0] %}<div class="tv-season-single-summary"><div><span class="eyebrow">Selected season · Miniseries</span><h3>{{ only_season.name or 'Season ' ~ only_season.season_number }}</h3></div><div><strong>{{ only_season.episode_count }} Episodes</strong><span>{{ only_season.completed_episode_count }}/{{ only_season.episode_count }} watched</span></div><div><strong>{{ only_season.completion_percent }}% complete</strong><progress class="progress-track" value="{{ only_season.completion_percent }}" max="100">{{ only_season.completion_percent }}%</progress></div></div>{% else %}<div class="tv-season-grid">{% for season in workspace.seasons %}<a class="tv-season-card{% if selected_season_workspace and selected_season_workspace.season.season_number == season.season_number %} is-active{% endif %}" href="{{ url_for('movies.detail', movie_id=movie.id, season=season.season_number) }}#tv-season-episodes"><span class="tv-season-card__poster">{% if season.poster_url %}<img src="{{ season.poster_url }}" alt="{{ season.name }}" loading="lazy" width="240" height="360">{% else %}<span class="media-fallback" aria-hidden="true">S{{ season.season_number }}</span>{% endif %}</span><div class="tv-season-card__copy"><span class="eyebrow">{{ 'Specials' if season.is_specials else 'Season ' ~ season.season_number }}</span><h3>{{ season.name }}</h3><p>{{ season.episode_count }} episodes{% if season.air_date %} · {{ season.air_date }}{% endif %}</p></div><div class="tv-progress-inline"><progress class="progress-track" value="{{ season.completion_percent }}" max="100">{{ season.completion_percent }}%</progress><div class="tv-season-card__stats"><span>{{ season.completed_episode_count }} watched</span><span>{{ season.available_episode_count }} local sources</span><span>{{ season.completion_percent }}% complete</span></div></div></a>{% endfor %}</div>{% endif %}</section>
+  {% if selected_season_workspace %}<section id="tv-season-episodes" class="detail-section tv-series-episode-preview" aria-labelledby="tv-season-episodes-title"><div class="movie-release-browser__header"><div><span class="eyebrow">Episode browser</span><h2 id="tv-season-episodes-title">{{ selected_season_workspace.season.name or ('Season ' ~ selected_season_workspace.season.season_number) }}</h2><p class="muted">Play or resume an episode without leaving the series.</p></div><a class="button button--quiet" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=selected_season_workspace.season.season_number) }}">Open season page</a></div><div class="tv-episode-grid">{% for episode in selected_season_workspace.episodes %}{{ episode_card(movie.id, selected_season_workspace.season.season_number, episode, selected_season_workspace.resume_target and selected_season_workspace.resume_target.episode == episode.episode_number) }}{% endfor %}</div></section>{% endif %}
+{% endblock %}
+{% block detail_after_modules %}<section class="detail-section tv-series-watch-options" aria-labelledby="tv-watch-options-title"><span class="eyebrow">Sources</span><h2 id="tv-watch-options-title">Watch options</h2><p class="muted">Choose an episode to see its configured playback sources and optional Jackett releases. Personal progress stays attached to the selected episode.</p>{% if selected_season_workspace %}<a class="button button--quiet" href="{{ url_for('movies.tv_season', movie_id=movie.id, season_number=selected_season_workspace.season.season_number) }}">Open season watch options</a>{% endif %}</section>{% endblock %}

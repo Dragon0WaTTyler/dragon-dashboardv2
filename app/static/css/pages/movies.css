@@ -2818,6 +2818,15 @@ html body .movies-v2--tv .tv-series-episode-preview .tv-episode-grid {
   grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 22px 16px;
 }
+/* The canonical detail hero deliberately remains cinematic without reserving
+   an empty screen below short metadata.  Both saved and preview titles use
+   this one vertical rhythm. */
+html body .movies-v2--detail .movie-detail.movie-cinematic-hero {
+  min-height: clamp(430px, 34vw, 560px);
+}
+html body .movies-v2--detail .movie-cinematic-hero .movie-discover-hero__back {
+  position: absolute;
+}
 @media (max-width: 760px) {
   html body .movies-v2 > .movie-now,
   html body .movies-v2 > .movie-provider-browser,
@@ -2828,6 +2837,9 @@ html body .movies-v2--tv .tv-series-episode-preview .tv-episode-grid {
   }
   html body .movies-v2--tv .movie-detail {
     min-height: 500px;
+  }
+  html body .movies-v2--detail .movie-detail.movie-cinematic-hero {
+    min-height: 510px;
   }
   html body .movies-v2--tv .tv-series-hero .tv-season-summary {
     grid-template-columns: 1fr;

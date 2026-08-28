@@ -1,0 +1,42 @@
+{% extends "layouts/app.html" %}
+{% from "movies/components/detail_primitives.html" import catalog_identity, catalog_modules %}
+
+{% block title %}{{ presentation.catalog.title }} · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-canonical-detail-3">{% endblock %}
+
+{% block content %}
+{% set catalog = presentation.catalog %}
+{% set is_series = catalog.media_type == 'tv' %}
+<div class="movies-v2 movies-v2--detail movies-v2--discover-detail{% if is_series %} movies-v2--tv{% endif %}" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}" data-canonical-detail="{{ 'series' if is_series else 'movie' }}">
+  <div class="movies-v2__atmosphere" aria-hidden="true"></div>
+  <nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}"{% if not is_series %} aria-current="page"{% endif %}>Movies</a><a href="{{ url_for('movies.shows') }}"{% if is_series %} aria-current="page"{% endif %}>Shows</a><a href="{{ url_for('movies.library') }}">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
+  <article class="movie-detail movie-discover-hero movie-cinematic-hero" aria-labelledby="detail-title">
+    {% if catalog.backdrop_url or catalog.poster_url %}<div class="movie-detail__backdrop movie-discover-hero__art" aria-hidden="true"><img src="{{ catalog.backdrop_url or catalog.poster_url }}" alt=""></div>{% endif %}
+    <a class="back-link movie-discover-hero__back" href="{{ url_for('movies.index') }}">← Back to movies</a>
+    <div class="movie-detail__poster movie-discover-hero__poster" data-media-frame>{% if catalog.poster_url %}<img data-media-image src="{{ catalog.poster_url }}" alt="Poster for {{ catalog.title }}" width="420" height="630">{% else %}<span class="media-fallback" aria-hidden="true">{{ catalog.title[:1]|upper }}</span>{% endif %}</div>
+    <div class="movie-detail__content movie-detail__content--hero movie-discover-hero__content{% if is_series %} tv-series-hero{% endif %}">
+      {% call catalog_identity(presentation, 'SERIES' if is_series else '', heading_id='detail-title') %}
+        <p class="movie-discover-hero__meta">{% block hero_meta %}{{ [presentation.catalog.runtime_minutes ~ ' min' if presentation.catalog.runtime_minutes else '', '★ ' ~ ('%.1f'|format(presentation.catalog.rating)) if presentation.catalog.rating is not none else '', presentation.catalog.genre_names[:3]|join(' · ')]|select|join(' · ') }}{% endblock %}</p>
+        <div class="movie-detail__quick-actions" aria-label="Primary title actions">{% block hero_actions %}{% endblock %}</div>
+        {% block hero_context %}{% endblock %}
+      {% endcall %}
+    </div>
+  </article>
+  <article class="movie-detail__content movie-detail__content--secondary movie-discover-detail" data-canonical-detail-body>
+    <section class="detail-section movie-discover-detail__overview{% if is_series %} tv-series-overview{% endif %}" aria-labelledby="detail-overview-title">
+      <span class="eyebrow">About this {{ 'series' if is_series else 'title' }}</span><h2 id="detail-overview-title">Overview</h2>
+      <dl class="definition-grid">
+        <div><dt>Rating</dt><dd>{{ '%.1f / 10'|format(catalog.rating) if catalog.rating is not none else 'Unknown' }}</dd></div>
+        {% if is_series %}{% block series_overview_facts %}<div><dt>Seasons</dt><dd>{{ presentation.catalog.seasons|length or 'Unknown' }}</dd></div>{% endblock %}{% else %}<div><dt>Runtime</dt><dd>{{ presentation.catalog.runtime_minutes ~ ' min' if presentation.catalog.runtime_minutes else 'Unknown' }}</dd></div>{% endif %}
+        <div><dt>Genres</dt><dd>{{ catalog.genre_names|join(', ') if catalog.genre_names else 'Unknown' }}</dd></div>
+        {% if catalog.original_language %}<div><dt>Original language</dt><dd>{{ catalog.original_language|upper }}</dd></div>{% endif %}
+        {% if catalog.countries %}<div><dt>Country</dt><dd>{{ catalog.countries|join(', ') }}</dd></div>{% endif %}
+      </dl>
+      {% if catalog.release_date or catalog.production_companies or catalog.budget or catalog.revenue or catalog.provider_availability %}<details class="movie-detail__enrichment"><summary>More details</summary><div class="movie-detail__enrichment-grid">{% if catalog.release_date %}<div><span class="eyebrow">{{ 'First air date' if is_series else 'Release date' }}</span><strong>{{ catalog.release_date }}</strong></div>{% endif %}{% if catalog.production_companies %}<div><span class="eyebrow">Production</span><strong>{{ catalog.production_companies|map(attribute='name')|join(', ') }}</strong></div>{% endif %}{% if catalog.budget %}<div><span class="eyebrow">Budget</span><strong>${{ '{:,}'.format(catalog.budget) }}</strong></div>{% endif %}{% if catalog.revenue %}<div><span class="eyebrow">Revenue</span><strong>${{ '{:,}'.format(catalog.revenue) }}</strong></div>{% endif %}{% if catalog.provider_availability %}<div><span class="eyebrow">Streaming availability</span><strong>{{ catalog.provider_availability|map(attribute='name')|join(', ') }}</strong><small>Metadata only · not a Dragon playback source</small></div>{% endif %}</div></details>{% endif %}
+    </section>
+    {% block detail_primary %}{% endblock %}
+    {{ catalog_modules(presentation) }}
+    {% block detail_after_modules %}{% endblock %}
+  </article>
+</div>
+{% endblock %}
