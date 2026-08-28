@@ -26,6 +26,7 @@ from app.movies.collections import (
 from app.movies.external_library import (
     add_to_library,
     discover_item,
+    hydrate_movie_detail_if_needed,
     import_release,
     notion_movie_provider,
     refresh_movie_metadata,
@@ -840,6 +841,7 @@ def detail(movie_id: str):
     if movie is None:
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
+    movie = hydrate_movie_detail_if_needed(movie)
     if movie.media_type == "tv":
         workspace = tv_show_workspace(movie)
         season_values = [
@@ -925,6 +927,7 @@ def tv_season(movie_id: str, season_number: int):
     if movie is None or movie.media_type != "tv":
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
+    movie = hydrate_movie_detail_if_needed(movie)
     if season_number < 0:
         abort(404)
     workspace = tv_season_workspace(movie, season_number=season_number)
@@ -977,6 +980,7 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
     if movie is None or movie.media_type != "tv":
         abort(404)
     movie = resolve_missing_tmdb_identity(movie)
+    movie = hydrate_movie_detail_if_needed(movie)
     if season_number < 0 or episode_number < 1:
         abort(404)
     workspace = tv_season_workspace(

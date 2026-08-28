@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from app.extensions import db
-from app.movies.models import Movie, MovieProgress
+from app.movies.models import Movie, MovieLibraryEntry, MovieProgress
 
 pytestmark = pytest.mark.browser
 
@@ -221,6 +221,8 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     phase1_dir = evidence_dir
     unified_dir = Path(r"C:\Users\walid\Pictures\movies-v2-unified-detail")
     unified_dir.mkdir(parents=True, exist_ok=True)
+    closure_dir = Path(r"C:\Users\walid\Pictures\movies-v2-library-closure")
+    closure_dir.mkdir(parents=True, exist_ok=True)
     page_errors = []
     page.on("pageerror", lambda error: page_errors.append(str(error)))
     _sign_in(page, live_app)
@@ -387,6 +389,7 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.locator(".movie-discover-detail").screenshot(
         path=str(unified_dir / "J-external-movie-lower-1600.png")
     )
+    page.screenshot(path=str(closure_dir / "P-external-movie.png"), full_page=False)
     page.goto(f"{live_app}/movies/discover/tv/901")
     page.locator(".movie-discover-hero").wait_for()
     page.screenshot(path=str(unified_dir / "K-external-tv-hero-1600.png"), full_page=False)
@@ -394,6 +397,7 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
         page.locator("[data-discover-player]").screenshot(
             path=str(unified_dir / "L-external-tv-preview-1600.png")
         )
+    page.screenshot(path=str(closure_dir / "Q-external-tv.png"), full_page=False)
 
     page.goto(f"{live_app}/movies/{anchor_id}")
     page.locator(".movie-detail__related-rail").wait_for()
@@ -426,12 +430,26 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.locator(".movie-detail__quick-actions").screenshot(
         path=str(unified_dir / "B-local-movie-actions-1600.png")
     )
+    page.screenshot(path=str(closure_dir / "A-local-movie-hero.png"), full_page=False)
+    page.locator(".movie-detail__cast").screenshot(path=str(closure_dir / "B-local-movie-cast.png"))
+    page.locator(".movie-detail__media-rail").screenshot(
+        path=str(closure_dir / "C-local-movie-trailers.png")
+    )
     page.locator(".movie-detail__content--secondary").scroll_into_view_if_needed()
     page.locator(".movie-detail__cast").screenshot(
         path=str(phase1_dir / "K-cast-more-like-this-1600.png")
     )
     page.screenshot(path=str(phase1_dir / "I-detail-lower-1600.png"), full_page=False)
     page.screenshot(path=str(unified_dir / "C-local-movie-lower-1600.png"), full_page=False)
+    page.locator(".movie-detail__related").screenshot(
+        path=str(closure_dir / "D-local-movie-related.png")
+    )
+    page.locator(".movie-detail__content--secondary").screenshot(
+        path=str(closure_dir / "E-local-movie-metadata.png")
+    )
+    page.locator(".movie-detail__quick-actions").screenshot(
+        path=str(closure_dir / "F-local-movie-personal-state.png")
+    )
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(f"{live_app}/movies?because={anchor_id}")
     page.locator(".movie-provider-browser").wait_for()
@@ -482,4 +500,140 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     )
     page.screenshot(path=str(phase1_dir / "AG-library-mobile.png"), full_page=True)
     page.screenshot(path=str(phase1_dir / "O-library-390.png"), full_page=False)
+
+
+def test_chernobyl_series_detail_stays_compact_and_connected(page, live_app, app):
+    poster = _art("CHERNOBYL", "#17283d", "#b9454f")
+    backdrop = _art("REACTOR", "#111d2b", "#5c2839")
+    episodes = {
+        "1": [
+            {
+                "season_number": 1,
+                "episode_number": number,
+                "name": f"Episode {number}",
+                "overview": "A concise episode synopsis.",
+                "still_url": "",
+                "runtime_minutes": 60,
+                "air_date": "2019-05-06",
+            }
+            for number in range(1, 6)
+        ]
+    }
+    metadata = {
+        "tmdb_detail": {
+            "backdrop_url": backdrop,
+            "tagline": "What is the cost of lies?",
+            "original_language": "en",
+            "countries": ["United Kingdom"],
+            "certification": "TV-MA",
+            "tmdb_rating": 9.3,
+            "trailers": [
+                {
+                    "name": "Official Trailer",
+                    "url": "https://www.youtube.com/watch?v=chernobyl",
+                    "official": True,
+                }
+            ],
+            "reviews": [],
+            "similar": [
+                {
+                    "tmdb_id": 87109,
+                    "media_type": "tv",
+                    "title": "Related Series",
+                    "poster_url": poster,
+                    "year": 2020,
+                    "rating": 8.1,
+                }
+            ],
+            "recommendations": [],
+        },
+        "tmdb_enrichment": {
+            "release_date": "2019-05-06",
+            "production_companies": [{"name": "HBO"}],
+            "budget": None,
+            "revenue": None,
+        },
+        "tv_total_seasons": 1,
+        "tv_total_episodes": 5,
+        "tv_seasons": [
+            {
+                "season_number": 1,
+                "name": "Season 1",
+                "episode_count": 5,
+                "air_date": "2019-05-06",
+                "poster_url": poster,
+            }
+        ],
+        "tv_episodes": episodes,
+    }
+    with app.app_context():
+        movie = Movie(
+            title="Chernobyl",
+            normalized_title="chernobyl",
+            media_type="tv",
+            year=2019,
+            status="watching",
+            poster_url=poster,
+            overview="A disaster and its human cost.",
+            genres=[{"name": "Drama"}],
+            cast=[{"name": "Jared Harris", "character": "Valery Legasov", "profile_url": ""}],
+            external_ids={"tmdb_id": "87108", "tmdb_type": "tv"},
+            metadata_state=metadata,
+        )
+        db.session.add(movie)
+        db.session.flush()
+        db.session.add(
+            MovieLibraryEntry(
+                media_key=movie.media_key,
+                movie_id=movie.id,
+                lifecycle_status="watching",
+            )
+        )
+        db.session.add(
+            MovieProgress(
+                movie_id=movie.id,
+                season=1,
+                episode=1,
+                current_seconds=75,
+                duration_seconds=7_200,
+                completed=False,
+            )
+        )
+        db.session.commit()
+        movie_id = movie.id
+
+    closure_dir = Path(r"C:\Users\walid\Pictures\movies-v2-library-closure")
+    closure_dir.mkdir(parents=True, exist_ok=True)
+    page_errors = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    page.set_viewport_size({"width": 1600, "height": 900})
+    _sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}?season=1")
+    page.locator(".tv-series-hero").wait_for()
+    page.locator(".tv-series-episode-preview").wait_for()
+
+    resume = page.locator(".tv-series-hero .tv-season-summary")
+    seasons = page.locator(".tv-series-seasons")
+    episode_section = page.locator(".tv-series-episode-preview")
+    resume_box = resume.bounding_box()
+    seasons_box = seasons.bounding_box()
+    episode_box = episode_section.bounding_box()
+    assert resume_box and seasons_box and episode_box
+    assert 0 <= seasons_box["y"] - (resume_box["y"] + resume_box["height"]) <= 180
+    assert 0 <= episode_box["y"] - (seasons_box["y"] + seasons_box["height"]) <= 180
+    assert page.locator(".tv-episode-tile").count() == 5
+    assert all(
+        (card.bounding_box() or {}).get("width", 0) <= 520
+        for card in page.locator(".tv-episode-tile").all()
+    )
+    assert page.evaluate(
+        "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+    )
+    page.screenshot(path=str(closure_dir / "G-chernobyl-series-hero.png"), full_page=False)
+    resume.screenshot(path=str(closure_dir / "H-chernobyl-resume.png"))
+    seasons.screenshot(path=str(closure_dir / "I-chernobyl-season-selector.png"))
+    episode_section.screenshot(path=str(closure_dir / "J-chernobyl-episode-browser.png"))
+    page.locator(".tv-series-watch-options").screenshot(
+        path=str(closure_dir / "K-chernobyl-lower-series.png")
+    )
     assert not page_errors, page_errors

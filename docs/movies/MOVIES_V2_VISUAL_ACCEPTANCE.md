@@ -221,3 +221,34 @@ widths, fixed-nav stability, rail-control ownership/end states, selected-season
 deep links, player/source selection, subtitles, autoplay-next, and real progress
 resume behavior. `pageerror` remains empty; the known favicon/CSP console noise
 is pre-existing and not introduced by this pass.
+
+## Phase 34 library detail closure — 2026-08-28
+
+This pass closes the local-library detail gap without changing routes, schema,
+playback, providers, Jackett, snapshots, or progress semantics. A local Movie
+or Series detail now performs one bounded server-side TMDB detail hydration only
+when its cached detail bundle is missing or older than 24 hours. Complete warm
+cache entries render without a network call; provider failure rolls back the
+attempt and leaves the local page usable. The existing manual Refresh action is
+still available for an explicit forced refresh.
+
+The Chernobyl fixture also exposed the final series geometry issue: a no-player
+TV show inherited the movie detail `grid-row: 3`, creating an empty implicit row
+and a large gap before Seasons. TV shows now place the secondary content in row
+2, use a compact section rhythm, and render the episode browser as an actual
+responsive grid. Season-page and episode deep-link screenshots assert that the
+surrounding browser remains full-width and connected to the player.
+
+The closure evidence is written outside the repository at
+`C:\Users\walid\Pictures\movies-v2-library-closure`:
+
+| ID | Surface | Result |
+| --- | --- | --- |
+| A–F | Local Movie detail: hero, cast, trailers, related, metadata, personal state | PASS |
+| G–K | Chernobyl Series: hero, resume, seasons, episode browser, lower rails | PASS |
+| L–O | Season page and episode deep-link: browser, source/player, episode context | PASS |
+| P–Q | Stateless external Movie and TV detail | PASS |
+
+The browser checks cover warm/missing/failure hydration behavior, no Chernobyl
+dead space, five compact episode cards, no horizontal overflow, full-width
+episode deep-link context, and an empty `pageerror` collection.

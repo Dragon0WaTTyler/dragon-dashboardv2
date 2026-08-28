@@ -1,6 +1,6 @@
 from app.extensions import db
 from app.movies import routes as movie_routes
-from app.movies.external_library import search_catalog
+from app.movies.external_library import MediaIntegrationError, search_catalog
 from app.movies.models import Movie, MovieProgress
 from app.movies.services import MovieService, tv_season_workspace
 from app.playback.models import PlaybackSource
@@ -1217,6 +1217,182 @@ def test_explicit_detail_refresh_caches_tmdb_sections_without_touching_playback(
             7_200,
             False,
         )
+
+
+def test_local_movie_detail_hydrates_once_without_manual_refresh(authenticated_client, app):
+    class AutoDetailProvider:
+        configured = True
+
+        def __init__(self):
+            self.calls = 0
+
+        def details(self, media_type, tmdb_id):
+            assert (media_type, tmdb_id) == ("movie", 603)
+            self.calls += 1
+            return {
+                "tmdb_id": 603,
+                "media_type": "movie",
+                "title": "The Matrix",
+                "original_title": "The Matrix",
+                "year": 1999,
+                "overview": "A cached synopsis.",
+                "poster_url": "https://image.test/poster.jpg",
+                "runtime_minutes": 136,
+                "genres": [{"name": "Science Fiction"}],
+                "directors": [{"name": "Lana Wachowski"}],
+                "cast": [{"name": "Keanu Reeves", "character": "Neo", "profile_url": ""}],
+                "external_ids": {"tmdb_id": "603", "tmdb_type": "movie"},
+                "tmdb_detail": {
+                    "backdrop_url": "https://image.test/backdrop.jpg",
+                    "tagline": "Welcome to the real world.",
+                    "original_language": "en",
+                    "countries": ["United States"],
+                    "certification": "R",
+                    "tmdb_rating": 8.2,
+                    "trailers": [{"name": "Official Trailer", "url": "https://youtube.test/x"}],
+                    "reviews": [{"author": "TMDB member", "content": "Real review", "url": ""}],
+                    "similar": [
+                        {
+                            "tmdb_id": 604,
+                            "media_type": "movie",
+                            "title": "Similar",
+                            "rating": 7.5,
+                        }
+                    ],
+                    "recommendations": [],
+                },
+                "release_date": "1999-03-31",
+                "production_companies": [{"name": "Warner Bros."}],
+                "budget": 63_000_000,
+                "revenue": 463_000_000,
+            }
+
+    movie_id = add_movie(
+        app,
+        title="The Matrix",
+        normalized_title="the matrix",
+        year=1999,
+        external_ids={"tmdb_id": "603", "tmdb_type": "movie"},
+    )
+    provider = AutoDetailProvider()
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = provider
+
+    first = authenticated_client.get(f"/movies/{movie_id}")
+    second = authenticated_client.get(f"/movies/{movie_id}")
+
+    assert first.status_code == second.status_code == 200
+    html = first.get_data(as_text=True)
+    assert "Keanu Reeves" in html
+    assert "Official Trailer" in html
+    assert "More like this" in html
+    assert provider.calls == 1
+    with app.app_context():
+        hydrated = db.session.get(Movie, movie_id)
+        assert hydrated.metadata_state["tmdb_detail_hydrated_at"]
+
+
+def test_local_detail_hydration_failure_keeps_page_usable(authenticated_client, app):
+    class FailingProvider:
+        configured = True
+
+        def details(self, media_type, tmdb_id):
+            raise MediaIntegrationError("TMDB unavailable")
+
+    movie_id = add_movie(
+        app,
+        title="Offline Local Movie",
+        normalized_title="offline local movie",
+        external_ids={"tmdb_id": "999", "tmdb_type": "movie"},
+    )
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = FailingProvider()
+
+    response = authenticated_client.get(f"/movies/{movie_id}")
+
+    assert response.status_code == 200
+    assert "Offline Local Movie" in response.get_data(as_text=True)
+
+
+def test_local_series_detail_uses_same_automatic_hydration_path(authenticated_client, app):
+    class AutoSeriesProvider:
+        configured = True
+
+        def __init__(self):
+            self.details_calls = 0
+            self.episode_calls = 0
+
+        def details(self, media_type, tmdb_id):
+            assert (media_type, tmdb_id) == ("tv", 87108)
+            self.details_calls += 1
+            return {
+                "tmdb_id": 87108,
+                "media_type": "tv",
+                "title": "Chernobyl",
+                "original_title": "Chernobyl",
+                "year": 2019,
+                "overview": "A disaster and its human cost.",
+                "poster_url": "https://image.test/chernobyl.jpg",
+                "runtime_minutes": 60,
+                "genres": [{"name": "Drama"}],
+                "cast": [{"name": "Jared Harris", "character": "Valery Legasov"}],
+                "seasons": [{"season_number": 1, "name": "Season 1", "episode_count": 5}],
+                "tmdb_detail": {
+                    "backdrop_url": "https://image.test/chernobyl-backdrop.jpg",
+                    "tagline": "What is the cost of lies?",
+                    "original_language": "en",
+                    "countries": ["United Kingdom"],
+                    "certification": "TV-MA",
+                    "tmdb_rating": 9.3,
+                    "trailers": [],
+                    "reviews": [],
+                    "similar": [],
+                    "recommendations": [],
+                },
+                "release_date": "2019-05-06",
+                "production_companies": [{"name": "HBO"}],
+                "budget": None,
+                "revenue": None,
+            }
+
+        def episodes(self, tmdb_id, season_number):
+            self.episode_calls += 1
+            return [
+                {
+                    "tmdb_id": 87108 + number,
+                    "season_number": 1,
+                    "episode_number": number,
+                    "name": f"Episode {number}",
+                    "overview": "Episode synopsis.",
+                    "still_url": "",
+                    "runtime_minutes": 60,
+                    "air_date": "2019-05-06",
+                }
+                for number in range(1, 6)
+            ]
+
+    movie_id = add_movie(
+        app,
+        title="Chernobyl",
+        normalized_title="chernobyl",
+        media_type="tv",
+        year=2019,
+        external_ids={"tmdb_id": "87108", "tmdb_type": "tv"},
+    )
+    provider = AutoSeriesProvider()
+    with app.app_context():
+        app.extensions["dragon_tmdb_catalog_provider"] = provider
+
+    first = authenticated_client.get(f"/movies/{movie_id}")
+    second = authenticated_client.get(f"/movies/{movie_id}")
+
+    assert first.status_code == second.status_code == 200
+    html = first.get_data(as_text=True)
+    assert "Chernobyl" in html
+    assert "Season 1" in html
+    assert "Episode 1" in html
+    assert provider.details_calls == 1
+    assert provider.episode_calls == 1
 
 
 def test_favorite_is_independent_from_lifecycle_and_progress(authenticated_client, app):

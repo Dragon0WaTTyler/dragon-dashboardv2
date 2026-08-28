@@ -3,7 +3,9 @@ from __future__ import annotations
 import re
 import time
 import unicodedata
+from contextlib import suppress
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from flask import current_app
@@ -26,6 +28,25 @@ class LibrarySyncResult:
     library_ids: list[str] | None
     error: str = ""
     synced: bool = False
+
+
+# Detail enrichment is persisted in the existing Movie.metadata_state JSON.  A
+# day is long enough to keep ordinary page loads cache-first while still
+# allowing stale third-party metadata to refresh without a schema change.
+TMDB_DETAIL_CACHE_TTL_SECONDS = 24 * 60 * 60
+_TMDB_DETAIL_KEYS = {
+    "backdrop_url",
+    "tagline",
+    "original_language",
+    "countries",
+    "certification",
+    "tmdb_rating",
+    "trailers",
+    "reviews",
+    "similar",
+    "recommendations",
+}
+_TMDB_ENRICHMENT_KEYS = {"release_date", "production_companies", "budget", "revenue"}
 
 
 def tmdb_catalog_provider() -> TmdbCatalogProvider:
@@ -236,6 +257,135 @@ def resolve_missing_tmdb_identity(movie: Movie) -> Movie:
     return movie
 
 
+def _tmdb_detail_hydration_is_fresh(metadata: dict[str, Any]) -> bool:
+    value = str(metadata.get("tmdb_detail_hydrated_at") or "").strip()
+    if not value:
+        return False
+    try:
+        fetched_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if fetched_at.tzinfo is None:
+        fetched_at = fetched_at.replace(tzinfo=UTC)
+    age = (datetime.now(UTC) - fetched_at).total_seconds()
+    return 0 <= age < TMDB_DETAIL_CACHE_TTL_SECONDS
+
+
+def _tmdb_detail_bundle_is_complete(movie: Movie) -> bool:
+    """Return whether the persisted bundle contains the discovery contract.
+
+    Empty lists are valid TMDB answers, so completeness is based on the
+    presence of keys rather than truthiness.  Legacy rows without a hydration
+    marker are accepted when all sections are present; partial legacy rows are
+    hydrated once and then governed by the same TTL.
+    """
+
+    metadata = dict(movie.metadata_state or {})
+    detail = metadata.get("tmdb_detail")
+    enrichment = metadata.get("tmdb_enrichment")
+    if not isinstance(detail, dict) or not _TMDB_DETAIL_KEYS.issubset(detail):
+        return False
+    if not isinstance(enrichment, dict) or not _TMDB_ENRICHMENT_KEYS.issubset(enrichment):
+        return False
+    if (not isinstance(movie.cast, list) or not movie.cast) and not metadata.get(
+        "tmdb_detail_hydrated_at"
+    ):
+        # A hydrated marker distinguishes a legitimate empty cast response from
+        # an old local row that never received credits.
+        return False
+    return not (
+        movie.media_type == "tv"
+        and (
+            not isinstance(metadata.get("tv_seasons"), list)
+            or not isinstance(metadata.get("tv_episodes"), dict)
+        )
+    )
+
+
+def _store_tmdb_detail(movie: Movie, details: dict[str, Any]) -> None:
+    """Merge one provider response into existing local catalog/cache fields."""
+
+    if details.get("overview"):
+        movie.overview = str(details["overview"])
+    if details.get("poster_url"):
+        movie.poster_url = str(details["poster_url"])
+    if details.get("original_title") and not movie.original_title:
+        movie.original_title = str(details["original_title"])
+    if details.get("year") and not movie.year:
+        movie.year = _optional_int(details["year"])
+    if details.get("genres"):
+        movie.genres = list(details["genres"])
+    if details.get("directors"):
+        movie.directors = list(details["directors"])
+    if details.get("cast"):
+        movie.cast = list(details["cast"])
+    if details.get("runtime_minutes"):
+        movie.runtime_minutes = int(details["runtime_minutes"])
+
+    metadata = dict(movie.metadata_state or {})
+    cached_detail = dict(metadata.get("tmdb_detail") or {})
+    cached_detail.update(dict(details.get("tmdb_detail") or {}))
+    metadata["tmdb_detail"] = cached_detail
+    cached_enrichment = dict(metadata.get("tmdb_enrichment") or {})
+    incoming_enrichment = {
+        "release_date": details.get("release_date"),
+        "production_companies": list(details.get("production_companies") or []),
+        "budget": details.get("budget"),
+        "revenue": details.get("revenue"),
+    }
+    for key, value in incoming_enrichment.items():
+        if key in details or key not in cached_enrichment:
+            cached_enrichment[key] = value
+    metadata["tmdb_enrichment"] = cached_enrichment
+    provider = tmdb_catalog_provider()
+    tmdb_id = _optional_int((movie.external_ids or {}).get("tmdb_id"))
+    if tmdb_id and hasattr(provider, "watch_providers"):
+        with suppress(MediaIntegrationError):
+            metadata["provider_availability"] = provider.watch_providers(
+                movie.media_type, tmdb_id, region="US"
+            )
+    if movie.media_type == "tv" and ("seasons" in details or "episodes_by_season" in details):
+        metadata.update(_tv_metadata_state(details))
+    metadata["tmdb_detail_hydrated_at"] = datetime.now(UTC).isoformat()
+    movie.metadata_state = metadata
+    trailers = list(metadata["tmdb_detail"].get("trailers") or [])
+    if trailers:
+        movie.trailer_url = str(trailers[0].get("url") or movie.trailer_url or "")
+
+
+def hydrate_movie_detail_if_needed(movie: Movie, *, force: bool = False) -> Movie:
+    """Hydrate a local detail bundle through the existing cache-first path.
+
+    This function is deliberately bounded to one detail request per TTL.  A
+    provider failure leaves the Movie row untouched so local/personal state and
+    the page remain usable.
+    """
+
+    metadata = dict(movie.metadata_state or {})
+    if not force and _tmdb_detail_hydration_is_fresh(metadata):
+        return movie
+    if not force and _tmdb_detail_bundle_is_complete(movie):
+        return movie
+    tmdb_id = _optional_int((movie.external_ids or {}).get("tmdb_id"))
+    provider = tmdb_catalog_provider()
+    details_loader = getattr(provider, "details", None)
+    if (
+        not tmdb_id
+        or getattr(provider, "configured", True) is False
+        or not callable(details_loader)
+    ):
+        return movie
+    try:
+        details = details_loader(movie.media_type, tmdb_id)
+        if movie.media_type == "tv":
+            details = _hydrate_tv_details(details)
+        _store_tmdb_detail(movie, details)
+        db.session.commit()
+    except (MediaIntegrationError, AttributeError):
+        db.session.rollback()
+    return movie
+
+
 def refresh_movie_metadata(movie: Movie) -> Movie:
     """Cache an explicit TMDB detail refresh without touching sources or progress."""
 
@@ -248,36 +398,7 @@ def refresh_movie_metadata(movie: Movie) -> Movie:
     details = provider.details(movie.media_type, tmdb_id)
     if movie.media_type == "tv":
         details = _hydrate_tv_details(details)
-    if details.get("overview"):
-        movie.overview = str(details["overview"])
-    if details.get("poster_url"):
-        movie.poster_url = str(details["poster_url"])
-    if details.get("genres"):
-        movie.genres = list(details["genres"])
-    if details.get("directors"):
-        movie.directors = list(details["directors"])
-    if details.get("cast"):
-        movie.cast = list(details["cast"])
-    if details.get("runtime_minutes"):
-        movie.runtime_minutes = int(details["runtime_minutes"])
-    metadata = dict(movie.metadata_state or {})
-    metadata["tmdb_detail"] = dict(details.get("tmdb_detail") or {})
-    metadata["tmdb_enrichment"] = {
-        "release_date": details.get("release_date"),
-        "production_companies": list(details.get("production_companies") or []),
-        "budget": details.get("budget"),
-        "revenue": details.get("revenue"),
-    }
-    if hasattr(provider, "watch_providers"):
-        metadata["provider_availability"] = provider.watch_providers(
-            movie.media_type, tmdb_id, region="US"
-        )
-    if movie.media_type == "tv":
-        metadata.update(_tv_metadata_state(details))
-    movie.metadata_state = metadata
-    trailers = list(metadata["tmdb_detail"].get("trailers") or [])
-    if trailers:
-        movie.trailer_url = str(trailers[0].get("url") or movie.trailer_url or "")
+    _store_tmdb_detail(movie, details)
     db.session.commit()
     return movie
 

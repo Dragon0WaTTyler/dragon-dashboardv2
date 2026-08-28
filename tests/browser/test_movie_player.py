@@ -982,6 +982,8 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     evidence_dir.mkdir(parents=True, exist_ok=True)
     unified_dir = Path(r"C:\Users\walid\Pictures\movies-v2-unified-detail")
     unified_dir.mkdir(parents=True, exist_ok=True)
+    closure_dir = Path(r"C:\Users\walid\Pictures\movies-v2-library-closure")
+    closure_dir.mkdir(parents=True, exist_ok=True)
 
     with app.app_context():
         movie = Movie(
@@ -1194,6 +1196,7 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     page.locator(".tv-series-episode-preview").screenshot(
         path=str(unified_dir / "G-local-series-episodes-1600.png")
     )
+    page.screenshot(path=str(closure_dir / "L-season-page.png"), full_page=False)
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(
         "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
@@ -1230,8 +1233,14 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     assert pack_browser.count() == 1
     assert pack_browser.is_visible()
     assert page.locator("[data-player-pack-episode]").input_value() == "2"
+    detail_box = page.locator(".movie-detail").bounding_box()
+    secondary_box = page.locator(".movie-detail__content--secondary").bounding_box()
+    assert detail_box and secondary_box
+    assert secondary_box["x"] <= detail_box["x"] + 80
+    assert secondary_box["width"] >= detail_box["width"] - 140
     page.locator("[data-player-launch]").wait_for()
     page.screenshot(path=str(evidence_dir / "AC-episode-context.png"), full_page=True)
+    page.locator(".movie-player").screenshot(path=str(closure_dir / "M-episode-deep-link.png"))
     page.locator("[data-player-launch]").click()
     page.locator("[data-movie-player][data-playback-state]").wait_for()
     assert captured == {
@@ -1248,6 +1257,8 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     page.locator("[data-player-selected-episode]").wait_for()
     page.screenshot(path=str(evidence_dir / "AD-episode-player-playing.png"), full_page=True)
     page.screenshot(path=str(evidence_dir / "L-episode-player-1600.png"), full_page=False)
+    page.screenshot(path=str(closure_dir / "N-episode-player-sources.png"), full_page=False)
+    page.locator(".tv-episode-grid").screenshot(path=str(closure_dir / "O-episode-browser.png"))
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate(
         "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
