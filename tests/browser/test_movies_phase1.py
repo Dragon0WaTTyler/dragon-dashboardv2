@@ -69,7 +69,7 @@ class Phase1Provider:
         ]
 
     def details(self, media_type, tmdb_id):
-        return {
+        item = {
             "tmdb_id": tmdb_id,
             "media_type": media_type,
             "type_label": "Movie" if media_type == "movie" else "Series",
@@ -81,6 +81,62 @@ class Phase1Provider:
             "genres": [{"name": "Drama"}],
             "rating": 8.0,
         }
+        if media_type == "tv":
+            item.update(
+                {
+                    "title": "The Blacklist",
+                    "year": 2013,
+                    "original_title": "The Blacklist",
+                    "runtime_minutes": 43,
+                    "cast": [
+                        {
+                            "name": "James Spader",
+                            "character": "Raymond Reddington",
+                            "profile_url": _art("CAST", "#182538", "#7d405f"),
+                        }
+                    ],
+                    "seasons": [
+                        {
+                            "season_number": 1,
+                            "name": "Season 1",
+                            "episode_count": 22,
+                            "poster_url": _art("S1", "#182538", "#7d405f"),
+                        }
+                    ],
+                    "tmdb_detail": {
+                        "tagline": "The blacklist is just the beginning.",
+                        "certification": "TV-14",
+                        "original_language": "en",
+                        "countries": ["United States"],
+                        "tmdb_rating": 8.0,
+                        "trailers": [
+                            {
+                                "name": "Official Trailer",
+                                "url": "https://www.youtube.com/watch?v=blacklist",
+                                "official": True,
+                            }
+                        ],
+                        "reviews": [
+                            {
+                                "author": "TMDB member",
+                                "content": "A rich series review for the comparison surface.",
+                                "url": "",
+                            }
+                        ],
+                        "similar": [
+                            {
+                                "tmdb_id": 902,
+                                "media_type": "tv",
+                                "title": "Similar Series",
+                                "poster_url": _art("SIMILAR", "#182538", "#7d405f"),
+                                "year": 2014,
+                                "rating": 7.7,
+                            }
+                        ],
+                    },
+                }
+            )
+        return item
 
 
 def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
@@ -392,6 +448,15 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.screenshot(path=str(closure_dir / "P-external-movie.png"), full_page=False)
     page.goto(f"{live_app}/movies/discover/tv/901")
     page.locator(".movie-discover-hero").wait_for()
+    assert page.get_by_role("heading", name="The Blacklist").is_visible()
+    assert page.locator(".movie-detail__cast-rail").count() == 1
+    assert page.locator(".movie-detail__media-rail").count() == 1
+    assert page.locator(".movie-detail__reviews").count() == 1
+    assert page.locator(".movie-detail__related-rail").count() == 1
+    page.screenshot(path=str(closure_dir / "A-blacklist-discovery-hero.png"), full_page=False)
+    page.locator(".movie-discover-detail").screenshot(
+        path=str(closure_dir / "C-blacklist-discovery-modules.png")
+    )
     page.screenshot(path=str(unified_dir / "K-external-tv-hero-1600.png"), full_page=False)
     if page.locator("[data-discover-player]").count():
         page.locator("[data-discover-player]").screenshot(
@@ -612,7 +677,7 @@ def test_chernobyl_series_detail_stays_compact_and_connected(page, live_app, app
     page.locator(".tv-series-hero").wait_for()
     page.locator(".tv-series-episode-preview").wait_for()
 
-    resume = page.locator(".tv-series-hero .tv-season-summary")
+    resume = page.locator(".tv-series-resume-strip")
     seasons = page.locator(".tv-series-seasons")
     episode_section = page.locator(".tv-series-episode-preview")
     resume_box = resume.bounding_box()
@@ -629,10 +694,35 @@ def test_chernobyl_series_detail_stays_compact_and_connected(page, live_app, app
     assert page.evaluate(
         "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
     )
-    page.screenshot(path=str(closure_dir / "G-chernobyl-series-hero.png"), full_page=False)
-    resume.screenshot(path=str(closure_dir / "H-chernobyl-resume.png"))
+    page.screenshot(path=str(closure_dir / "B-chernobyl-local-hero.png"), full_page=False)
+    resume.screenshot(path=str(closure_dir / "R-chernobyl-resume.png"))
     seasons.screenshot(path=str(closure_dir / "I-chernobyl-season-selector.png"))
-    episode_section.screenshot(path=str(closure_dir / "J-chernobyl-episode-browser.png"))
+    seasons.screenshot(path=str(closure_dir / "E-chernobyl-seasons.png"))
+    episode_section.screenshot(path=str(closure_dir / "J2-chernobyl-episode-browser.png"))
+    episode_section.screenshot(path=str(closure_dir / "F-chernobyl-episodes.png"))
+    page.locator(".movie-detail__content--secondary").screenshot(
+        path=str(closure_dir / "D-chernobyl-metadata-modules.png")
+    )
+    if page.locator(".movie-detail__cast").count():
+        page.locator(".movie-detail__cast").screenshot(
+            path=str(closure_dir / "G-chernobyl-cast.png")
+        )
+    if page.locator(".movie-detail__media-rail").count():
+        page.locator(".movie-detail__media-rail").screenshot(
+            path=str(closure_dir / "H-chernobyl-trailers.png")
+        )
+    if page.locator(".movie-detail__related").count():
+        page.locator(".movie-detail__related").screenshot(
+            path=str(closure_dir / "I-chernobyl-more-like-this.png")
+        )
+    for width in (390, 768, 1024, 1280, 1440, 1600):
+        page.set_viewport_size({"width": width, "height": 844})
+        page.goto(f"{live_app}/movies/{movie_id}?season=1")
+        page.locator(".movie-discover-hero").wait_for()
+        page.locator(".tv-series-episode-preview").wait_for()
+        assert page.evaluate(
+            "document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1"
+        )
     page.locator(".tv-series-watch-options").screenshot(
         path=str(closure_dir / "K-chernobyl-lower-series.png")
     )

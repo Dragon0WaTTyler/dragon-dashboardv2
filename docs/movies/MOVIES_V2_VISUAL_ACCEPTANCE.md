@@ -252,3 +252,48 @@ The closure evidence is written outside the repository at
 The browser checks cover warm/missing/failure hydration behavior, no Chernobyl
 dead space, five compact episode cards, no horizontal overflow, full-width
 episode deep-link context, and an empty `pageerror` collection.
+
+## Phase 35 unified local/discovery TV detail — 2026-08-28
+
+The remaining local-vs-discovery split was structural, not a spacing defect.
+The local TV template used a legacy `.movie-detail` grid whose hero and all
+secondary modules shared one grid container. Discovery uses a standalone
+`.movie-discover-hero` followed by a separate detail flow. The shared contract
+is now explicit: local TV keeps the same discovery hero composition, backdrop
+art, poster treatment, title scale, metadata row, overview clamp, and action
+hierarchy, while adding Dragon-only status, favorite, resume, list, watch
+options, and playback actions.
+
+Local catalog metadata now renders in the same `About this series` / Overview
+module as discovery. Resume is represented twice only as a compact context: a
+hero-line `Resume SxxExx · percent watched · remaining` hint and the existing
+lower Dragon resume action strip. The old primary `Refresh series details`
+button is retained only inside collapsed `Catalog tools`.
+
+Single-season series use a deliberate selected-season summary rather than a
+large one-card rail. Multi-season titles retain the season-card selector and
+deep-link routes. Episodes, cast, trailers, reviews, and More Like This use the
+same rail/card primitives and order as discovery; availability remains labeled
+metadata and never implies Dragon playback.
+
+Equivalent comparison evidence is written to
+`C:\Users\walid\Pictures\movies-v2-library-closure`:
+
+| ID | Comparison surface | Result |
+| --- | --- | --- |
+| A | The Blacklist discovery hero | PASS |
+| B | Chernobyl local hero | PASS |
+| C | Discovery metadata/modules | PASS |
+| D | Local metadata/modules | PASS |
+| E | Chernobyl season selector | PASS |
+| F | Chernobyl episode cards | PASS |
+| G | Chernobyl cast rail | PASS |
+| H | Chernobyl trailer rail | PASS |
+| I | Chernobyl More Like This rail | PASS |
+| J | Local season/episode player deep link | PASS |
+
+The TV browser fixture verifies no accidental blank hero/season areas, an
+intentional one-season presentation, compact 16:9 episode cards, responsive
+no-overflow behavior, and no browser page errors. Discovery preview tests still
+assert stateless behavior; no library, source, progress, or schema contracts
+were changed.

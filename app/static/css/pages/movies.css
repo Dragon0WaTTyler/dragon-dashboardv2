@@ -2632,9 +2632,141 @@ html body .movies-v2--tv .movie-detail {
 html body .movies-v2--tv-show .movie-detail__content--secondary {
   grid-row: 2;
   margin-top: 0;
+  max-width: none;
+  padding: 0;
 }
 html body .movies-v2--tv-show .movie-detail__content--secondary > .detail-section {
   margin-top: 20px;
+}
+/* Local TV uses the same discovery hero primitive; only the action/state
+   content is personal to the signed-in library. */
+html body .movies-v2--tv-show .movie-detail.movie-discover-hero {
+  position: relative;
+  grid-template-columns: minmax(0, 1fr) clamp(148px, 16vw, 248px);
+  align-items: end;
+  min-height: clamp(520px, 55vw, 760px);
+  margin-top: 12px;
+  padding: clamp(28px, 5vw, 74px);
+  overflow: hidden;
+  border-radius: 24px;
+  background: #0d0e12;
+  box-shadow: 0 32px 78px rgb(0 0 0 / 36%);
+}
+html body .movies-v2--tv-show .movie-detail.movie-discover-hero::before {
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  background: linear-gradient(90deg, rgb(8 9 12 / 96%) 0%, rgb(8 9 12 / 77%) 41%, rgb(8 9 12 / 24%) 76%, rgb(8 9 12 / 62%) 100%), linear-gradient(0deg, rgb(8 9 12 / 96%) 2%, transparent 62%);
+  content: "";
+}
+html body .movies-v2--tv-show .movie-detail.movie-discover-hero .movie-detail__backdrop,
+html body .movies-v2--tv-show .movie-detail.movie-discover-hero .movie-discover-hero__art {
+  position: absolute;
+  z-index: -2;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 1;
+  mask-image: none;
+}
+html body .movies-v2--tv-show .movie-detail.movie-discover-hero .movie-detail__backdrop::after {
+  display: none;
+}
+html body .movies-v2--tv-show .movie-detail.movie-discover-hero .movie-detail__content--hero {
+  grid-column: 1;
+  grid-row: 1;
+  max-width: min(690px, 100%);
+  padding: 0;
+}
+html body .movies-v2--tv-show .movie-detail.movie-discover-hero .movie-detail__poster {
+  grid-column: 2;
+  grid-row: 1;
+  align-self: end;
+  justify-self: end;
+  width: min(100%, 248px);
+  margin: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  box-shadow: 0 24px 58px rgb(0 0 0 / 46%);
+}
+html body .movies-v2--tv-show .movie-detail.movie-discover-hero .movie-detail__poster img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+html body .movies-v2--tv-show .movie-discover-hero__content header {
+  padding-bottom: 0;
+  border: 0;
+}
+html body .movies-v2--tv-show .movie-discover-hero__content h1 {
+  max-width: 10ch;
+  margin: 12px 0 0;
+  font-size: clamp(3.6rem, 7.6vw, 8rem);
+  letter-spacing: -.06em;
+  line-height: .85;
+}
+html body .movies-v2--tv-show .movie-discover-hero__overview {
+  display: -webkit-box;
+  max-width: 59ch;
+  margin: 18px 0 0;
+  overflow: hidden;
+  font-size: clamp(1rem, 1.4vw, 1.18rem);
+  line-height: 1.62;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+html body .movies-v2--tv-show .movie-discover-hero__meta,
+html body .movies-v2--tv-show .tv-series-hero__state {
+  margin: 10px 0 0;
+  color: rgb(255 255 255 / 70%);
+}
+html body .movies-v2--tv-show .movie-discover-hero__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+}
+html body .movies-v2--tv-show .movie-discover-hero__meta span + span {
+  padding-left: 14px;
+  border-left: 1px solid rgb(255 255 255 / 20%);
+}
+html body .movies-v2--tv-show .movie-detail__admin-tools {
+  margin-top: 14px;
+  color: rgb(255 255 255 / 55%);
+  font-size: .75rem;
+}
+html body .movies-v2--tv-show .movie-detail__admin-tools summary { cursor: pointer; }
+html body .movies-v2--tv-show .movie-detail__admin-tools form { margin-top: 8px; }
+html body .movies-v2--tv-show .tv-season-single-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(150px, .8fr) minmax(160px, .8fr);
+  gap: 18px;
+  align-items: end;
+  padding: 18px 20px;
+  border: 1px solid rgb(255 255 255 / 11%);
+  border-radius: 14px;
+  background: rgb(17 18 23 / 68%);
+}
+html body .movies-v2--tv-show .tv-season-single-summary h3 { margin: 5px 0 0; font-size: 1.15rem; }
+html body .movies-v2--tv-show .tv-season-single-summary > div:not(:first-child) { display: grid; gap: 5px; color: var(--color-text-muted); font-size: .8rem; }
+html body .movies-v2--tv-show .tv-season-single-summary strong { color: var(--color-text); }
+@media (max-width: 760px) {
+  html body .movies-v2--tv-show .movie-detail.movie-discover-hero {
+    grid-template-columns: 1fr;
+    min-height: 590px;
+    padding: 56px 22px 28px;
+    border-radius: 18px;
+  }
+  html body .movies-v2--tv-show .movie-detail.movie-discover-hero .movie-detail__poster {
+    display: none;
+  }
+  html body .movies-v2--tv-show .movie-discover-hero__content h1 {
+    font-size: clamp(3rem, 15vw, 5.4rem);
+  }
+  html body .movies-v2--tv-show .tv-season-single-summary {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 }
 html body .movies-v2--tv .movie-detail__poster {
   align-self: center;

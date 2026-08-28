@@ -1241,6 +1241,9 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     page.locator("[data-player-launch]").wait_for()
     page.screenshot(path=str(evidence_dir / "AC-episode-context.png"), full_page=True)
     page.locator(".movie-player").screenshot(path=str(closure_dir / "M-episode-deep-link.png"))
+    page.screenshot(
+        path=str(closure_dir / "J-series-episode-player-deep-link.png"), full_page=False
+    )
     page.locator("[data-player-launch]").click()
     page.locator("[data-movie-player][data-playback-state]").wait_for()
     assert captured == {
