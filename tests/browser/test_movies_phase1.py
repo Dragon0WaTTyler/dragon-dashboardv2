@@ -29,6 +29,29 @@ def _sign_in(page, base_url: str):
     page.wait_for_url(f"{base_url}/")
 
 
+def _assert_canonical_series_hero(page) -> None:
+    """Saved and stateless series must use the same single-overlay hero."""
+    styles = page.locator(".movie-detail.movie-discover-hero.movie-cinematic-hero").evaluate(
+        """hero => {
+            const backdrop = hero.querySelector('.movie-detail__backdrop');
+            return {
+                minHeight: getComputedStyle(hero).minHeight,
+                backdropOpacity: getComputedStyle(backdrop).opacity,
+                backdropMask: getComputedStyle(backdrop).maskImage,
+                heroBefore: getComputedStyle(hero, '::before').display,
+                backdropAfter: getComputedStyle(backdrop, '::after').display,
+            };
+        }"""
+    )
+    assert styles == {
+        "minHeight": "760px",
+        "backdropOpacity": "1",
+        "backdropMask": "none",
+        "heroBefore": "none",
+        "backdropAfter": "none",
+    }
+
+
 class Phase1Provider:
     configured = True
 
@@ -448,6 +471,7 @@ def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
     page.screenshot(path=str(closure_dir / "P-external-movie.png"), full_page=False)
     page.goto(f"{live_app}/movies/discover/tv/901")
     page.locator(".movie-discover-hero").wait_for()
+    _assert_canonical_series_hero(page)
     assert page.get_by_role("heading", name="The Blacklist").is_visible()
     assert page.locator(".movie-detail__cast-rail").count() == 1
     assert page.locator(".movie-detail__media-rail").count() == 1
@@ -675,6 +699,7 @@ def test_chernobyl_series_detail_stays_compact_and_connected(page, live_app, app
     _sign_in(page, live_app)
     page.goto(f"{live_app}/movies/{movie_id}?season=1")
     page.locator(".tv-series-hero").wait_for()
+    _assert_canonical_series_hero(page)
     page.locator(".tv-series-episode-preview").wait_for()
 
     resume = page.locator(".tv-series-resume-strip")
