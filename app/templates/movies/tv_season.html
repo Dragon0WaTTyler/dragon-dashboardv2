@@ -2,22 +2,22 @@
 {% from "components/ui.html" import badge %}
 {% from "movies/components/detail_primitives.html" import episode_card %}
 {% block title %}{{ movie.title }} · Season {{ workspace.season.season_number }} · Dragon{% endblock %}
-{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-series-cinematic-2">{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}?v=movies-v2-series-cinematic-3">{% endblock %}
 {% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-9" defer></script>{% endblock %}
 {% block content %}
-<div class="movies-v2 movies-v2--detail movies-v2--tv" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
+<div class="movies-v2 movies-v2--detail movies-v2--discover-detail movies-v2--tv" data-ambient-level="{{ movie_preferences.ambient_level }}" data-reduced-effects="{{ 'true' if movie_preferences.reduced_effects else 'false' }}">
 <div class="movies-v2__atmosphere" aria-hidden="true"></div>
 <nav class="movie-v2-nav" aria-label="Movies navigation"><a href="{{ url_for('movies.index') }}">Home</a><a href="{{ url_for('movies.browse', media_type='movie') }}">Movies</a><a href="{{ url_for('movies.shows') }}" aria-current="page">Shows</a><a href="{{ url_for('movies.library') }}">Library</a><a href="{{ url_for('movies.index') }}#movie-discovery">Search</a></nav>
-{% if movie.backdrop_url or movie.poster_url %}<div class="movie-detail__backdrop" aria-hidden="true"><img src="{{ movie.backdrop_url or movie.poster_url }}" alt=""></div>{% endif %}
-<a class="back-link" href="{{ url_for('movies.detail', movie_id=movie.id) }}">← Back to series</a>
-<article class="movie-detail movie-cinematic-hero">
-  <div class="movie-detail__poster" data-media-frame>
+<article class="movie-detail movie-discover-hero movie-cinematic-hero movie-season-detail__hero" aria-labelledby="season-detail-title">
+  {% if movie.backdrop_url or movie.poster_url %}<div class="movie-detail__backdrop movie-discover-hero__art" aria-hidden="true"><img src="{{ movie.backdrop_url or movie.poster_url }}" alt=""></div>{% endif %}
+  <a class="back-link movie-discover-hero__back" href="{{ url_for('movies.detail', movie_id=movie.id) }}">← Back to series</a>
+  <div class="movie-detail__poster movie-discover-hero__poster" data-media-frame>
     {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" width="420" height="630"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
   </div>
-  <div class="movie-detail__content movie-detail__content--hero">
+  <div class="movie-detail__content movie-detail__content--hero movie-discover-hero__content">
     <header>
       <span class="eyebrow">{{ 'Specials' if workspace.season.season_number == 0 else 'Season ' ~ workspace.season.season_number }}</span>
-      <h1>{{ movie.title }}</h1>
+      <h1 id="season-detail-title">{{ movie.title }}</h1>
       {% if movie.original_title and movie.original_title != movie.title %}<p class="muted">{{ movie.original_title }}</p>{% endif %}
       {{ badge(movie.status|replace('_', ' ')|title, 'accent' if movie.status == 'watching' else '') }}
     </header>
@@ -43,10 +43,11 @@
       {% endif %}
     </section>
   </div>
+</article>
   {% if selected_episode and (embed_player_sources or player_sources) %}
   {% set has_selected_player_source = last_selected_provider == 'local' %}
   {% set initial_embed = embed_player_sources|first %}
-  <section id="episode-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-media-id="{{ movie.id }}" data-media-type="tv" data-tmdb-id="{{ movie.external_ids.tmdb_id or '' }}" data-runtime-seconds="{{ (selected_episode.runtime_minutes * 60) if selected_episode.runtime_minutes else '' }}" data-auto-next-default="{{ 'true' if movie_preferences.autoplay_next else 'false' }}" data-automatic-resume="{{ 'true' if movie_preferences.automatic_resume else 'false' }}" data-default-subtitle-language="{{ movie_preferences.default_subtitle_language }}" data-selected-season="{{ workspace.season.season_number }}" data-selected-episode="{{ selected_episode.episode_number }}" data-selected-episode-title="{{ selected_episode.name }}" data-next-episode-url="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.next_episode.season_number, episode_number=workspace.next_episode.episode_number) if workspace.next_episode else '' }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if movie.external_ids.tmdb_id else '' }}" data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-source-selected-template="{{ url_for('playback.mark_source_selected', movie_id=movie.id, source_id='source-id') }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}" data-progress-endpoint="{{ url_for('api_v1.update_movie_progress', movie_id=movie.id) }}">
+  <section id="episode-player" class="movie-player detail-section movie-season-detail__player" aria-labelledby="movie-player-title" data-movie-player data-media-id="{{ movie.id }}" data-media-type="tv" data-tmdb-id="{{ movie.external_ids.tmdb_id or '' }}" data-runtime-seconds="{{ (selected_episode.runtime_minutes * 60) if selected_episode.runtime_minutes else '' }}" data-auto-next-default="{{ 'true' if movie_preferences.autoplay_next else 'false' }}" data-automatic-resume="{{ 'true' if movie_preferences.automatic_resume else 'false' }}" data-default-subtitle-language="{{ movie_preferences.default_subtitle_language }}" data-selected-season="{{ workspace.season.season_number }}" data-selected-episode="{{ selected_episode.episode_number }}" data-selected-episode-title="{{ selected_episode.name }}" data-next-episode-url="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.next_episode.season_number, episode_number=workspace.next_episode.episode_number) if workspace.next_episode else '' }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if movie.external_ids.tmdb_id else '' }}" data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-source-selected-template="{{ url_for('playback.mark_source_selected', movie_id=movie.id, source_id='source-id') }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}" data-progress-endpoint="{{ url_for('api_v1.update_movie_progress', movie_id=movie.id) }}">
     <div class="movie-player__heading">
       <div><span class="eyebrow">Episode player</span><h2 id="movie-player-title">Watch S{{ workspace.season.season_number }}E{{ '%02d'|format(selected_episode.episode_number) }} · {{ selected_episode.name }}</h2></div>
       <span class="badge badge--accent" data-player-badge>{{ 'Local' if has_selected_player_source else (initial_embed.label if initial_embed else 'Local') }}</span>
@@ -204,7 +205,7 @@
     </div>
   </section>
   {% endif %}
-  <div class="movie-detail__content movie-detail__content--secondary">
+  <div class="movie-detail__content movie-detail__content--secondary movie-season-detail__secondary">
     {% if selected_episode and indexed_provider_options %}
     <details class="movie-release-browser detail-section">
       <summary>Add an authorized embed mapping for this episode</summary>
@@ -291,6 +292,5 @@
       </div>
     </section>
   </div>
-</article>
 </div>
 {% endblock %}

@@ -10,6 +10,17 @@ from app.playback.services import PlaybackService
 pytestmark = pytest.mark.browser
 
 
+def _art(label: str, start: str, end: str) -> str:
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="960">'
+        f'<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">'
+        f'<stop stop-color="{start}"/><stop offset="1" stop-color="{end}"/>'
+        f'</linearGradient></defs><rect width="100%" height="100%" fill="url(%23g)"/>'
+        f'<text x="48" y="820" fill="white" font-size="42">{label}</text></svg>'
+    )
+    return "data:image/svg+xml," + svg.replace("#", "%23").replace(" ", "%20")
+
+
 def sign_in(page, base_url: str):
     page.goto(f"{base_url}/auth/login")
     page.get_by_label("Username").fill("walid")
@@ -990,8 +1001,12 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
             title="The Sopranos",
             normalized_title="the sopranos",
             media_type="tv",
+            poster_url=_art("SOPRANOS", "#17283d", "#b9454f"),
             external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
             metadata_state={
+                "tmdb_detail": {
+                    "backdrop_url": _art("REACTOR", "#111d2b", "#5c2839"),
+                },
                 "tv_total_seasons": 1,
                 "tv_total_episodes": 2,
                 "tv_seasons": [
@@ -1205,6 +1220,28 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     page.screenshot(path=str(evidence_dir / "P-series-390.png"), full_page=False)
     page.set_viewport_size({"width": 1600, "height": 844})
     page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/2#episode-player")
+    season_hero = page.locator(".movie-season-detail__hero")
+    season_hero.wait_for()
+    assert season_hero.locator(".movie-detail__backdrop.movie-discover-hero__art").count() == 1
+    assert season_hero.locator(".movie-player").count() == 0
+    assert season_hero.evaluate(
+        """hero => {
+            const backdrop = hero.querySelector('.movie-detail__backdrop');
+            return {
+                minHeight: getComputedStyle(hero).minHeight,
+                backdropOpacity: getComputedStyle(backdrop).opacity,
+                backdropMask: getComputedStyle(backdrop).maskImage,
+                heroBefore: getComputedStyle(hero, '::before').display,
+                backdropAfter: getComputedStyle(backdrop, '::after').display,
+            };
+        }"""
+    ) == {
+        "minHeight": "760px",
+        "backdropOpacity": "1",
+        "backdropMask": "none",
+        "heroBefore": "none",
+        "backdropAfter": "none",
+    }
     release_browser = page.locator("[data-inline-release-browser]")
     release_browser.wait_for()
     release_browser.evaluate("element => { element.open = true; }")
