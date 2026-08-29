@@ -1002,10 +1002,29 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
             normalized_title="the sopranos",
             media_type="tv",
             poster_url=_art("SOPRANOS", "#17283d", "#b9454f"),
+            cast=[{"name": "James Gandolfini", "character": "Tony Soprano", "profile_url": ""}],
             external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
             metadata_state={
                 "tmdb_detail": {
                     "backdrop_url": _art("REACTOR", "#111d2b", "#5c2839"),
+                    "trailers": [
+                        {
+                            "name": "Official trailer",
+                            "url": "https://www.youtube.com/watch?v=trailer-test",
+                            "official": True,
+                        }
+                    ],
+                    "reviews": [{"author": "Viewer", "content": "A series review.", "url": ""}],
+                    "recommendations": [
+                        {
+                            "tmdb_id": 1400,
+                            "media_type": "tv",
+                            "title": "Related series",
+                            "poster_url": _art("RELATED", "#203040", "#9a4c6d"),
+                            "year": 2000,
+                            "rating": 8.0,
+                        }
+                    ],
                 },
                 "tv_total_seasons": 1,
                 "tv_total_episodes": 2,
@@ -1220,10 +1239,15 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     page.screenshot(path=str(evidence_dir / "P-series-390.png"), full_page=False)
     page.set_viewport_size({"width": 1600, "height": 844})
     page.goto(f"{live_app}/movies/{movie_id}/seasons/1/episodes/2#episode-player")
-    season_hero = page.locator(".movie-season-detail__hero")
+    season_hero = page.locator(".movie-detail.movie-discover-hero.movie-cinematic-hero")
     season_hero.wait_for()
     assert season_hero.locator(".movie-detail__backdrop.movie-discover-hero__art").count() == 1
     assert season_hero.locator(".movie-player").count() == 0
+    assert page.locator("[data-detail-catalog-modules]").count() == 1
+    assert page.locator(".movie-detail__media-rail").count() == 1
+    assert page.locator(".movie-detail__cast").count() == 1
+    assert page.locator(".movie-detail__reviews").count() == 1
+    assert page.locator(".movie-detail__related").count() == 1
     assert season_hero.evaluate(
         """hero => {
             const backdrop = hero.querySelector('.movie-detail__backdrop');

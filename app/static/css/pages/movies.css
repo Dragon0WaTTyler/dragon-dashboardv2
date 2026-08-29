@@ -2849,20 +2849,6 @@ html body .movie-detail.movie-discover-hero.movie-cinematic-hero .movie-detail__
 html body .movie-detail.movie-discover-hero.movie-cinematic-hero .movie-discover-hero__back {
   position: absolute;
 }
-/* A selected season/episode has a player below the hero, so keep that body
-   in normal flow while the hero itself stays identical to the title page. */
-html body .movies-v2--tv > .movie-season-detail__player,
-html body .movies-v2--tv > .movie-season-detail__secondary {
-  width: auto;
-  max-width: none;
-  margin-inline: var(--movies-safe-inline);
-}
-html body .movies-v2--tv > .movie-season-detail__player {
-  margin-top: clamp(54px, 7vw, 88px);
-}
-html body .movies-v2--tv > .movie-season-detail__secondary {
-  margin-top: clamp(36px, 5vw, 72px);
-}
 @media (max-width: 760px) {
   html body .movies-v2 > .movie-now,
   html body .movies-v2 > .movie-provider-browser,
@@ -2882,10 +2868,6 @@ html body .movies-v2--tv > .movie-season-detail__secondary {
   }
   html body .movie-detail.movie-discover-hero.movie-cinematic-hero .movie-detail__poster {
     display: none;
-  }
-  html body .movies-v2--tv > .movie-season-detail__player,
-  html body .movies-v2--tv > .movie-season-detail__secondary {
-    margin-inline: 16px;
   }
   html body .movies-v2--tv .tv-series-hero .tv-season-summary {
     grid-template-columns: 1fr;
