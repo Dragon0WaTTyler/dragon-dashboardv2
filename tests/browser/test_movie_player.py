@@ -1299,6 +1299,11 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     assert detail_box and secondary_box
     assert secondary_box["x"] <= detail_box["x"] + 80
     assert secondary_box["width"] >= detail_box["width"] - 140
+    episode_player = page.locator("[data-movie-player].movie-player--episode-compact")
+    episode_player.wait_for()
+    assert episode_player.locator("[data-player-season-lock] select").is_disabled()
+    assert episode_player.locator("[data-player-pack-browser]").is_visible()
+    assert episode_player.locator(".movie-player__viewport").is_hidden()
     page.locator("[data-player-launch]").wait_for()
     page.screenshot(path=str(evidence_dir / "AC-episode-context.png"), full_page=True)
     page.locator(".movie-player").screenshot(path=str(closure_dir / "M-episode-deep-link.png"))
@@ -1307,6 +1312,7 @@ def test_season_pack_player_uses_selected_episode_from_same_pack(page, live_app,
     )
     page.locator("[data-player-launch]").click()
     page.locator("[data-movie-player][data-playback-state]").wait_for()
+    assert episode_player.locator(".movie-player__viewport").is_visible()
     assert captured == {
         "source_id": captured["source_id"],
         "season": 1,

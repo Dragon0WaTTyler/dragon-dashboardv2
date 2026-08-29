@@ -1,7 +1,7 @@
 {% extends "movies/detail_shell.html" %}
 {% from "movies/components/detail_primitives.html" import episode_card %}
 {% block title %}{{ movie.title }} · Season {{ workspace.season.season_number }} · Dragon{% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-9" defer></script>{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='vendor/media-chrome/media-chrome.iife.js') }}?v=4.19.2" defer></script><script src="{{ url_for('static', filename='js/movies.js') }}?v=movie-player-4" defer></script><script src="{{ url_for('static', filename='js/movies-ambient.js') }}?v=1" defer></script><script src="{{ url_for('static', filename='js/movie-detail.js') }}?v=movie-player-10" defer></script>{% endblock %}
 {% block hero_meta %}<span>{{ 'Specials' if workspace.season.season_number == 0 else 'Season ' ~ workspace.season.season_number }}</span><span> · {{ workspace.season.episode_count }} episodes</span>{% if presentation.catalog.rating is not none %}<span> · ★ {{ '%.1f'|format(presentation.catalog.rating) }}</span>{% endif %}{% if presentation.catalog.genre_names %}<span> · {{ presentation.catalog.genre_names|join(' · ') }}</span>{% endif %}{% endblock %}
 {% block hero_actions %}
   {% if selected_episode and (embed_player_sources or player_sources) %}<a class="button button--primary" href="#episode-player">{{ 'Resume episode' if selected_episode.progress and selected_episode.progress.current_seconds else 'Watch episode' }}</a>{% elif workspace.resume_target %}<a class="button button--primary" href="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.resume_target.season, episode_number=workspace.resume_target.episode) }}">{{ 'Resume series' if workspace.resume_target.mode in ['resume', 'current'] else 'Open next episode' }}</a>{% endif %}
@@ -13,12 +13,12 @@
   {% if selected_episode and (embed_player_sources or player_sources) %}
   {% set has_selected_player_source = last_selected_provider == 'local' %}
   {% set initial_embed = embed_player_sources|first %}
-  <section id="episode-player" class="movie-player detail-section" aria-labelledby="movie-player-title" data-movie-player data-media-id="{{ movie.id }}" data-media-type="tv" data-tmdb-id="{{ movie.external_ids.tmdb_id or '' }}" data-runtime-seconds="{{ (selected_episode.runtime_minutes * 60) if selected_episode.runtime_minutes else '' }}" data-auto-next-default="{{ 'true' if movie_preferences.autoplay_next else 'false' }}" data-automatic-resume="{{ 'true' if movie_preferences.automatic_resume else 'false' }}" data-default-subtitle-language="{{ movie_preferences.default_subtitle_language }}" data-selected-season="{{ workspace.season.season_number }}" data-selected-episode="{{ selected_episode.episode_number }}" data-selected-episode-title="{{ selected_episode.name }}" data-next-episode-url="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.next_episode.season_number, episode_number=workspace.next_episode.episode_number) if workspace.next_episode else '' }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if movie.external_ids.tmdb_id else '' }}" data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-source-selected-template="{{ url_for('playback.mark_source_selected', movie_id=movie.id, source_id='source-id') }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}" data-progress-endpoint="{{ url_for('api_v1.update_movie_progress', movie_id=movie.id) }}">
+  <section id="episode-player" class="movie-player movie-player--episode-compact detail-section" aria-labelledby="movie-player-title" data-movie-player data-media-id="{{ movie.id }}" data-media-type="tv" data-tmdb-id="{{ movie.external_ids.tmdb_id or '' }}" data-runtime-seconds="{{ (selected_episode.runtime_minutes * 60) if selected_episode.runtime_minutes else '' }}" data-auto-next-default="{{ 'true' if movie_preferences.autoplay_next else 'false' }}" data-automatic-resume="{{ 'true' if movie_preferences.automatic_resume else 'false' }}" data-default-subtitle-language="{{ movie_preferences.default_subtitle_language }}" data-selected-season="{{ workspace.season.season_number }}" data-selected-episode="{{ selected_episode.episode_number }}" data-selected-episode-title="{{ selected_episode.name }}" data-next-episode-url="{{ url_for('movies.tv_episode', movie_id=movie.id, season_number=workspace.next_episode.season_number, episode_number=workspace.next_episode.episode_number) if workspace.next_episode else '' }}" data-episodes-template="{{ url_for('movies.api_tv_episodes', tmdb_id=999999999, season_number=999999999) if movie.external_ids.tmdb_id else '' }}" data-vidsrc-endpoint="{{ url_for('playback.vidsrc_source', movie_id=movie.id) if vidsrc_enabled else '' }}" data-source-selected-template="{{ url_for('playback.mark_source_selected', movie_id=movie.id, source_id='source-id') }}" data-local-endpoint="{{ url_for('playback.start_local_source', movie_id=movie.id) if local_player_enabled else '' }}" data-subtitle-endpoint="{{ url_for('playback.subtitle_options', movie_id=movie.id) if subtitles_enabled else '' }}" data-watch-endpoint="{{ url_for('movies.api_watch', movie_id=movie.id) }}" data-progress-endpoint="{{ url_for('api_v1.update_movie_progress', movie_id=movie.id) }}">
     <div class="movie-player__heading">
       <div><span class="eyebrow">Episode player</span><h2 id="movie-player-title">Watch S{{ workspace.season.season_number }}E{{ '%02d'|format(selected_episode.episode_number) }} · {{ selected_episode.name }}</h2></div>
       <span class="badge badge--accent" data-player-badge>{{ 'Local' if has_selected_player_source else (initial_embed.label if initial_embed else 'Local') }}</span>
     </div>
-    <div class="movie-player__source-rail">
+    <div class="movie-player__source-rail movie-player__source-rail--episode">
       <label class="field movie-player__source">
         <span>Player source</span>
         <select data-player-source>
@@ -26,15 +26,12 @@
           {% if player_sources %}<optgroup label="Local library">{% for source in player_sources %}<option value="{{ source.id }}" data-kind="local" data-source-season-pack="{{ 'true' if source.season_pack else 'false' }}" data-source-season="{{ source.season or '' }}" data-source-episode="{{ source.episode or '' }}" data-source-release-mode="{{ source.release_mode }}" data-source-quality="{{ source.player_metadata.quality }}" data-source-codec="{{ source.player_metadata.codec }}" data-source-playback="{{ source.player_metadata.playback }}" data-source-size="{{ source.player_metadata.size }}" data-source-hdr="{{ 'true' if source.player_metadata.hdr else 'false' }}" data-source-type="{{ source.source_type_label }}" data-source-health="{{ source.availability_status }}" data-source-health-checked="{{ 'true' if source.availability_checked else 'false' }}" data-source-priority="{{ source.priority if source.priority is not none else '' }}" data-source-enabled="{{ 'true' if source.enabled else 'false' }}"{% if source.id == last_selected_source_id %} selected{% endif %}>Local · {{ source.label }}</option>{% endfor %}</optgroup>{% endif %}
         </select>
       </label>
-      <div class="movie-player__source-details">
-        <div class="movie-player__source-facts" data-player-source-facts aria-live="polite">
-          <strong data-player-source-name></strong>
-          <span class="movie-player__source-current">Selected</span>
-          <span data-player-source-type></span><span data-player-source-health></span><span data-player-source-priority></span>
-        </div>
-        <p class="movie-player__source-help">Choose a source, then press Play. Nothing connects before that.</p>
-        {% if workspace.next_episode %}<label class="movie-player__auto-next"><input type="checkbox" data-player-auto-next> Autoplay next normal episode</label>{% endif %}
-        <button class="button button--quiet" type="button" data-player-start-over hidden>Start from beginning</button>
+      <label class="field movie-player__season-lock" data-player-season-lock>
+        <span>Season</span>
+        <select disabled aria-label="Season">
+          <option>{{ 'Specials' if workspace.season.season_number == 0 else 'Season ' ~ workspace.season.season_number }}</option>
+        </select>
+      </label>
       {% if movie.external_ids.tmdb_id %}
       <div class="movie-player__pack-browser" data-player-pack-browser>
         <label class="field movie-player__pack-field">
@@ -46,6 +43,19 @@
         <p class="movie-player__pack-status" data-player-pack-status aria-live="polite" hidden></p>
       </div>
       {% endif %}
+      <button class="button button--primary movie-player__launch movie-player__launch--compact" type="button" data-player-launch aria-describedby="movie-player-status">
+        <strong data-player-launch-title>{{ 'Play with ' ~ initial_embed.label if initial_embed and not has_selected_player_source else 'Start local player' }}</strong>
+        <span data-player-launch-hint>Episode route stays stable while the player changes source.</span>
+      </button>
+      <div class="movie-player__source-details">
+        <div class="movie-player__source-facts" data-player-source-facts aria-live="polite">
+          <strong data-player-source-name></strong>
+          <span class="movie-player__source-current">Selected</span>
+          <span data-player-source-type></span><span data-player-source-health></span><span data-player-source-priority></span>
+        </div>
+        <p class="movie-player__source-help">Choose a source, then press Play. Nothing connects before that.</p>
+        {% if workspace.next_episode %}<label class="movie-player__auto-next"><input type="checkbox" data-player-auto-next> Autoplay next normal episode</label>{% endif %}
+        <button class="button button--quiet" type="button" data-player-start-over hidden>Start from beginning</button>
       {% if subtitles_enabled %}
       <p class="movie-player__subtitle-status" data-subtitle-status aria-live="polite" hidden></p>
       {% else %}
@@ -53,12 +63,7 @@
       {% endif %}
       </div>
     </div>
-    <div class="movie-player__viewport">
-      <button class="movie-player__launch" type="button" data-player-launch aria-describedby="movie-player-status">
-        <span class="movie-player__play" aria-hidden="true">▶</span>
-        <strong data-player-launch-title>{{ 'Play with ' ~ initial_embed.label if initial_embed and not has_selected_player_source else 'Start local player' }}</strong>
-        <span data-player-launch-hint>Episode route stays stable while the player changes source.</span>
-      </button>
+    <div class="movie-player__viewport" hidden>
       <section class="movie-player__recovery" data-player-recovery hidden aria-labelledby="player-recovery-title">
         <span class="eyebrow">Local source unavailable</span>
         <h3 id="player-recovery-title">This magnet cannot stream right now.</h3>

@@ -32,6 +32,7 @@
   const launch = player.querySelector("[data-player-launch]");
   const launchTitle = player.querySelector("[data-player-launch-title]");
   const launchHint = player.querySelector("[data-player-launch-hint]");
+  const viewport = player.querySelector(".movie-player__viewport");
   const recovery = player.querySelector("[data-player-recovery]");
   const recoveryMessage = player.querySelector("[data-player-recovery-message]");
   const inlineRetry = player.querySelector("[data-player-retry-inline]");
@@ -1759,6 +1760,7 @@
     if (captionLayer) captionLayer.hidden = true;
     video.hidden = true;
     video.controls = false;
+    if (player.classList.contains("movie-player--episode-compact") && viewport) viewport.hidden = true;
     launch.hidden = false;
     launch.disabled = false;
     if (recovery) recovery.hidden = true;
@@ -1830,6 +1832,7 @@
     video.hidden = !keepViewport;
     controls.hidden = false;
     if (recovery) recovery.hidden = false;
+    if (viewport) viewport.hidden = false;
     if (recoveryMessage) recoveryMessage.textContent = message;
     if (inlineFallback) inlineFallback.hidden = activeKind !== "local" || !fallbackEmbedOption();
     if (retry) retry.hidden = false;
@@ -2152,6 +2155,7 @@
 
   launch.addEventListener("click", async () => {
     launch.disabled = true;
+    if (viewport) viewport.hidden = false;
     activeKind = selectedKind();
     try {
       if (activeKind === "local") {
