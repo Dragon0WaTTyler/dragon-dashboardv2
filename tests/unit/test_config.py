@@ -94,6 +94,29 @@ def test_google_personal_vault_requires_explicit_credentials_and_flags(tmp_path:
         )
 
 
+def test_production_google_oauth_requires_exact_https_callback(tmp_path: Path):
+    common = {
+        "DRAGON_ENV": "production",
+        "SECRET_KEY": "production-secret",
+        "DRAGON_GOOGLE_OAUTH_ENABLED": "true",
+        "DRAGON_GOOGLE_OAUTH_CLIENT_ID": "client-id",
+        "DRAGON_GOOGLE_OAUTH_CLIENT_SECRET": "client-secret",
+    }
+    with pytest.raises(ValueError, match="GOOGLE_OAUTH_REDIRECT_URI"):
+        Settings.load(tmp_path, common)
+
+    settings = Settings.load(
+        tmp_path,
+        {
+            **common,
+            "DRAGON_GOOGLE_OAUTH_REDIRECT_URI": (
+                "https://dragon.example/auth/google/callback"
+            ),
+        },
+    )
+    assert settings.google_oauth_redirect_uri == "https://dragon.example/auth/google/callback"
+
+
 def test_pythonanywhere_lite_flag_is_typed_and_exposed(tmp_path: Path):
     settings = Settings.load(
         tmp_path,

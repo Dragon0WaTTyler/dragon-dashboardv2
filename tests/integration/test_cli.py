@@ -34,3 +34,29 @@ def test_admin_cli_rejects_short_password(app):
     )
     assert result.exit_code != 0
     assert "at least 12 characters" in result.output
+
+
+def test_vault_preflight_reports_missing_private_configuration_without_secrets(app):
+    runner = app.test_cli_runner()
+    result = runner.invoke(args=["vault-preflight"])
+
+    assert result.exit_code != 0
+    assert "MISSING  Google OAuth client secret" in result.output
+    assert "Google personal vault is not ready" in result.output
+
+
+def test_vault_preflight_reports_ready_without_printing_credentials(app):
+    app.config.update(
+        DRAGON_GOOGLE_OAUTH_ENABLED=True,
+        DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED=True,
+        DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED=True,
+        DRAGON_GOOGLE_OAUTH_CLIENT_ID="client-id-not-for-output",
+        DRAGON_GOOGLE_OAUTH_CLIENT_SECRET="client-secret-not-for-output",
+        DRAGON_GOOGLE_OAUTH_REDIRECT_URI="https://dragon.example/auth/google/callback",
+    )
+    result = app.test_cli_runner().invoke(args=["vault-preflight"])
+
+    assert result.exit_code == 0
+    assert "READY  Google personal vault can be activated" in result.output
+    assert "client-id-not-for-output" not in result.output
+    assert "client-secret-not-for-output" not in result.output

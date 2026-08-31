@@ -36,6 +36,7 @@ from app.playback import bp as playback_bp
 from app.playback.settings import bp as playback_settings_bp
 from app.reading import bp as reading_bp
 from app.reading.providers import ArticleExtractor, FeedClient
+from app.vault.cli import vault_preflight
 from app.vault.runtime import install_workspace_runtime
 from app.youtube import bp as youtube_bp
 from app.youtube.cli import apply_pockettube_group_map, export_pockettube_groups
@@ -102,6 +103,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
     app.register_blueprint(youtube_bp)
     app.cli.add_command(apply_pockettube_group_map)
     app.cli.add_command(export_pockettube_groups)
+    app.cli.add_command(vault_preflight)
     app.register_blueprint(reading_bp)
     app.register_blueprint(books_bp)
     app.register_blueprint(knowledge_settings_bp)

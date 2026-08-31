@@ -280,6 +280,21 @@ class Settings:
                 "DRAGON_GOOGLE_OAUTH_CLIENT_ID and DRAGON_GOOGLE_OAUTH_CLIENT_SECRET are required "
                 "when Google OAuth is enabled."
             )
+        if google_oauth_enabled and environment == "production":
+            parsed_google_redirect = urlsplit(google_oauth_redirect_uri)
+            if (
+                parsed_google_redirect.scheme != "https"
+                or not parsed_google_redirect.hostname
+                or parsed_google_redirect.username
+                or parsed_google_redirect.password
+                or parsed_google_redirect.query
+                or parsed_google_redirect.fragment
+                or parsed_google_redirect.path != "/auth/google/callback"
+            ):
+                raise ValueError(
+                    "DRAGON_GOOGLE_OAUTH_REDIRECT_URI must be an HTTPS "
+                    "https://host/auth/google/callback URL in production."
+                )
         vidsrc_embed_url = _https_base_url(
             str(
                 override_map.get("VIDSRC_EMBED_URL")

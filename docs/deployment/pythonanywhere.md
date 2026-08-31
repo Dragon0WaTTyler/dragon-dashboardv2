@@ -37,6 +37,16 @@ user who signs in with the same Google account locally and on PythonAnywhere get
 the same private Drive workspace; their watch progress, lists, RSS sources, and
 supported integration settings restore automatically.
 
+Before enabling sign-in for users, run this in the deployed virtualenv:
+
+```text
+flask --app app:create_app vault-preflight
+```
+
+It confirms the six required flags and values without printing the client ID or
+secret. It cannot check Google Cloud for you, so also confirm that its Authorized
+redirect URI exactly matches the configured callback URL.
+
 ## Upload
 
 From the project root, run:
