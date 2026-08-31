@@ -25,10 +25,13 @@
     {% else %}
     <small>No local snapshot yet</small>
     {% endif %}
-    <form method="post" action="{{ url_for('youtube.sync_watch_later') if source == 'watch_later' else url_for('youtube.sync_pockettube') }}">
+    <form method="post" action="{{ url_for('youtube.sync_watch_later') if source == 'watch_later' else url_for('youtube.sync_pockettube') }}"{% if source == 'pockettube' %} enctype="multipart/form-data"{% endif %}>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="return_to" value="{{ return_to }}">
-      <button class="button button--secondary" type="submit">{{ 'Refresh local snapshot' if source == 'watch_later' else 'Refresh PocketTube' }}</button>
+      {% if source == 'pockettube' and personal_workspace_active %}
+      <label class="field"><span>PocketTube export JSON</span><input type="file" name="export" accept="application/json,.json" required></label>
+      {% endif %}
+      <button class="button button--secondary" type="submit">{{ 'Refresh local snapshot' if source == 'watch_later' else ('Import PocketTube export' if personal_workspace_active else 'Refresh PocketTube') }}</button>
     </form>
     {% if source == 'watch_later' %}<a class="button button--quiet" href="{{ url_for('youtube.oauth_connect') }}">Reconnect YouTube</a>{% endif %}
   </div>

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import secrets
+import tempfile
+from contextlib import suppress
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -71,6 +74,24 @@ def _playlist_client() -> YouTubePlaylistClient:
             else Path(current_app.instance_path) / "secrets" / "youtube_token.json"
         ),
     )
+
+
+def _personal_pockettube_export() -> Path:
+    uploaded = request.files.get("export")
+    if uploaded is None or not uploaded.filename:
+        raise ValueError("Choose a PocketTube export JSON file first.")
+    contents = uploaded.read(5 * 1024 * 1024 + 1)
+    if len(contents) > 5 * 1024 * 1024:
+        raise ValueError("PocketTube exports must be 5 MB or smaller.")
+    try:
+        payload = json.loads(contents.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("PocketTube export must be valid UTF-8 JSON.") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("PocketTube export is not valid.")
+    with tempfile.NamedTemporaryFile(mode="wb", suffix=".json", delete=False) as handle:
+        handle.write(contents)
+        return Path(handle.name)
 
 
 def _oauth_redirect_uri() -> str:
@@ -205,6 +226,32 @@ def sync_watch_later():
 @bp.post("/sync-pockettube")
 @login_required
 def sync_pockettube():
+    _api_key, _playlist_id, personal_workspace = _youtube_connection()
+    if personal_workspace:
+        export_path: Path | None = None
+        try:
+            export_path = _personal_pockettube_export()
+            counts = YouTubeService.sync_pockettube(_playlist_client(), export_path)
+        except ValueError as exc:
+            flash(f"PocketTube import failed: {exc}", "error")
+        else:
+            flash(
+                f'PocketTube imported: {counts.get("videos", 0)} latest videos from '
+                f'{counts.get("channels", 0)} channels, {counts.get("created", 0)} new, '
+                f'{counts.get("updated", 0)} updated, '
+                f'{counts.get("shorts_skipped", 0)} shorts skipped.',
+                "success",
+            )
+        finally:
+            if export_path is not None:
+                with suppress(OSError):
+                    export_path.unlink()
+        return redirect(
+            _safe_return_to(
+                request.form.get("return_to"),
+                fallback=url_for("youtube.index", source="pockettube"),
+            )
+        )
     from app.shared.refresh import OperationCoordinator
 
     operation = OperationCoordinator.run(kind="sync", domain="youtube_pockettube")
