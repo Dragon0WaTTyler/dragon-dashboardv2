@@ -9,6 +9,11 @@ from app.books.book_quotes import (
     BookQuotesSnapshotService,
     _book_quotes_client,
 )
+from app.books.clippings import (
+    KindleClippingsOutboxItem,
+    KindleClippingsSyncState,
+    workspace_aware_clippings_store,
+)
 from app.books.notion_sync import BookNotionSyncService
 from app.extensions import db
 from app.movies.external_library import notion_movie_provider
@@ -117,16 +122,31 @@ def test_workspace_integration_settings_are_private_and_portable(app):
                 )
             )
         )
+        workspace_aware_clippings_store("unused-for-personal-workspaces").save(
+            KindleClippingsSyncState(
+                pending=(
+                    KindleClippingsOutboxItem(
+                        unique_hash="kindle-one",
+                        payload={"quote": "Personal Kindle clipping"},
+                    ),
+                )
+            )
+        )
         db.session.remove()
 
     with app.test_request_context("/"):
         bind_workspace(second)
         assert integration_settings("notion") == {}
         assert BookQuotesSnapshotService.store().load().items == ()
+        assert workspace_aware_clippings_store("unused").load().pending == ()
 
     with app.test_request_context("/"):
         bind_workspace(first)
         assert BookQuotesSnapshotService.store().load().items[0].notion_page_id == "quote-one"
+        assert (
+            workspace_aware_clippings_store("unused").load().pending[0].unique_hash
+            == "kindle-one"
+        )
 
 
 def bind_workspace_for_test(workspace: PersonalWorkspace, app):

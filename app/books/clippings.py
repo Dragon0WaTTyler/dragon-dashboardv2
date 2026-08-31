@@ -6,11 +6,16 @@ import re
 import unicodedata
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.books.matching import normalize_title
 from app.shared.time import utc_iso
+from app.vault.integrations import (
+    integration_settings,
+    personal_workspace_active,
+    update_integration_settings,
+)
 
 ENTRY_DELIMITER = re.compile(r"^\s*={5,}\s*$", re.MULTILINE)
 META_PATTERN = re.compile(
@@ -220,11 +225,37 @@ class KindleClippingsStateStore:
         return result
 
 
+class WorkspaceKindleClippingsStateStore(KindleClippingsStateStore):
+    """Persist one user's clipping queue inside their synced workspace cache."""
+
+    def __init__(self) -> None:
+        # Queue and review helpers are inherited; storage is WorkspaceIntegration.
+        pass
+
+    def load(self) -> KindleClippingsSyncState:
+        settings = integration_settings("kindle_clippings")
+        return KindleClippingsSyncState.from_dict(settings.get("state"))
+
+    def save(self, state: KindleClippingsSyncState | Mapping) -> None:
+        current = _sync_state(state)
+        settings = integration_settings("kindle_clippings")
+        settings["state"] = current.as_dict()
+        update_integration_settings("kindle_clippings", settings)
+
+
+def workspace_aware_clippings_store(path: Path | str) -> KindleClippingsStateStore:
+    """Use legacy disk state only when no personal workspace is active."""
+
+    if personal_workspace_active():
+        return WorkspaceKindleClippingsStateStore()
+    return KindleClippingsStateStore(path)
+
+
 def _quarantine_state_file(path: Path) -> Path | None:
     try:
         if not path.exists():
             return None
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         target = path.with_name(f"{path.name}.corrupt-{stamp}")
         counter = 1
         while target.exists():

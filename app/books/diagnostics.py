@@ -9,7 +9,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import selectinload
 
 from app.books.book_quotes import BookQuotesSnapshotService
-from app.books.clippings import KindleClippingsStateStore, project_clippings_outbox
+from app.books.clippings import project_clippings_outbox, workspace_aware_clippings_store
 from app.books.matching import valid_isbn10, valid_isbn13
 from app.books.models import (
     AudiobookAsset,
@@ -334,7 +334,7 @@ def _queues(
 
 def _kindle_clippings_snapshot(books: list[Book]) -> dict[str, object]:
     state_path = Path(current_app.instance_path) / "knowledge" / "kindle_clippings_sync.json"
-    projection = project_clippings_outbox(KindleClippingsStateStore(state_path).load(), books)
+    projection = project_clippings_outbox(workspace_aware_clippings_store(state_path).load(), books)
     counts = Counter(item.match.state for item in projection)
     queue = [
         {

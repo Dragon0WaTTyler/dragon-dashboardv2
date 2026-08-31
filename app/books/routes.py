@@ -24,7 +24,7 @@ from app.books.availability_providers import (
     JackettBookAvailabilityProvider,
 )
 from app.books.book_quotes import BookQuotesSnapshotService
-from app.books.clippings import KindleClippingsStateStore, project_clippings_outbox
+from app.books.clippings import project_clippings_outbox, workspace_aware_clippings_store
 from app.books.diagnostics import KnowledgeDiagnosticsService
 from app.books.kindle import BookKindleExportService
 from app.books.kindle_sync import KindleSyncCredentialStore
@@ -110,7 +110,7 @@ def _availability_providers():
 
 
 def _kindle_clippings_store():
-    return KindleClippingsStateStore(
+    return workspace_aware_clippings_store(
         Path(current_app.instance_path) / "knowledge" / "kindle_clippings_sync.json"
     )
 
