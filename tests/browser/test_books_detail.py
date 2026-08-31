@@ -155,7 +155,7 @@ def test_knowledge_diagnostics_layout_has_no_mobile_overflow(page, live_app, app
     sign_in(page, live_app)
     page.goto(f"{live_app}/settings/knowledge/diagnostics")
 
-    assert page.get_by_role("heading", name="Diagnostics").is_visible()
+    assert page.get_by_role("heading", name="Diagnostics", exact=True).is_visible()
     assert page.get_by_text("Diagnostics Book KFX").is_visible()
     assert page.locator(".diagnostics-metrics").is_visible()
 
@@ -425,7 +425,9 @@ def test_epub_reader_layout_has_no_mobile_overflow(page, live_app, app, tmp_path
     page.goto(f"{live_app}/books/{book_id}/assets/{asset_id}/reader")
 
     assert page.get_by_role("heading", name="Reader Layout").is_visible()
-    assert page.get_by_role("heading", name="Read the local EPUB without leaving Dragon").is_visible()
+    assert page.get_by_role(
+        "heading", name="Read the local EPUB without leaving Dragon"
+    ).is_visible()
     assert page.get_by_role("link", name="1. Quiet Opening").is_visible()
     assert page.get_by_text("A local reader paragraph for the browser test.").is_visible()
     html = page.content()
@@ -482,7 +484,9 @@ def test_kindle_export_layout_has_no_mobile_overflow(page, live_app, app, tmp_pa
     page.goto(f"{live_app}/books/{book_id}/kindle-export")
 
     assert page.get_by_role("heading", name="Kindle Layout").is_visible()
-    assert page.get_by_role("heading", name="Prepare the local file you actually want to send").is_visible()
+    assert page.get_by_role(
+        "heading", name="Prepare the local file you actually want to send"
+    ).is_visible()
     assert page.get_by_role("link", name="Download recommended").is_visible()
     assert page.get_by_role("heading", name="KFX · layout-export.kfx").is_visible()
     html = page.content()

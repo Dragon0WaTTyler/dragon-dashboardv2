@@ -109,12 +109,10 @@ def test_primary_content_pages_render(authenticated_client, app):
     assert 'class="book-detail' in book_detail
     assert 'src="https://images.example.test/book.jpg"' in book_detail
     assert "Reading context" in book_detail
-    assert "Current copies" in book_detail
-    assert "Register a file" in book_detail
-    assert "Track an edition" in book_detail
-    assert "Synced lines" in book_detail
-    assert "Saved lines" in book_detail
-    assert "Capture" in book_detail
+    assert "Keep your place" in book_detail
+    assert "Primary record" in book_detail
+    assert "Quotes" in book_detail
+    assert "Saved quotes" in book_detail
     assert "Shelf Alpha, Shelf Beta" in book_detail
     assert "Keep this one close for the next reread." in book_detail
     books_index = authenticated_client.get("/books").get_data(as_text=True)
@@ -126,7 +124,7 @@ def test_primary_content_pages_render(authenticated_client, app):
     diagnostics = authenticated_client.get("/settings/knowledge/diagnostics").get_data(
         as_text=True
     )
-    assert "Browse cleanup lanes from diagnostics" in diagnostics
+    assert "Browse cleanup lanes" in diagnostics
     assert "Formats" in diagnostics
 
     youtube_detail = authenticated_client.get(f"/youtube/{ids['video']}")
