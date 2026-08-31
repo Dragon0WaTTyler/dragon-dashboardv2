@@ -22,6 +22,7 @@ from app.vault.google import (
     GoogleOAuthError,
     GoogleVaultConflictError,
 )
+from app.vault.models import WorkspaceIntegration
 
 _WORKSPACE_ID = re.compile(r"^workspace_[A-Za-z0-9_-]{1,29}$")
 
@@ -113,6 +114,9 @@ class WorkspaceRuntime:
             f"sqlite:///{binding.cache_path.as_posix()}",
             connect_args={"timeout": 30},
         )
+        # Importing the model above registers the portable integration table before
+        # this workspace schema is materialised.
+        assert WorkspaceIntegration.__table__.name == "workspace_integrations"
         db.metadata.create_all(engine)
         with engine.begin() as connection:
             owner_table = db.metadata.tables["users"]

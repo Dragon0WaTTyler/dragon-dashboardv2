@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from app.auth.models import PersonalWorkspace, User
 from app.extensions import db
 from app.movies.models import Movie, MovieCustomList
+from app.vault.integrations import integration_settings, update_integration_settings
 from app.vault.runtime import bind_workspace, runtime_for
 
 
@@ -70,6 +71,27 @@ def test_google_workspace_runtime_routes_content_to_isolated_sqlite_caches(app):
                 connection.scalar(select(func.count()).select_from(MovieCustomList.__table__))
                 == 1
             )
+
+
+def test_workspace_integration_settings_are_private_and_portable(app):
+    first = _workspace(app, username="first-config-user", workspace_id="workspace_config_one")
+    second = _workspace(app, username="second-config-user", workspace_id="workspace_config_two")
+
+    with app.test_request_context("/"):
+        bind_workspace(first)
+        update_integration_settings(
+            "notion",
+            {
+                "token": "workspace-only-token",
+                "book_data_source_id": "notion-books-one",
+            },
+        )
+        assert integration_settings("notion")["book_data_source_id"] == "notion-books-one"
+        db.session.remove()
+
+    with app.test_request_context("/"):
+        bind_workspace(second)
+        assert integration_settings("notion") == {}
 
 
 def bind_workspace_for_test(workspace: PersonalWorkspace, app):

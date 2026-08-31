@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import shutil
 from dataclasses import dataclass
+
+from sqlalchemy import select
 
 from app.auth.models import PersonalWorkspace, User, WorkspaceConnection
 from app.extensions import db
@@ -89,10 +92,21 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         workspace = db.session.get(PersonalWorkspace, workspace_id)
         assert workspace is not None
         runtime = runtime_for(app)
-        runtime.prepare_google_sync(workspace)
+        binding = runtime.prepare_google_sync(workspace)
         db.session.add(Movie(title="Saved in Drive", normalized_title="saved in drive"))
         db.session.commit()
         assert runtime.finalize_google_sync() == "saved"
 
     assert client.uploads == 2
     assert client.contents.startswith(b"SQLite format 3")
+
+    # A fresh local installation restores the same personal content from Drive.
+    runtime.dispose()
+    shutil.rmtree(binding.cache_path.parent)
+    with app.test_request_context("/movies"):
+        workspace = db.session.get(PersonalWorkspace, workspace_id)
+        assert workspace is not None
+        runtime = runtime_for(app)
+        runtime.prepare_google_sync(workspace)
+        restored = db.session.scalar(select(Movie).where(Movie.title == "Saved in Drive"))
+        assert restored is not None
