@@ -263,7 +263,6 @@ class WorkspaceRuntime:
             needs_download = (
                 not cached
                 or state.get("remote_version") != remote.version
-                or not state.get("remote_etag")
             )
             if needs_download:
                 if cached and bool(state.get("dirty") or state.get("conflict")):

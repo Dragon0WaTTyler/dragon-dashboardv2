@@ -30,6 +30,7 @@ class FakeGoogleWorkspaceCache:
     file: DriveFile | None = None
     contents: bytes = b""
     uploads: int = 0
+    downloads: int = 0
 
     def refresh_access_token(self, *, refresh_token: str) -> str:
         assert refresh_token == "refresh-token"
@@ -45,6 +46,7 @@ class FakeGoogleWorkspaceCache:
     ) -> tuple[bytes, DriveFile]:
         assert access_token == "access-token"
         assert file == self.file
+        self.downloads += 1
         return self.contents, file
 
     def upload_appdata_file(
@@ -248,6 +250,63 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         assert preference_store().read()["sections"]["movies"]["movie_preferences"][
             "preferred_region"
         ] == "MA"
+
+
+def test_workspace_sync_uses_matching_version_when_drive_etag_is_empty(app):
+    client = FakeGoogleWorkspaceCache(
+        file=DriveFile(
+            id="cache-file",
+            name=WORKSPACE_CACHE_FILENAME,
+            version="1",
+            etag="",
+        )
+    )
+    app.extensions["dragon_google_oauth_client"] = client
+
+    with app.app_context():
+        user = User(username="google-version-user", password_hash="")
+        user.set_password("temporary-test-password")
+        db.session.add(user)
+        db.session.flush()
+        workspace = PersonalWorkspace(
+            id="workspace_version_test",
+            owner_user_id=user.id,
+            remote_locator="manifest-file",
+            state="ready",
+        )
+        db.session.add(workspace)
+        db.session.add(
+            WorkspaceConnection(
+                workspace_id=workspace.id,
+                provider="google_drive",
+                credential_ciphertext=encrypt_payload(
+                    app.config["SECRET_KEY"],
+                    {"refresh_token": "refresh-token"},
+                ),
+                scopes=[],
+            )
+        )
+        db.session.commit()
+        workspace_id = workspace.id
+
+    with app.test_request_context("/movies"):
+        workspace = db.session.get(PersonalWorkspace, workspace_id)
+        assert workspace is not None
+        runtime = runtime_for(app)
+        binding = runtime.bind(workspace)
+        runtime._write_sync_state(
+            binding,
+            {
+                "remote_version": "1",
+                "remote_etag": "",
+                "dirty": False,
+                "conflict": False,
+            },
+        )
+
+        runtime.prepare_google_sync(workspace)
+
+    assert client.downloads == 0
 
 
 def test_workspace_sync_preserves_dirty_local_cache_when_drive_changed(app):
