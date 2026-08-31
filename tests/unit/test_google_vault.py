@@ -6,6 +6,7 @@ import pytest
 
 from app.vault.google import (
     GOOGLE_DRIVE_FILES_URL,
+    WORKSPACE_CACHE_FILENAME,
     GoogleOAuthClient,
     GoogleVaultConflictError,
 )
@@ -19,11 +20,13 @@ class FakeResponse:
         ok: bool = True,
         status_code: int = 200,
         headers: dict[str, str] | None = None,
+        content: bytes = b"",
     ):
         self._payload = payload
         self.ok = ok
         self.status_code = status_code
         self.headers = headers or {}
+        self.content = content
 
     def json(self) -> dict[str, Any]:
         return self._payload
@@ -110,3 +113,59 @@ def test_google_vault_rejects_a_stale_write_without_overwriting_remote_data():
                 "snapshot": None,
             },
         )
+
+
+class FakeWorkspaceCacheHttp:
+    def __init__(self):
+        self.calls: list[tuple[str, str, dict[str, Any]]] = []
+
+    def get(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.calls.append(("get", url, kwargs))
+        if url == GOOGLE_DRIVE_FILES_URL:
+            return FakeResponse(
+                {
+                    "files": [
+                        {
+                            "id": "cache-file",
+                            "name": WORKSPACE_CACHE_FILENAME,
+                            "version": "9",
+                        }
+                    ]
+                }
+            )
+        return FakeResponse({}, headers={"ETag": "cache-etag"}, content=b"SQLite format 3\x00")
+
+    def patch(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.calls.append(("patch", url, kwargs))
+        return FakeResponse({}, headers={"Location": "https://upload.example.test/session"})
+
+    def put(self, url: str, **kwargs: Any) -> FakeResponse:
+        self.calls.append(("put", url, kwargs))
+        return FakeResponse(
+            {"id": "cache-file", "name": WORKSPACE_CACHE_FILENAME, "version": "10"},
+            headers={"ETag": "next-cache-etag"},
+        )
+
+
+def test_google_workspace_cache_uses_resumable_upload_and_conditional_update():
+    http = FakeWorkspaceCacheHttp()
+    client = _client(http)
+
+    current = client.find_appdata_file(
+        access_token="access-token",
+        name=WORKSPACE_CACHE_FILENAME,
+    )
+    assert current is not None
+    contents, current = client.download_appdata_file(access_token="access-token", file=current)
+    updated = client.upload_appdata_file(
+        access_token="access-token",
+        name=WORKSPACE_CACHE_FILENAME,
+        contents=contents,
+        current=current,
+    )
+
+    assert updated.version == "10"
+    patch = next(call for call in http.calls if call[0] == "patch")
+    assert patch[2]["headers"]["If-Match"] == "cache-etag"
+    put = next(call for call in http.calls if call[0] == "put")
+    assert put[2]["headers"]["Content-Range"] == f"bytes 0-{len(contents) - 1}/{len(contents)}"

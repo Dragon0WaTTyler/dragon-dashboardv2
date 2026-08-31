@@ -31,11 +31,12 @@ from app.middleware import install_request_middleware
 from app.migration import migration_cli
 from app.movies import bp as movies_bp
 from app.mytv import bp as mytv_bp
+from app.personal_tv import bp as personal_tv_bp
 from app.playback import bp as playback_bp
 from app.playback.settings import bp as playback_settings_bp
-from app.personal_tv import bp as personal_tv_bp
 from app.reading import bp as reading_bp
 from app.reading.providers import ArticleExtractor, FeedClient
+from app.vault.runtime import install_workspace_runtime
 from app.youtube import bp as youtube_bp
 from app.youtube.cli import apply_pockettube_group_map, export_pockettube_groups
 
@@ -69,6 +70,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
         init_legacy_db(app)
     login_manager.init_app(app)
     csrf.init_app(app)
+    install_workspace_runtime(app)
 
     login_manager.login_view = "auth.login"
     login_manager.login_message = "Sign in to open your workspace."

@@ -37,6 +37,7 @@ def test_feature_flags_default_safe(tmp_path: Path):
     assert settings.reading_tts_enabled is False
     assert settings.google_oauth_enabled is False
     assert settings.google_personal_vault_login_enabled is False
+    assert settings.google_personal_vault_sync_enabled is False
     assert settings.tv_epg_enabled is True
     assert settings.tv_epg_refresh_minutes == 360
     assert settings.tv_epg_urls == ""
@@ -71,6 +72,7 @@ def test_google_personal_vault_requires_explicit_credentials_and_flags(tmp_path:
             "DRAGON_GOOGLE_OAUTH_CLIENT_SECRET": "client-secret",
             "DRAGON_GOOGLE_OAUTH_ENABLED": "true",
             "DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED": "true",
+            "DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED": "true",
         },
     )
 
@@ -78,6 +80,7 @@ def test_google_personal_vault_requires_explicit_credentials_and_flags(tmp_path:
     assert credentials_only.google_oauth_enabled is False
     assert enabled.google_oauth_enabled is True
     assert enabled.google_personal_vault_login_enabled is True
+    assert enabled.google_personal_vault_sync_enabled is True
     assert "google_oauth_client_id" not in enabled.safe_summary()
     assert "google_oauth_client_secret" not in enabled.safe_summary()
 

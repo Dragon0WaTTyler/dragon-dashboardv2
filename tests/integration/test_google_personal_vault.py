@@ -47,6 +47,7 @@ def _enable_google_vault(app) -> None:
     app.config.update(
         DRAGON_GOOGLE_OAUTH_ENABLED=True,
         DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED=True,
+        DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED=True,
     )
     app.extensions["dragon_google_oauth_client"] = FakeGoogleOAuthClient()
 

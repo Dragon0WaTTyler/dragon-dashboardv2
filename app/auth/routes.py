@@ -50,6 +50,7 @@ def _google_personal_vault_enabled() -> bool:
     return bool(
         current_app.config.get("DRAGON_GOOGLE_OAUTH_ENABLED")
         and current_app.config.get("DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED")
+        and current_app.config.get("DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED")
     )
 
 

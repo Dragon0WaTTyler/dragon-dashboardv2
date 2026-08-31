@@ -168,6 +168,7 @@ class Settings:
     reading_tts_enabled: bool
     google_oauth_enabled: bool
     google_personal_vault_login_enabled: bool
+    google_personal_vault_sync_enabled: bool
     google_oauth_client_id: str
     google_oauth_client_secret: str
     google_oauth_redirect_uri: str
@@ -628,6 +629,7 @@ class Settings:
             google_personal_vault_login_enabled=feature(
                 "GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED", False
             ),
+            google_personal_vault_sync_enabled=feature("GOOGLE_PERSONAL_VAULT_SYNC_ENABLED", False),
             google_oauth_client_id=google_oauth_client_id,
             google_oauth_client_secret=google_oauth_client_secret,
             google_oauth_redirect_uri=google_oauth_redirect_uri,
@@ -735,6 +737,7 @@ class Settings:
             "DRAGON_READING_TTS_ENABLED": self.reading_tts_enabled,
             "DRAGON_GOOGLE_OAUTH_ENABLED": self.google_oauth_enabled,
             "DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED": self.google_personal_vault_login_enabled,
+            "DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED": self.google_personal_vault_sync_enabled,
             "DRAGON_GOOGLE_OAUTH_CLIENT_ID": self.google_oauth_client_id,
             "DRAGON_GOOGLE_OAUTH_CLIENT_SECRET": self.google_oauth_client_secret,
             "DRAGON_GOOGLE_OAUTH_REDIRECT_URI": self.google_oauth_redirect_uri,
