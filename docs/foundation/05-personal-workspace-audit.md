@@ -43,7 +43,8 @@ import into Drive before all later changes use the personal cache.
 
 The Google cache integration test writes a movie marked want to watch, its
 842-of-2400-second playback progress, a custom I want to watch list, a private
-YouTube playlist setting, and Movie playback preferences. It uploads the cache,
+YouTube playlist setting, PocketTube channel/video watched data, an RSS source,
+a Book reading position, and Movie playback preferences. It uploads the cache,
 removes the local cache directory, then verifies that a new local cache restores
 every record and setting from Drive.
 

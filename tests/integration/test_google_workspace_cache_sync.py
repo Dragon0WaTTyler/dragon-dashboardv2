@@ -10,8 +10,10 @@ from sqlalchemy import select
 
 from app.admin.control_center import preference_store
 from app.auth.models import PersonalWorkspace, User, WorkspaceConnection
+from app.books.models import Book
 from app.extensions import db
 from app.movies.models import Movie, MovieCustomList, MovieProgress
+from app.reading.models import ReadingSource
 from app.vault.crypto import encrypt_payload
 from app.vault.google import (
     WORKSPACE_CACHE_FILENAME,
@@ -20,6 +22,7 @@ from app.vault.google import (
 )
 from app.vault.integrations import integration_settings, update_integration_settings
 from app.vault.runtime import runtime_for
+from app.youtube.models import PocketTubeChannelMembership, YouTubeVideo
 
 
 @dataclass
@@ -139,6 +142,41 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
                 title="I want to watch",
             )
         )
+        db.session.add(
+            ReadingSource(
+                name="Owner RSS",
+                feed_url="https://feeds.example.test/owner.xml",
+                category="technology",
+            )
+        )
+        db.session.add(
+            PocketTubeChannelMembership(
+                group_name="Owner channels",
+                channel_id="UC-owner-channel",
+                catalogue_depth=12,
+            )
+        )
+        db.session.add(
+            YouTubeVideo(
+                external_id="owner-pockettube-video",
+                source="pockettube",
+                group_name="Owner channels",
+                channel_id="UC-owner-channel",
+                channel_title="Owner channel",
+                title="PocketTube video owned by this workspace",
+                watched=True,
+            )
+        )
+        db.session.add(
+            Book(
+                title="A workspace-owned book",
+                normalized_title="a workspace-owned book",
+                authors=["Owner"],
+                status="reading",
+                current_page=73,
+                page_count=320,
+            )
+        )
         update_integration_settings(
             "youtube",
             {
@@ -183,6 +221,26 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         assert progress is not None
         assert (progress.current_seconds, progress.duration_seconds) == (842, 2400)
         assert db.session.scalar(select(MovieCustomList.title)) == "I want to watch"
+        source = db.session.scalar(
+            select(ReadingSource).where(ReadingSource.name == "Owner RSS")
+        )
+        assert source is not None
+        assert source.feed_url == "https://feeds.example.test/owner.xml"
+        membership = db.session.scalar(
+            select(PocketTubeChannelMembership).where(
+                PocketTubeChannelMembership.channel_id == "UC-owner-channel"
+            )
+        )
+        assert membership is not None
+        assert membership.group_name == "Owner channels"
+        video = db.session.scalar(
+            select(YouTubeVideo).where(YouTubeVideo.external_id == "owner-pockettube-video")
+        )
+        assert video is not None
+        assert video.watched is True
+        book = db.session.scalar(select(Book).where(Book.title == "A workspace-owned book"))
+        assert book is not None
+        assert (book.status, book.current_page, book.page_count) == ("reading", 73, 320)
         assert integration_settings("youtube") == {
             "api_key": "workspace-youtube-key",
             "playlist_id": "PL-workspace-playlist",
