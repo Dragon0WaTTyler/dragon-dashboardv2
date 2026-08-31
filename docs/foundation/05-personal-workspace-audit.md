@@ -22,6 +22,7 @@ is not shared there.
 | News | RSS/Atom sources, article cache, saved/read state | User adds a source directly from News sources |
 | Books | Library, reading state, Notion destinations, Book Quotes state | Data and supported Notion settings are synchronised |
 | Kindle workflows | Clipping outbox and manual matching state | Queue is stored in the workspace cache |
+| Settings | Appearance, home layout, section choices, movie playback preferences | Stored in the workspace cache |
 
 ## Connected-user journey
 
