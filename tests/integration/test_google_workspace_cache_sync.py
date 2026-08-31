@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import gc
 import shutil
+import time
 from dataclasses import dataclass
 
 import pytest
@@ -60,6 +62,20 @@ class FakeGoogleWorkspaceCache:
             etag=f"etag-{self.uploads}",
         )
         return self.file
+
+
+def _remove_workspace_cache(path) -> None:
+    """Windows can release a disposed SQLite handle a moment after teardown."""
+
+    for attempt in range(10):
+        try:
+            shutil.rmtree(path)
+            return
+        except PermissionError:
+            if attempt == 9:
+                raise
+            gc.collect()
+            time.sleep(0.05)
 
 
 def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
@@ -130,7 +146,7 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
 
     # A fresh local installation restores the same personal content from Drive.
     runtime.dispose()
-    shutil.rmtree(binding.cache_path.parent)
+    _remove_workspace_cache(binding.cache_path.parent)
     with app.test_request_context("/movies"):
         workspace = db.session.get(PersonalWorkspace, workspace_id)
         assert workspace is not None

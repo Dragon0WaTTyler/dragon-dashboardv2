@@ -40,6 +40,7 @@ def test_workspace_page_saves_youtube_and_notion_settings_in_the_private_cache(c
     signed_in = login(client, "workspace-settings-user", "workspace-settings-password")
     assert signed_in.status_code == 302
     page = client.get("/auth/workspace")
+    assert b"Local private cache" in page.data
     response = client.post(
         "/auth/workspace",
         data={

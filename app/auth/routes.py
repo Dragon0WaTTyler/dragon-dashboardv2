@@ -22,6 +22,7 @@ from app.auth.models import PersonalWorkspace, User
 from app.extensions import db
 from app.vault.google import GoogleOAuthClient, GoogleOAuthError
 from app.vault.integrations import integration_settings, update_integration_settings
+from app.vault.runtime import runtime_for
 from app.vault.services import GoogleWorkspaceService
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -201,6 +202,12 @@ def workspace():
         "auth/workspace.html",
         connect_available=True,
         workspace=workspace_record,
+        sync_status=runtime_for(current_app._get_current_object()).sync_status(
+            workspace_record,
+            sync_enabled=bool(
+                current_app.config.get("DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED")
+            ),
+        ),
         form=form,
         youtube_connected=bool(current_youtube.get("api_key")),
         notion_connected=bool(current_notion.get("token")),

@@ -56,6 +56,50 @@ class WorkspaceRuntime:
             raise ValueError("Invalid personal workspace identifier.")
         return Path(self.app.instance_path) / "workspaces" / workspace_id / "cache.sqlite3"
 
+    def sync_status(self, workspace: PersonalWorkspace, *, sync_enabled: bool) -> dict[str, str]:
+        """Return safe, user-facing cache state without reading credentials."""
+
+        binding = WorkspaceBinding(
+            id=workspace.id,
+            owner_user_id=workspace.owner_user_id,
+            cache_path=self.cache_path(workspace.id),
+        )
+        state = self._read_sync_state(binding)
+        if bool(state.get("conflict")):
+            return {
+                "tone": "error",
+                "label": "Sync needs attention",
+                "message": (
+                    "A newer Google Drive copy and unsynchronised local changes were both kept. "
+                    "Resolve the conflict before continuing on this device."
+                ),
+            }
+        if not sync_enabled:
+            return {
+                "tone": "warning",
+                "label": "Local private cache",
+                "message": "Google Drive sync is not enabled on this Dragon installation.",
+            }
+        if workspace.state == "needs_seed":
+            return {
+                "tone": "warning",
+                "label": "Preparing first backup",
+                "message": (
+                    "Your legacy Dragon data will be copied to Google Drive on the next request."
+                ),
+            }
+        if state.get("remote_version") and not bool(state.get("dirty")):
+            return {
+                "tone": "success",
+                "label": "Google Drive synchronised",
+                "message": "This device is using your private Google Drive workspace.",
+            }
+        return {
+            "tone": "warning",
+            "label": "Sync pending",
+            "message": "Dragon will save this private workspace to Google Drive after a change.",
+        }
+
     @staticmethod
     def _checksum(path: Path) -> str:
         digest = hashlib.sha256()
