@@ -9,7 +9,7 @@
     <div>
       <span class="eyebrow">Settings · Knowledge</span>
       <h1>Kindle clippings outbox</h1>
-      <p>Local queue only. This page parses pasted My Clippings text and keeps pending Book Quotes payloads for a future manual sync.</p>
+      <p>{% if personal_workspace %}Your private workspace queue.{% else %}Local queue only.{% endif %} This page parses pasted My Clippings text and keeps pending Book Quotes payloads for a future manual sync.</p>
     </div>
     <div class="kindle-clippings__actions">
       {{ badge(outbox.pending_count ~ ' pending', 'warning' if outbox.pending_count else 'success') }}
@@ -196,19 +196,19 @@
           <div>
             <span class="eyebrow">Reliability</span>
             <h2 id="kindle-sync-title">Sync readiness</h2>
-            <p class="knowledge-panel__summary">This side rail tracks whether the local token, Book Quotes target, and validation state are ready for an explicit manual sync.</p>
+            <p class="knowledge-panel__summary">This side rail tracks whether the {% if personal_workspace %}personal Notion connection{% else %}local token{% endif %}, Book Quotes target, and validation state are ready for an explicit manual sync.</p>
           </div>
           {{ badge('Validated' if sync_readiness.state == 'validated' else 'Configured' if sync_readiness.state == 'configured' else 'Needs review' if sync_readiness.state == 'needs_review' else 'Not configured', 'success' if sync_readiness.state == 'validated' else 'accent' if sync_readiness.state == 'configured' else 'warning' if sync_readiness.state == 'needs_review' else 'neutral') }}
         </div>
-        <p class="book-detail__empty">No live sync client runs here yet. Dragon only checks local Kindle sync material, can validate Book Quotes access on demand, and lets you clear those local files safely.</p>
+        <p class="book-detail__empty">No background sync runs here. Dragon checks {% if personal_workspace %}this workspace’s Notion connection{% else %}local Kindle sync material{% endif %}, validates Book Quotes access on demand, and only uploads when you ask.</p>
         {% if sync_readiness.note %}
         {{ notice('Local credential check needs review', sync_readiness.note, 'warning') }}
         {% endif %}
         <div class="diagnostics-signals kindle-sync-readiness">
           <div class="diagnostics-signal{% if sync_readiness.state != 'configured' and sync_readiness.state != 'validated' %} diagnostics-signal--attention{% endif %}">
             <span aria-hidden="true"></span>
-            <strong>Local credentials {% if sync_readiness.state == 'configured' or sync_readiness.state == 'validated' %}present{% elif sync_readiness.state == 'needs_review' %}need review{% else %}missing{% endif %}</strong>
-            <small>{% if sync_readiness.state == 'configured' or sync_readiness.state == 'validated' %}A dedicated local Kindle token is available for a future manual sync client.{% elif sync_readiness.state == 'needs_review' %}A local token or metadata file exists, but the readiness boundary still needs attention.{% else %}No local Kindle sync credentials are configured.{% endif %}</small>
+            <strong>{% if personal_workspace %}Personal Notion connection{% else %}Local credentials{% endif %} {% if sync_readiness.state == 'configured' or sync_readiness.state == 'validated' %}present{% elif sync_readiness.state == 'needs_review' %}need review{% else %}missing{% endif %}</strong>
+            <small>{% if sync_readiness.state == 'configured' or sync_readiness.state == 'validated' %}{% if personal_workspace %}Only this workspace’s Notion token can upload its clippings.{% else %}A dedicated local Kindle token is available for a future manual sync client.{% endif %}{% elif sync_readiness.state == 'needs_review' %}The connection details need attention.{% else %}{% if personal_workspace %}Configure Notion and Book Quotes in Personal workspace.{% else %}No local Kindle sync credentials are configured.{% endif %}{% endif %}</small>
           </div>
           <div class="diagnostics-signal">
             <span aria-hidden="true"></span>
@@ -218,7 +218,7 @@
           <div class="diagnostics-signal{% if not sync_readiness.target_id_configured and sync_readiness.metadata_present %} diagnostics-signal--attention{% endif %}">
             <span aria-hidden="true"></span>
             <strong>Book Quotes target {% if sync_readiness.target_id_configured %}configured{% else %}missing{% endif %}</strong>
-            <small>{% if sync_readiness.target_id_configured %}A local {{ sync_readiness.target_kind|replace('_', ' ') }} ID is stored for the dedicated Book Quotes destination.{% elif sync_readiness.metadata_present %}Readiness metadata exists, but no local Book Quotes target ID is stored yet.{% else %}No local readiness metadata stored yet.{% endif %}</small>
+            <small>{% if sync_readiness.target_id_configured %}A {{ sync_readiness.target_kind|replace('_', ' ') }} ID is stored for the dedicated Book Quotes destination.{% elif sync_readiness.metadata_present %}Readiness metadata exists, but no Book Quotes target ID is stored yet.{% else %}{% if personal_workspace %}Set the target in Personal workspace.{% else %}No local readiness metadata stored yet.{% endif %}{% endif %}</small>
           </div>
           <div class="diagnostics-signal{% if sync_readiness.validation_state == 'invalid' or (sync_readiness.target_id_configured and sync_readiness.validation_state == 'not_checked') %} diagnostics-signal--attention{% endif %}">
             <span aria-hidden="true"></span>
@@ -250,7 +250,7 @@
           <form method="post" action="{{ url_for('knowledge_settings.clear_kindle_clipping_credentials') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="state" value="{{ outbox.active_filter }}">
-            <button class="button button--quiet" type="submit">Clear local credentials</button>
+            <button class="button button--quiet" type="submit">{% if personal_workspace %}Clear Book Quotes target{% else %}Clear local credentials{% endif %}</button>
           </form>
         </div>
         {% endif %}

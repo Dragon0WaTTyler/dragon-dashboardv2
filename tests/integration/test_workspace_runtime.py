@@ -15,6 +15,7 @@ from app.books.clippings import (
     KindleClippingsSyncState,
     workspace_aware_clippings_store,
 )
+from app.books.kindle_sync import WorkspaceKindleSyncCredentialStore
 from app.books.notion_sync import BookNotionSyncService
 from app.extensions import db
 from app.movies.external_library import notion_movie_provider
@@ -175,6 +176,34 @@ def test_workspace_integration_settings_are_private_and_portable(app):
             "reduced_effects": True,
             "ambient_level": "normal",
         }
+
+
+def test_personal_kindle_sync_uses_only_its_workspace_notion_connection(app):
+    first = _workspace(app, username="kindle-config-one", workspace_id="workspace_kindle_one")
+    second = _workspace(app, username="kindle-config-two", workspace_id="workspace_kindle_two")
+
+    with app.test_request_context("/"):
+        bind_workspace(first)
+        update_integration_settings(
+            "notion",
+            {
+                "token": "first-workspace-token",
+                "book_quotes_data_source_id": "first-book-quotes-source",
+            },
+        )
+        readiness = WorkspaceKindleSyncCredentialStore().status()
+        assert readiness.token_configured is True
+        assert readiness.target_id_configured is True
+        assert readiness.destination_label == "Personal Book Quotes"
+        assert BookQuotesSnapshotService.status()["configured"] is True
+        db.session.remove()
+
+    with app.test_request_context("/"):
+        bind_workspace(second)
+        readiness = WorkspaceKindleSyncCredentialStore().status()
+        assert readiness.token_configured is False
+        assert readiness.target_id_configured is False
+        assert BookQuotesSnapshotService.status()["configured"] is False
 
 
 def bind_workspace_for_test(workspace: PersonalWorkspace, app):

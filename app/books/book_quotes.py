@@ -540,6 +540,15 @@ def _refresh_result(
 
 
 def _book_quotes_configured() -> bool:
+    if personal_workspace_active():
+        settings = integration_settings("notion")
+        return bool(
+            str(settings.get("token") or "").strip()
+            and (
+                str(settings.get("book_quotes_data_source_id") or "").strip()
+                or str(settings.get("book_quotes_database_id") or "").strip()
+            )
+        )
     status = _credential_store().status()
     return bool(status.token_configured and status.target_id_configured)
 
@@ -760,6 +769,10 @@ def _book_quotes_client(
             target_id=data_source_id or database_id,
             session=session,
             timeout_seconds=timeout_seconds,
+        )
+    if personal_workspace_active():
+        raise KindleSyncValidationError(
+            "Connect Notion and set a Book Quotes database in Personal workspace."
         )
     return _credential_store().book_quotes_client(
         session=session,

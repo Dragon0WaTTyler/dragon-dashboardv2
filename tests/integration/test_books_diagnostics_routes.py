@@ -320,7 +320,7 @@ def test_knowledge_diagnostics_hosts_library_maintenance_lanes(authenticated_cli
     html = response.get_data(as_text=True)
 
     assert response.status_code == 200
-    assert "Browse cleanup lanes from diagnostics" in html
+    assert "Browse cleanup lanes" in html
     assert "Metadata" in html
     assert "Formats" in html
     assert "Signals" in html

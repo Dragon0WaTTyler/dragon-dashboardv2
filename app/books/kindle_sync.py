@@ -16,6 +16,7 @@ from app.books.clippings import (
     mark_clippings_uploaded,
 )
 from app.shared.time import utc_iso
+from app.vault.integrations import integration_settings, update_integration_settings
 
 NOTION_API_BASE_URL = "https://api.notion.com/v1"
 KINDLE_NOTION_VERSION = "2025-09-03"
@@ -344,6 +345,149 @@ class KindleSyncCredentialStore:
             target_id=target_id,
             session=session,
             timeout_seconds=timeout_seconds,
+        )
+
+
+class WorkspaceKindleSyncCredentialStore:
+    """Use only the active personal workspace's Notion connection.
+
+    The legacy file-backed store is intentionally retained for a local-only
+    installation.  A signed-in personal workspace must never fall back to
+    those shared instance files.
+    """
+
+    _VALIDATION_PROVIDER = "kindle_sync"
+
+    def _connection(self) -> tuple[str, str, str]:
+        settings = integration_settings("notion")
+        token = str(settings.get("token") or "").strip()
+        data_source_id = str(settings.get("book_quotes_data_source_id") or "").strip()
+        database_id = str(settings.get("book_quotes_database_id") or "").strip()
+        return token, data_source_id, database_id
+
+    def status(self) -> KindleSyncCredentialStatus:
+        token, data_source_id, database_id = self._connection()
+        validation = integration_settings(self._VALIDATION_PROVIDER)
+        target_id = data_source_id or database_id
+        target_kind = "data_source" if data_source_id else "database"
+        configured = bool(token and target_id)
+        return KindleSyncCredentialStatus(
+            token_file_present=bool(token),
+            token_configured=bool(token),
+            metadata_present=bool(target_id),
+            metadata_valid=bool(target_id),
+            target_kind=target_kind if target_id else "",
+            target_id_configured=bool(target_id),
+            destination_label="Personal Book Quotes",
+            validated_at=str(validation.get("validated_at") or ""),
+            last_checked_at=str(validation.get("last_checked_at") or ""),
+            last_validation_error=str(validation.get("last_validation_error") or ""),
+            note=(
+                "Connect Notion and set a Book Quotes database in Personal workspace."
+                if not configured
+                else ""
+            ),
+        )
+
+    def clear(self) -> KindleSyncCredentialClearResult:
+        settings = integration_settings("notion")
+        cleared = 0
+        for key in ("book_quotes_data_source_id", "book_quotes_database_id"):
+            if settings.pop(key, ""):
+                cleared += 1
+        update_integration_settings("notion", settings)
+        update_integration_settings(self._VALIDATION_PROVIDER, {})
+        return KindleSyncCredentialClearResult(status=self.status(), cleared=cleared)
+
+    def validate(
+        self,
+        *,
+        session: requests.Session | None = None,
+        timeout_seconds: float = KINDLE_NOTION_TIMEOUT_SECONDS,
+    ) -> KindleSyncCredentialValidateResult:
+        token, data_source_id, database_id = self._connection()
+        checked_at = utc_iso()
+        target_id = data_source_id or database_id
+        target_kind = "data_source" if data_source_id else "database"
+        if not token or not target_id:
+            return KindleSyncCredentialValidateResult(status=self.status(), validated=False)
+        try:
+            KindleSyncValidationClient(
+                token=token, session=session, timeout_seconds=timeout_seconds
+            ).validate_target(target_kind=target_kind, target_id=target_id)
+        except KindleSyncValidationError as exc:
+            update_integration_settings(
+                self._VALIDATION_PROVIDER,
+                {"last_checked_at": checked_at, "last_validation_error": str(exc)},
+            )
+            return KindleSyncCredentialValidateResult(status=self.status(), validated=False)
+        update_integration_settings(
+            self._VALIDATION_PROVIDER,
+            {
+                "validated_at": checked_at,
+                "last_checked_at": checked_at,
+                "last_validation_error": "",
+            },
+        )
+        return KindleSyncCredentialValidateResult(status=self.status(), validated=True)
+
+    def sync_pending(
+        self,
+        state: KindleClippingsSyncState | Mapping,
+        *,
+        session: requests.Session | None = None,
+        timeout_seconds: float = KINDLE_NOTION_TIMEOUT_SECONDS,
+    ) -> KindleBookQuotesSyncResult:
+        current = (
+            state
+            if isinstance(state, KindleClippingsSyncState)
+            else KindleClippingsSyncState.from_dict(state)
+        )
+        token, data_source_id, database_id = self._connection()
+        target_id = data_source_id or database_id
+        if not token or not target_id:
+            failed = mark_clippings_failed(
+                current,
+                {
+                    item.unique_hash: "Personal Book Quotes is not configured."
+                    for item in current.pending
+                },
+            )
+            return KindleBookQuotesSyncResult(
+                state=failed.state,
+                uploaded=0,
+                skipped_existing=0,
+                failed=failed.failed,
+            )
+        client = KindleBookQuotesClient(
+            token=token,
+            target_kind="data_source" if data_source_id else "database",
+            target_id=target_id,
+            session=session,
+            timeout_seconds=timeout_seconds,
+        )
+        uploaded_hashes: list[str] = []
+        skipped_existing = 0
+        failures: dict[str, str] = {}
+        imported_at = utc_iso()
+        for item in current.pending:
+            try:
+                if client.has_existing_hash(item.unique_hash):
+                    uploaded_hashes.append(item.unique_hash)
+                    skipped_existing += 1
+                    continue
+                client.create_quote_page(item, imported_at=imported_at)
+            except KindleSyncValidationError as exc:
+                failures[item.unique_hash] = str(exc)
+                continue
+            uploaded_hashes.append(item.unique_hash)
+        uploaded = mark_clippings_uploaded(current, uploaded_hashes)
+        failed = mark_clippings_failed(uploaded.state, failures)
+        return KindleBookQuotesSyncResult(
+            state=failed.state,
+            uploaded=uploaded.uploaded - skipped_existing,
+            skipped_existing=skipped_existing,
+            failed=failed.failed,
         )
 
 

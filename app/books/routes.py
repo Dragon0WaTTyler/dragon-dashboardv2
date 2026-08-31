@@ -27,7 +27,7 @@ from app.books.book_quotes import BookQuotesSnapshotService
 from app.books.clippings import project_clippings_outbox, workspace_aware_clippings_store
 from app.books.diagnostics import KnowledgeDiagnosticsService
 from app.books.kindle import BookKindleExportService
-from app.books.kindle_sync import KindleSyncCredentialStore
+from app.books.kindle_sync import KindleSyncCredentialStore, WorkspaceKindleSyncCredentialStore
 from app.books.metadata import BookMetadataService
 from app.books.repositories import BookRepository
 from app.books.runtime import (
@@ -37,6 +37,7 @@ from app.books.runtime import (
     TextRuntimeError,
 )
 from app.books.services import BookService, book_detail, book_item, quotes_view
+from app.vault.integrations import personal_workspace_active
 
 bp = Blueprint("books", __name__, url_prefix="/books")
 settings_bp = Blueprint("knowledge_settings", __name__, url_prefix="/settings/knowledge")
@@ -116,6 +117,8 @@ def _kindle_clippings_store():
 
 
 def _kindle_sync_credential_store():
+    if personal_workspace_active():
+        return WorkspaceKindleSyncCredentialStore()
     instance_root = Path(current_app.instance_path)
     return KindleSyncCredentialStore(
         token_path=instance_root / "secrets" / "kindle_book_quotes_token",
@@ -1375,6 +1378,7 @@ def kindle_clippings():
             state_filter=state_filter,
         ),
         sync_readiness=_kindle_sync_credential_store().status(),
+        personal_workspace=personal_workspace_active(),
     )
 
 
@@ -1486,10 +1490,21 @@ def reset_kindle_clipping_failures():
 @login_required
 def clear_kindle_clipping_credentials():
     result = _kindle_sync_credential_store().clear()
+    personal_workspace = personal_workspace_active()
     if result.cleared:
-        flash("Cleared local Kindle sync credentials.", "success")
+        flash(
+            "Cleared this workspace's Book Quotes target."
+            if personal_workspace
+            else "Cleared local Kindle sync credentials.",
+            "success",
+        )
     else:
-        flash("No local Kindle sync credentials were stored.", "warning")
+        flash(
+            "No Book Quotes target was stored for this workspace."
+            if personal_workspace
+            else "No local Kindle sync credentials were stored.",
+            "warning",
+        )
     return _kindle_clippings_redirect(
         _kindle_clippings_filter(str(request.form.get("state") or "all"))
     )
@@ -1499,11 +1514,22 @@ def clear_kindle_clipping_credentials():
 @login_required
 def validate_kindle_clipping_credentials():
     result = _kindle_sync_credential_store().validate()
+    personal_workspace = personal_workspace_active()
     if result.validated:
-        flash("Validated local Kindle sync credentials against Book Quotes.", "success")
+        flash(
+            "Validated this workspace's Notion connection against Book Quotes."
+            if personal_workspace
+            else "Validated local Kindle sync credentials against Book Quotes.",
+            "success",
+        )
     else:
         flash(
-            result.status.note or "Local Kindle sync credentials still need review.",
+            result.status.note
+            or (
+                "This workspace's Notion connection still needs review."
+                if personal_workspace
+                else "Local Kindle sync credentials still need review."
+            ),
             "warning",
         )
     return _kindle_clippings_redirect(
