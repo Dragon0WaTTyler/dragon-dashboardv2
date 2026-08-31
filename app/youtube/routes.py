@@ -9,6 +9,7 @@ from flask import (
     abort,
     current_app,
     flash,
+    g,
     redirect,
     render_template,
     request,
@@ -17,6 +18,7 @@ from flask import (
 )
 from flask_login import login_required
 
+from app.vault.integrations import integration_settings
 from app.youtube.providers import YouTubePlaylistClient
 from app.youtube.repositories import YouTubeRepository
 from app.youtube.services import ORDERS, SOURCES, YouTubeService
@@ -41,13 +43,33 @@ def _safe_return_to(value: str | None, *, fallback: str) -> str:
     return candidate
 
 
+def _youtube_connection() -> tuple[str, str, bool]:
+    if getattr(g, "dragon_workspace_engine", None) is not None:
+        settings = integration_settings("youtube")
+        return (
+            str(settings.get("api_key") or "").strip(),
+            str(settings.get("playlist_id") or "").strip(),
+            True,
+        )
+    return (
+        str(current_app.config["DRAGON_YOUTUBE_API_KEY"]),
+        str(current_app.config["DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID"]),
+        False,
+    )
+
+
 def _playlist_client() -> YouTubePlaylistClient:
     injected = current_app.extensions.get("dragon_youtube_playlist_client")
     if injected is not None:
         return injected
+    api_key, _playlist_id, personal_workspace = _youtube_connection()
     return YouTubePlaylistClient(
-        current_app.config["DRAGON_YOUTUBE_API_KEY"],
-        oauth_token_path=Path(current_app.instance_path) / "secrets" / "youtube_token.json",
+        api_key,
+        oauth_token_path=(
+            None
+            if personal_workspace
+            else Path(current_app.instance_path) / "secrets" / "youtube_token.json"
+        ),
     )
 
 
@@ -97,6 +119,7 @@ def index():
         per_page=per_page if per_page != 50 else None,
         seed=feed["seed"] if order in {"shuffle", "shuffle_video"} else None,
     )
+    api_key, playlist_id, personal_workspace = _youtube_connection()
     return render_template(
         "youtube/index.html",
         active_module="youtube",
@@ -114,13 +137,45 @@ def index():
         has_next=offset + len(feed["items"]) < feed["total"],
         return_to=return_to,
         sync_status=YouTubeService.sync_status(source),
-        sync_available=bool(current_app.config["DRAGON_YOUTUBE_SYNC_ENABLED"]),
+        sync_available=bool(api_key and playlist_id)
+        if personal_workspace
+        else bool(current_app.config["DRAGON_YOUTUBE_SYNC_ENABLED"]),
     )
 
 
 @bp.post("/sync")
 @login_required
 def sync_watch_later():
+    api_key, playlist_id, personal_workspace = _youtube_connection()
+    if personal_workspace:
+        if not api_key or not playlist_id:
+            flash(
+                "Add your YouTube API key and playlist ID in Personal workspace first.",
+                "warning",
+            )
+            return redirect(
+                _safe_return_to(
+                    request.form.get("return_to"),
+                    fallback=url_for("youtube.index", source="watch_later"),
+                )
+            )
+        try:
+            counts = YouTubeService.sync_watch_later(_playlist_client(), playlist_id)
+        except ValueError as exc:
+            flash(f"YouTube sync failed: {exc}", "error")
+        else:
+            flash(
+                f'Playlist synced: {counts.get("videos", 0)} active videos, '
+                f'{counts.get("created", 0)} new, {counts.get("updated", 0)} updated, '
+                f'{counts.get("removed", 0)} removed.',
+                "success",
+            )
+        return redirect(
+            _safe_return_to(
+                request.form.get("return_to"),
+                fallback=url_for("youtube.index", source="watch_later"),
+            )
+        )
     from app.shared.refresh import OperationCoordinator
 
     operation = OperationCoordinator.run(kind="sync", domain="youtube_watch_later")
