@@ -253,6 +253,51 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         ] == "MA"
 
 
+def test_new_google_workspace_can_complete_its_first_authenticated_request(app):
+    client = FakeGoogleWorkspaceCache()
+    app.extensions["dragon_google_oauth_client"] = client
+    app.config["DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED"] = True
+
+    with app.app_context():
+        user = User(username="new-google-user", password_hash="")
+        user.set_password("temporary-test-password")
+        db.session.add(user)
+        db.session.flush()
+        workspace = PersonalWorkspace(
+            id="workspace_new_user_test",
+            owner_user_id=user.id,
+            remote_locator="manifest-file",
+            state="ready",
+        )
+        db.session.add(workspace)
+        db.session.add(
+            WorkspaceConnection(
+                workspace_id=workspace.id,
+                provider="google_drive",
+                credential_ciphertext=encrypt_payload(
+                    app.config["SECRET_KEY"],
+                    {"refresh_token": "refresh-token"},
+                ),
+                scopes=[],
+            )
+        )
+        db.session.commit()
+
+    app.config["WTF_CSRF_ENABLED"] = False
+    page = app.test_client()
+    login_response = page.post(
+        "/auth/login",
+        data={"username": "new-google-user", "password": "temporary-test-password"},
+        follow_redirects=False,
+    )
+    assert login_response.status_code == 302
+    home = page.get("/movies")
+
+    assert home.status_code == 200
+    assert client.uploads == 1
+    assert client.contents.startswith(b"SQLite format 3")
+
+
 def test_workspace_sync_uses_matching_version_when_drive_etag_is_empty(app):
     client = FakeGoogleWorkspaceCache(
         file=DriveFile(
