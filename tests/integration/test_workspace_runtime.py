@@ -206,5 +206,54 @@ def test_personal_kindle_sync_uses_only_its_workspace_notion_connection(app):
         assert BookQuotesSnapshotService.status()["configured"] is False
 
 
+def test_personal_kindle_upload_never_falls_back_to_shared_credentials(app, monkeypatch):
+    first = _workspace(app, username="kindle-upload-one", workspace_id="workspace_upload_one")
+    second = _workspace(app, username="kindle-upload-two", workspace_id="workspace_upload_two")
+    calls: list[tuple[str, str, str]] = []
+
+    class FakeBookQuotesClient:
+        def __init__(self, *, token, target_kind, target_id, **kwargs):
+            calls.append((token, target_kind, target_id))
+
+        def has_existing_hash(self, unique_hash):
+            return False
+
+        def create_quote_page(self, item, *, imported_at):
+            assert item.unique_hash == "personal-kindle-quote"
+            assert imported_at
+
+    monkeypatch.setattr("app.books.kindle_sync.KindleBookQuotesClient", FakeBookQuotesClient)
+    state = KindleClippingsSyncState(
+        pending=(
+            KindleClippingsOutboxItem(
+                unique_hash="personal-kindle-quote",
+                payload={"quote": "Only the owner can upload this."},
+            ),
+        )
+    )
+
+    with app.test_request_context("/"):
+        bind_workspace(first)
+        update_integration_settings(
+            "notion",
+            {
+                "token": "owner-notion-token",
+                "book_quotes_database_id": "owner-book-quotes-db",
+            },
+        )
+        result = WorkspaceKindleSyncCredentialStore().sync_pending(state)
+        assert result.uploaded == 1
+        assert result.failed == 0
+        assert calls == [("owner-notion-token", "database", "owner-book-quotes-db")]
+        db.session.remove()
+
+    with app.test_request_context("/"):
+        bind_workspace(second)
+        result = WorkspaceKindleSyncCredentialStore().sync_pending(state)
+        assert result.uploaded == 0
+        assert result.failed == 1
+        assert calls == [("owner-notion-token", "database", "owner-book-quotes-db")]
+
+
 def bind_workspace_for_test(workspace: PersonalWorkspace, app):
     return runtime_for(app).bind(workspace)
