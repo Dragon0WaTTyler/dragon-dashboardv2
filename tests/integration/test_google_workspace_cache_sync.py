@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import pytest
 from sqlalchemy import select
 
+from app.admin.control_center import preference_store
 from app.auth.models import PersonalWorkspace, User, WorkspaceConnection
 from app.extensions import db
 from app.movies.models import Movie, MovieCustomList, MovieProgress
@@ -17,6 +18,7 @@ from app.vault.google import (
     DriveFile,
     GoogleVaultConflictError,
 )
+from app.vault.integrations import integration_settings, update_integration_settings
 from app.vault.runtime import runtime_for
 
 
@@ -137,6 +139,26 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
                 title="I want to watch",
             )
         )
+        update_integration_settings(
+            "youtube",
+            {
+                "api_key": "workspace-youtube-key",
+                "playlist_id": "PL-workspace-playlist",
+            },
+        )
+        preference_store().set_movie_preferences(
+            {
+                "autoplay_next": False,
+                "automatic_resume": True,
+                "default_subtitle_language": "fr",
+                "preferred_audio_language": "original",
+                "preferred_quality": "1080p",
+                "preferred_source": "vidsrc",
+                "preferred_region": "MA",
+                "reduced_effects": True,
+                "ambient_level": "normal",
+            }
+        )
         db.session.commit()
         assert runtime.finalize_google_sync() == "saved"
         db.session.remove()
@@ -161,6 +183,13 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         assert progress is not None
         assert (progress.current_seconds, progress.duration_seconds) == (842, 2400)
         assert db.session.scalar(select(MovieCustomList.title)) == "I want to watch"
+        assert integration_settings("youtube") == {
+            "api_key": "workspace-youtube-key",
+            "playlist_id": "PL-workspace-playlist",
+        }
+        assert preference_store().read()["sections"]["movies"]["movie_preferences"][
+            "preferred_region"
+        ] == "MA"
 
 
 def test_workspace_sync_preserves_dirty_local_cache_when_drive_changed(app):
