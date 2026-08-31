@@ -33,7 +33,7 @@
       {% endif %}
       <button class="button button--secondary" type="submit">{{ 'Refresh local snapshot' if source == 'watch_later' else ('Import PocketTube export' if personal_workspace_active else 'Refresh PocketTube') }}</button>
     </form>
-    {% if source == 'watch_later' %}<a class="button button--quiet" href="{{ url_for('youtube.oauth_connect') }}">Reconnect YouTube</a>{% endif %}
+    {% if source == 'watch_later' and not personal_workspace %}<a class="button button--quiet" href="{{ url_for('youtube.oauth_connect') }}">Reconnect YouTube</a>{% elif source == 'watch_later' and personal_workspace %}<a class="button button--quiet" href="{{ url_for('auth.workspace') }}">Edit playlist connection</a>{% endif %}
   </div>
 </div>
 

@@ -157,6 +157,7 @@ def index():
         has_previous=page > 1,
         has_next=offset + len(feed["items"]) < feed["total"],
         return_to=return_to,
+        personal_workspace=personal_workspace,
         sync_status=YouTubeService.sync_status(source),
         sync_available=bool(api_key and playlist_id)
         if personal_workspace

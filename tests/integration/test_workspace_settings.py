@@ -131,6 +131,9 @@ def test_personal_workspace_imports_its_own_pockettube_export(client, app):
     pockettube_page = client.get("/youtube?source=pockettube")
     assert b'name="export"' in pockettube_page.data
     assert b"Import PocketTube export" in pockettube_page.data
+    playlist_page = client.get("/youtube?source=watch_later")
+    assert b"Edit playlist connection" in playlist_page.data
+    assert b"Reconnect YouTube" not in playlist_page.data
     response = client.post(
         "/youtube/sync-pockettube",
         data={
