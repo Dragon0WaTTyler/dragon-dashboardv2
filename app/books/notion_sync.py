@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -14,6 +14,7 @@ from app.books.models import Book
 from app.extensions import db
 from app.shared.models import SnapshotRecord
 from app.shared.time import utc_now
+from app.vault.integrations import integration_settings, personal_workspace_active
 
 BOOK_NOTION_DOMAIN = "books"
 BOOK_NOTION_SCHEMA_VERSION = "books-notion-progress-v1"
@@ -130,7 +131,12 @@ class BookNotionSyncClient:
         title = _property_value(properties, title_name)
         if not title:
             title = _property_value(properties, "Title")
-        page_count = _positive_int(_first_property_value(properties, ("Pages", "Page Count", "Total Pages", "Number of Pages")))
+        page_count = _positive_int(
+            _first_property_value(
+                properties,
+                ("Pages", "Page Count", "Total Pages", "Number of Pages"),
+            )
+        )
         current_page = _positive_int(
             _first_property_value(
                 properties,
@@ -247,13 +253,17 @@ class BookNotionSyncService:
         if injected is not None:
             return injected
         settings = current_app.extensions.get("dragon_settings")
-        if settings is None:
-            return None
-        if not getattr(settings, "notion_sync_enabled", False):
-            return None
-        token = str(getattr(settings, "notion_token", "") or "")
-        database_id = str(getattr(settings, "book_notion_database_id", "") or "")
-        data_source_id = str(getattr(settings, "book_notion_data_source_id", "") or "")
+        if personal_workspace_active():
+            workspace_settings = integration_settings("notion")
+            token = str(workspace_settings.get("token") or "")
+            database_id = str(workspace_settings.get("book_database_id") or "")
+            data_source_id = str(workspace_settings.get("book_data_source_id") or "")
+        else:
+            if settings is None or not getattr(settings, "notion_sync_enabled", False):
+                return None
+            token = str(getattr(settings, "notion_token", "") or "")
+            database_id = str(getattr(settings, "book_notion_database_id", "") or "")
+            data_source_id = str(getattr(settings, "book_notion_data_source_id", "") or "")
         if not token or not (database_id or data_source_id):
             return None
         return BookNotionSyncClient(
@@ -369,11 +379,12 @@ class BookNotionSyncService:
             sync_metadata["notion_status"] = status
         if cover_url:
             sync_metadata["notion_cover_url"] = cover_url
-        if sync_metadata:
-            if any(metadata_state.get(key) != value for key, value in sync_metadata.items()):
-                metadata_state.update(sync_metadata)
-                book.metadata_state = metadata_state
-                changed = True
+        if sync_metadata and any(
+            metadata_state.get(key) != value for key, value in sync_metadata.items()
+        ):
+            metadata_state.update(sync_metadata)
+            book.metadata_state = metadata_state
+            changed = True
 
         return changed
 
@@ -482,8 +493,8 @@ def _as_utc(value: datetime | None) -> datetime | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        return value.replace(tzinfo=timezone.utc)
-    return value.astimezone(timezone.utc)
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _checksum(items: list[dict[str, Any]]) -> str:

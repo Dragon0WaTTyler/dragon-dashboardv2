@@ -3,6 +3,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 
 from app.auth.models import PersonalWorkspace, User
+from app.books.notion_sync import BookNotionSyncService
 from app.extensions import db
 from app.movies.models import Movie, MovieCustomList
 from app.vault.integrations import integration_settings, update_integration_settings
@@ -87,6 +88,10 @@ def test_workspace_integration_settings_are_private_and_portable(app):
             },
         )
         assert integration_settings("notion")["book_data_source_id"] == "notion-books-one"
+        client = BookNotionSyncService._client()
+        assert client is not None
+        assert client.token == "workspace-only-token"
+        assert client._configured_data_source_id == "notionbooksone"
         db.session.remove()
 
     with app.test_request_context("/"):

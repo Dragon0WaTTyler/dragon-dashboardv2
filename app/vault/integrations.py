@@ -12,12 +12,14 @@ from app.vault.models import WorkspaceIntegration
 _PROVIDER = re.compile(r"^[a-z][a-z0-9_-]{0,79}$")
 
 
+def personal_workspace_active() -> bool:
+    return has_request_context() and getattr(g, "dragon_workspace_engine", None) is not None
+
+
 def integration_settings(provider: str) -> dict[str, Any]:
     """Return workspace-owned settings, or an empty mapping outside a workspace."""
 
-    if not _PROVIDER.fullmatch(provider) or not has_request_context():
-        return {}
-    if getattr(g, "dragon_workspace_engine", None) is None:
+    if not _PROVIDER.fullmatch(provider) or not personal_workspace_active():
         return {}
     record = db.session.get(WorkspaceIntegration, provider)
     return dict(record.settings_json or {}) if record is not None else {}
@@ -28,7 +30,7 @@ def update_integration_settings(provider: str, settings: Mapping[str, Any]) -> W
 
     if not _PROVIDER.fullmatch(provider):
         raise ValueError("Integration provider identifier is invalid.")
-    if not has_request_context() or getattr(g, "dragon_workspace_engine", None) is None:
+    if not personal_workspace_active():
         raise RuntimeError("A personal workspace is required to save integration settings.")
     record = db.session.get(WorkspaceIntegration, provider)
     if record is None:
