@@ -28,6 +28,7 @@ class GoogleWorkspaceService:
         secret_key: str,
         token_payload: dict[str, Any],
         identity_payload: dict[str, str],
+        existing_user: User | None = None,
     ) -> User:
         subject = str(identity_payload.get("subject") or "").strip()
         access_token = str(token_payload.get("access_token") or "").strip()
@@ -40,10 +41,13 @@ class GoogleWorkspaceService:
             )
         )
         if identity is None:
-            user = User(username=_username_for_google_subject(subject), password_hash="")
-            user.set_password(secrets.token_urlsafe(48))
-            db.session.add(user)
-            db.session.flush()
+            if existing_user is None:
+                user = User(username=_username_for_google_subject(subject), password_hash="")
+                user.set_password(secrets.token_urlsafe(48))
+                db.session.add(user)
+                db.session.flush()
+            else:
+                user = existing_user
             identity = ExternalIdentity(
                 user_id=user.id,
                 provider="google",
@@ -56,6 +60,10 @@ class GoogleWorkspaceService:
             user = db.session.get(User, identity.user_id)
             if user is None:
                 raise ValueError("Google account identity has no Dragon account.")
+            if existing_user is not None and user.id != existing_user.id:
+                raise ValueError(
+                    "This Google account is already linked to a different Dragon user."
+                )
             identity.email = str(identity_payload.get("email") or "").strip()
             identity.display_name = str(identity_payload.get("display_name") or "").strip()
 
@@ -64,9 +72,15 @@ class GoogleWorkspaceService:
         )
         if workspace is None:
             remote_workspace = client.locate_vault(access_token=access_token)
+            if existing_user is not None and remote_workspace is not None:
+                raise ValueError(
+                    "This Google Drive account already has a Dragon workspace. "
+                    "Sign in directly with Google instead of importing this local account."
+                )
             workspace = PersonalWorkspace(
                 id=remote_workspace.workspace_id if remote_workspace else new_id("workspace"),
                 owner_user_id=user.id,
+                state="needs_seed" if existing_user is not None else "provisioning",
             )
             db.session.add(workspace)
             db.session.flush()
@@ -83,7 +97,8 @@ class GoogleWorkspaceService:
                     "Reconnect it from the matching Dragon account."
                 )
         workspace.remote_locator = remote_workspace.file_id
-        workspace.state = "ready"
+        if workspace.state != "needs_seed":
+            workspace.state = "ready"
 
         connection = db.session.scalar(
             select(WorkspaceConnection).where(

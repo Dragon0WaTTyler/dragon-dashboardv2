@@ -14,7 +14,7 @@ from flask import (
     session,
     url_for,
 )
-from flask_login import current_user, login_user, logout_user
+from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import select
 
 from app.auth.forms import LoginForm, LogoutForm
@@ -97,11 +97,30 @@ def google_connect():
         return redirect(url_for("auth.login"))
 
 
+@bp.get("/google/connect")
+@login_required
+def google_connect_existing_account():
+    if not _google_personal_vault_enabled():
+        abort(404)
+    state = secrets.token_urlsafe(32)
+    session["google_oauth_state"] = state
+    session["google_oauth_mode"] = "link"
+    try:
+        authorization_url = _google_client().authorization_url(
+            redirect_uri=_google_redirect_uri(), state=state
+        )
+        return redirect(authorization_url)
+    except GoogleOAuthError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("core.index"))
+
+
 @bp.get("/google/callback")
 def google_callback():
     if not _google_personal_vault_enabled():
         abort(404)
     expected_state = str(session.pop("google_oauth_state", ""))
+    mode = str(session.pop("google_oauth_mode", ""))
     received_state = str(request.args.get("state") or "")
     if not expected_state or not secrets.compare_digest(expected_state, received_state):
         flash("Google connection could not be verified. Start again.", "error")
@@ -120,6 +139,11 @@ def google_callback():
             secret_key=str(current_app.config["SECRET_KEY"]),
             token_payload=tokens,
             identity_payload=identity,
+            existing_user=(
+                current_user._get_current_object()
+                if mode == "link" and current_user.is_authenticated
+                else None
+            ),
         )
     except (GoogleOAuthError, ValueError) as exc:
         db.session.rollback()

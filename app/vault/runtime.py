@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -105,6 +106,19 @@ class WorkspaceRuntime:
             if sidecar.exists():
                 sidecar.unlink()
 
+    def _seed_legacy_cache(self, binding: WorkspaceBinding) -> None:
+        if db.engine.dialect.name != "sqlite":
+            raise GoogleOAuthError(
+                "Legacy import currently requires Dragon's SQLite database. "
+                "Export a snapshot first."
+            )
+        source_path = db.engine.url.database
+        if not source_path:
+            raise GoogleOAuthError("Dragon could not locate the legacy SQLite database.")
+        binding.cache_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(source_path) as source, sqlite3.connect(binding.cache_path) as target:
+            source.backup(target)
+
     def engine_for(self, binding: WorkspaceBinding) -> Engine:
         engine = self._engines.get(binding.id)
         if engine is not None:
@@ -177,6 +191,8 @@ class WorkspaceRuntime:
         state = self._read_sync_state(binding)
         remote = client.find_appdata_file(access_token=access_token, name=WORKSPACE_CACHE_FILENAME)
         if remote is None:
+            if workspace.state == "needs_seed" and not binding.cache_path.exists():
+                self._seed_legacy_cache(binding)
             self.engine_for(binding)
             self._checkpoint(binding)
             contents = binding.cache_path.read_bytes()
@@ -192,6 +208,9 @@ class WorkspaceRuntime:
                 "conflict": False,
             }
             self._write_sync_state(binding, state)
+            if workspace.state == "needs_seed":
+                workspace.state = "ready"
+                db.session.commit()
         else:
             cached = binding.cache_path.is_file()
             needs_download = (
@@ -294,7 +313,7 @@ def install_workspace_runtime(app: Flask) -> None:
         workspace = db.session.scalar(
             select(PersonalWorkspace).where(PersonalWorkspace.owner_user_id == current_user.id)
         )
-        if workspace is None or workspace.state != "ready":
+        if workspace is None or workspace.state not in {"needs_seed", "ready"}:
             return
         if app.config.get("DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED"):
             try:

@@ -67,11 +67,12 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         user.set_password("temporary-test-password")
         db.session.add(user)
         db.session.flush()
+        db.session.add(Movie(title="Legacy local movie", normalized_title="legacy local movie"))
         workspace = PersonalWorkspace(
             id="workspace_cache_test",
             owner_user_id=user.id,
             remote_locator="manifest-file",
-            state="ready",
+            state="needs_seed",
         )
         db.session.add(workspace)
         db.session.add(
@@ -93,9 +94,12 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         assert workspace is not None
         runtime = runtime_for(app)
         binding = runtime.prepare_google_sync(workspace)
+        legacy_movie = db.session.scalar(select(Movie).where(Movie.title == "Legacy local movie"))
+        assert legacy_movie is not None
         db.session.add(Movie(title="Saved in Drive", normalized_title="saved in drive"))
         db.session.commit()
         assert runtime.finalize_google_sync() == "saved"
+        db.session.remove()
 
     assert client.uploads == 2
     assert client.contents.startswith(b"SQLite format 3")
@@ -106,6 +110,7 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
     with app.test_request_context("/movies"):
         workspace = db.session.get(PersonalWorkspace, workspace_id)
         assert workspace is not None
+        assert workspace.state == "ready"
         runtime = runtime_for(app)
         runtime.prepare_google_sync(workspace)
         restored = db.session.scalar(select(Movie).where(Movie.title == "Saved in Drive"))

@@ -127,3 +127,29 @@ def test_google_connection_reuses_the_canonical_workspace_id_from_drive(app):
         assert workspace is not None
         assert workspace.id == "workspace_shared_42"
         assert workspace.remote_locator == "drive-file-existing"
+
+
+def test_existing_local_user_can_link_google_and_request_a_safe_initial_seed(app):
+    with app.app_context():
+        legacy_user = User(username="legacy-owner", password_hash="")
+        legacy_user.set_password("local-only-password")
+        db.session.add(legacy_user)
+        db.session.commit()
+
+        linked = GoogleWorkspaceService.connect(
+            client=FakeGoogleOAuthClient(),
+            secret_key=app.config["SECRET_KEY"],
+            token_payload={"access_token": "access-token", "refresh_token": "refresh-token"},
+            identity_payload={
+                "subject": "google-subject-legacy",
+                "email": "legacy@example.test",
+                "display_name": "Legacy Owner",
+            },
+            existing_user=legacy_user,
+        )
+        workspace = db.session.scalar(
+            select(PersonalWorkspace).where(PersonalWorkspace.owner_user_id == legacy_user.id)
+        )
+        assert linked.id == legacy_user.id
+        assert workspace is not None
+        assert workspace.state == "needs_seed"

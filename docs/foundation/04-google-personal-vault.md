@@ -29,6 +29,8 @@ which is what makes local and PythonAnywhere synchronisation possible.
 - The cache is downloaded when its Drive version changes and saved through a
   resumable upload after it changes; SQLite is checkpointed first so progress is
   included in the uploaded file.
+- An existing single-owner SQLite installation can link Google and make one
+  initial backup of its legacy workspace into the new Drive cache.
 - Google sign-in and Drive workspace creation are disabled by default. They require
   both client credentials and two explicit feature flags.
 
@@ -46,10 +48,9 @@ which is what makes local and PythonAnywhere synchronisation possible.
 5. **Other storage providers:** add GitHub as an explicit backup/portable export
    provider, then evaluate CloudKit/iCloud as a separate Apple-specific provider.
 
-Until step 2 is finished, do not enable
-DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED in a public deployment: the original
-content tables are still single-owner tables and would not yet provide the isolation
-that Google sign-in promises.
+Do not enable the Google flags in a public deployment until the Google Cloud OAuth
+client is configured and this branch has been deployed. Legacy import is deliberately
+restricted to SQLite so it cannot accidentally copy a shared hosted database.
 
 ## Configuration after workspace isolation is deployed
 
@@ -69,3 +70,8 @@ DRAGON_GOOGLE_OAUTH_REDIRECT_URI=https://your-host.example/auth/google/callback
 Do not put user OAuth refresh tokens, a personal playlist identifier, or a Notion
 token in this shared environment. Those belong to the user's own vault in the later
 per-user integration phase.
+
+For a pre-existing local Dragon account, sign in with its normal password first,
+then open /auth/google/connect. Dragon creates a new private Drive workspace and
+copies the original SQLite workspace exactly once before future changes sync through
+Google Drive.
