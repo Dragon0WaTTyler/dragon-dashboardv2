@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from app.auth.models import PersonalWorkspace, User
 from app.extensions import db
+from app.reading.models import ReadingSource
 from app.vault.integrations import integration_settings
 from app.vault.runtime import bind_workspace
 from app.youtube.models import PocketTubeChannelMembership, YouTubeVideo
@@ -156,3 +157,52 @@ def test_personal_workspace_imports_its_own_pockettube_export(client, app):
             db.session.scalar(select(PocketTubeChannelMembership.channel_id))
             == "UCchannel111111"
         )
+
+
+def test_personal_workspace_can_add_an_rss_source_from_news(client, app):
+    with app.app_context():
+        user = User(username="rss-workspace-user", password_hash="")
+        user.set_password("rss-workspace-password")
+        db.session.add(user)
+        db.session.flush()
+        workspace = PersonalWorkspace(
+            id="workspace_rss_test",
+            owner_user_id=user.id,
+            remote_locator="drive-workspace-rss",
+            state="ready",
+        )
+        db.session.add(workspace)
+        db.session.commit()
+        workspace_id = workspace.id
+
+    signed_in = login(client, "rss-workspace-user", "rss-workspace-password")
+    assert signed_in.status_code == 302
+    page = client.get("/reading?feed=sources")
+    assert b"Add private source" in page.data
+    response = client.post(
+        "/reading/sources",
+        data={
+            "csrf_token": csrf_from(page),
+            "name": "Workspace Journal",
+            "feed_url": "https://example.com/rss.xml",
+            "category": "Technology",
+            "active": "on",
+            "auto_refresh": "on",
+            "refresh_interval_minutes": "60",
+            "maximum_articles": "50",
+            "download_images": "on",
+            "language": "auto",
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 302
+    with app.test_request_context("/"):
+        workspace = db.session.scalar(
+            select(PersonalWorkspace).where(PersonalWorkspace.id == workspace_id)
+        )
+        assert workspace is not None
+        bind_workspace(workspace)
+        source = db.session.scalar(select(ReadingSource))
+        assert source is not None
+        assert source.feed_url == "https://example.com/rss.xml"

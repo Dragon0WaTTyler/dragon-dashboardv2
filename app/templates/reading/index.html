@@ -71,7 +71,21 @@
 <form data-article-open-form method="post" action="{{ url_for('reading.index') }}" hidden><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"></form>
 {% else %}
 <section class="reading-source-directory" aria-labelledby="news-source-title">
-  <div class="reading-source-directory__header"><div><span class="eyebrow">News sources</span><h2 id="news-source-title">Source health</h2><p>Reading stays focused here; diagnose, refresh, and edit sources in one place.</p></div><a class="button button--secondary" href="{{ url_for('admin.section_detail', section_key='reading') }}#source-manager">Manage sources</a></div>
+  <div class="reading-source-directory__header"><div><span class="eyebrow">News sources</span><h2 id="news-source-title">Your RSS and Atom sources</h2><p>Add a feed for this workspace. Its articles and reading progress stay private to you.</p></div><a class="button button--secondary" href="{{ url_for('admin.section_detail', section_key='reading') }}#source-manager">Manage sources</a></div>
+  <form class="settings-detail-card settings-form" method="post" action="{{ url_for('reading.create_source') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="active" value="on">
+    <input type="hidden" name="auto_refresh" value="on">
+    <input type="hidden" name="refresh_interval_minutes" value="60">
+    <input type="hidden" name="maximum_articles" value="50">
+    <input type="hidden" name="download_images" value="on">
+    <div><span class="eyebrow">Add source</span><h3>Connect an RSS or Atom feed</h3><p>Use the feed URL, not the web page URL.</p></div>
+    <label class="field"><span>Name</span><input type="text" name="name" maxlength="240" required></label>
+    <label class="field"><span>RSS or Atom URL</span><input type="url" name="feed_url" maxlength="1000" placeholder="https://example.com/feed.xml" required></label>
+    <label class="field"><span>Category (optional)</span><input type="text" name="category" maxlength="120"></label>
+    <input type="hidden" name="language" value="auto">
+    <button class="button button--primary" type="submit">Add private source</button>
+  </form>
   {% if sources %}<div class="news-source-list">{% for source in sources %}<article class="news-source-card"><div><span class="eyebrow">{{ 'Enabled' if source.active else 'Paused' }}{% if source.category %} · {{ source.category }}{% endif %}</span><h3 dir="auto">{{ source.name }}</h3><p>{% if source.last_success_at %}Last synced {{ source.last_success_at.strftime('%Y-%m-%d %H:%M') }}{% else %}Not synced yet{% endif %}</p>{% if source.health_message %}<p class="news-source-card__message">{{ source.health_message }}</p>{% endif %}</div>{{ badge(source.health_state|title, 'success' if source.health_state == 'healthy' else 'error' if source.health_state == 'error' else 'warning') }}</article>{% endfor %}</div>{% else %}<section class="empty-state" aria-labelledby="empty-state-title"><div class="empty-state__mark" aria-hidden="true"></div><div><h3 id="empty-state-title">No News sources</h3><p>Add an RSS or Atom source before syncing News.</p></div><a class="button button--secondary" href="{{ url_for('admin.section_detail', section_key='reading') }}#source-manager">Manage sources</a></section>{% endif %}
 </section>
 {% endif %}

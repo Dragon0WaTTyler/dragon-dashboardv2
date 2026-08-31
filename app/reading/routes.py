@@ -225,6 +225,20 @@ def sync_articles():
     )
 
 
+@bp.post("/sources")
+@login_required
+def create_source():
+    from app.reading.source_manager import ReadingSourceManager, ReadingSourceValidationError
+
+    try:
+        ReadingSourceManager.create(request.form)
+    except ReadingSourceValidationError as exc:
+        flash(str(exc), "error")
+    else:
+        flash("RSS source added to your personal News workspace.", "success")
+    return redirect(url_for("reading.index", feed="sources"))
+
+
 @bp.post("/<article_id>/status")
 @login_required
 def update_status(article_id: str):
