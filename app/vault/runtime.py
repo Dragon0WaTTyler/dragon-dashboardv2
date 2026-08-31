@@ -25,7 +25,10 @@ from app.vault.google import (
 )
 from app.vault.models import WorkspaceIntegration
 
-_WORKSPACE_ID = re.compile(r"^workspace_[A-Za-z0-9_-]{1,29}$")
+# ``new_id("workspace")`` uses a 32-character UUID hex suffix.  Keep a
+# generous bound for legacy/imported IDs while still constraining the value
+# before it is used as a filesystem path component.
+_WORKSPACE_ID = re.compile(r"^workspace_[A-Za-z0-9_-]{1,64}$")
 
 
 @dataclass(frozen=True, slots=True)

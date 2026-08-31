@@ -22,6 +22,7 @@ from app.movies.external_library import notion_movie_provider
 from app.movies.models import Movie, MovieCustomList
 from app.vault.integrations import integration_settings, update_integration_settings
 from app.vault.runtime import bind_workspace, runtime_for
+from app.shared.ids import new_id
 
 
 def _workspace(app, *, username: str, workspace_id: str) -> PersonalWorkspace:
@@ -86,6 +87,12 @@ def test_google_workspace_runtime_routes_content_to_isolated_sqlite_caches(app):
                 connection.scalar(select(func.count()).select_from(MovieCustomList.__table__))
                 == 1
             )
+
+
+def test_generated_workspace_ids_are_valid_cache_paths(app):
+    workspace_id = new_id("workspace")
+    assert len(workspace_id) == 42
+    assert runtime_for(app).cache_path(workspace_id).name == "cache.sqlite3"
 
 
 def test_workspace_integration_settings_are_private_and_portable(app):
