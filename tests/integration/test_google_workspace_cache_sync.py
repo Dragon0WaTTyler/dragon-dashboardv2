@@ -7,7 +7,7 @@ from sqlalchemy import select
 
 from app.auth.models import PersonalWorkspace, User, WorkspaceConnection
 from app.extensions import db
-from app.movies.models import Movie
+from app.movies.models import Movie, MovieCustomList, MovieProgress
 from app.vault.crypto import encrypt_payload
 from app.vault.google import WORKSPACE_CACHE_FILENAME, DriveFile
 from app.vault.runtime import runtime_for
@@ -96,7 +96,26 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         binding = runtime.prepare_google_sync(workspace)
         legacy_movie = db.session.scalar(select(Movie).where(Movie.title == "Legacy local movie"))
         assert legacy_movie is not None
-        db.session.add(Movie(title="Saved in Drive", normalized_title="saved in drive"))
+        saved_movie = Movie(
+            title="Saved in Drive",
+            normalized_title="saved in drive",
+            status="want_to_watch",
+        )
+        db.session.add(saved_movie)
+        db.session.flush()
+        db.session.add(
+            MovieProgress(
+                movie_id=saved_movie.id,
+                current_seconds=842,
+                duration_seconds=2400,
+            )
+        )
+        db.session.add(
+            MovieCustomList(
+                owner_user_id=workspace.owner_user_id,
+                title="I want to watch",
+            )
+        )
         db.session.commit()
         assert runtime.finalize_google_sync() == "saved"
         db.session.remove()
@@ -115,3 +134,9 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         runtime.prepare_google_sync(workspace)
         restored = db.session.scalar(select(Movie).where(Movie.title == "Saved in Drive"))
         assert restored is not None
+        progress = db.session.scalar(
+            select(MovieProgress).where(MovieProgress.movie_id == restored.id)
+        )
+        assert progress is not None
+        assert (progress.current_seconds, progress.duration_seconds) == (842, 2400)
+        assert db.session.scalar(select(MovieCustomList.title)) == "I want to watch"
