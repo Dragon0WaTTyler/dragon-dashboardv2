@@ -10,7 +10,7 @@
     <h1>Today</h1>
     <p>Your watch, read, and learning queue—shaped from local data.</p>
   </div>
-  {{ badge('Local workspace', 'success') }}
+  {{ badge('Google Drive workspace' if personal_workspace_active else 'Local workspace', 'success') }}
 </header>
 
 <div

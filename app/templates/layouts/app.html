@@ -30,7 +30,7 @@
         <kbd>Ctrl K</kbd>
       </button>
       <div class="app-actions">
-        <span class="system-status"><span aria-hidden="true"></span>Local</span>
+        <span class="system-status"><span aria-hidden="true"></span>{{ 'Google Drive' if personal_workspace_active else 'Local' }}</span>
         <details class="account-menu">
           <summary aria-label="Open account menu">{{ current_user.username[:1]|upper }}</summary>
           <div class="account-menu__panel">
