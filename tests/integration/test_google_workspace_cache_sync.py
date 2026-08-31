@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import shutil
+import sqlite3
 import time
 from dataclasses import dataclass
 
@@ -307,6 +308,23 @@ def test_workspace_sync_uses_matching_version_when_drive_etag_is_empty(app):
         runtime.prepare_google_sync(workspace)
 
     assert client.downloads == 0
+
+
+@pytest.mark.parametrize("failure", [OSError("disk quota"), sqlite3.OperationalError("locked")])
+def test_workspace_save_defers_expected_local_storage_failures(app, monkeypatch, failure):
+    app.config["DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED"] = True
+    runtime = runtime_for(app)
+
+    def fail_finalize():
+        raise failure
+
+    monkeypatch.setattr(runtime, "finalize_google_sync", fail_finalize)
+    with app.test_request_context("/"):
+        response = app.make_response("ok")
+        response = app.process_response(response)
+
+    assert response.status_code == 200
+    assert response.headers["X-Dragon-Vault-Sync"] == "deferred"
 
 
 def test_workspace_sync_preserves_dirty_local_cache_when_drive_changed(app):

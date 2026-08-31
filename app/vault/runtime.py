@@ -385,7 +385,7 @@ def install_workspace_runtime(app: Flask) -> None:
             return response
         try:
             status = runtime.finalize_google_sync()
-        except GoogleOAuthError as exc:
+        except (GoogleOAuthError, OSError, sqlite3.Error) as exc:
             current_app.logger.warning("Google personal vault save failed: %s", exc)
             response.headers["X-Dragon-Vault-Sync"] = "deferred"
             return response
