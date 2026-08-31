@@ -21,6 +21,7 @@ from app.movies.models import Movie
 from app.movies.repositories import MovieRepository
 from app.movies.services import MovieService
 from app.playback.models import PlaybackSource
+from app.vault.integrations import integration_settings, personal_workspace_active
 
 UTC = timezone.utc  # noqa: UP017 - keep Python 3.10 compatibility
 
@@ -75,6 +76,17 @@ def jackett_release_provider() -> JackettReleaseProvider:
 
 
 def notion_movie_provider() -> NotionMovieProvider:
+    if personal_workspace_active():
+        settings = integration_settings("notion")
+        return NotionMovieProvider(
+            token=str(settings.get("token") or ""),
+            database_id=str(settings.get("database_id") or ""),
+            data_source_id=str(settings.get("data_source_id") or ""),
+            tv_show_database_id=str(settings.get("tv_show_database_id") or ""),
+            tv_show_data_source_id=str(settings.get("tv_show_data_source_id") or ""),
+            tv_episode_database_id=str(settings.get("tv_episode_database_id") or ""),
+            tv_episode_data_source_id=str(settings.get("tv_episode_data_source_id") or ""),
+        )
     provider = current_app.extensions.get("dragon_notion_movie_provider")
     if provider is None:
         provider = NotionMovieProvider(
@@ -82,16 +94,28 @@ def notion_movie_provider() -> NotionMovieProvider:
             database_id=current_app.config["DRAGON_NOTION_DATABASE_ID"],
             data_source_id=current_app.config["DRAGON_NOTION_DATA_SOURCE_ID"],
             tv_show_database_id=current_app.config.get("DRAGON_NOTION_TV_SHOW_DATABASE_ID", ""),
-            tv_show_data_source_id=current_app.config.get("DRAGON_NOTION_TV_SHOW_DATA_SOURCE_ID", ""),
-            tv_episode_database_id=current_app.config.get("DRAGON_NOTION_TV_EPISODE_DATABASE_ID", ""),
-            tv_episode_data_source_id=current_app.config.get("DRAGON_NOTION_TV_EPISODE_DATA_SOURCE_ID", ""),
+            tv_show_data_source_id=current_app.config.get(
+                "DRAGON_NOTION_TV_SHOW_DATA_SOURCE_ID", ""
+            ),
+            tv_episode_database_id=current_app.config.get(
+                "DRAGON_NOTION_TV_EPISODE_DATABASE_ID", ""
+            ),
+            tv_episode_data_source_id=current_app.config.get(
+                "DRAGON_NOTION_TV_EPISODE_DATA_SOURCE_ID", ""
+            ),
         )
         current_app.extensions["dragon_notion_movie_provider"] = provider
     return provider
 
 
+def notion_writeback_enabled() -> bool:
+    if personal_workspace_active():
+        return notion_movie_provider().configured
+    return bool(current_app.config["DRAGON_NOTION_WRITEBACK_ENABLED"])
+
+
 def sync_notion_library(*, force: bool = False) -> LibrarySyncResult:
-    if not current_app.config["DRAGON_NOTION_SYNC_ENABLED"]:
+    if not personal_workspace_active() and not current_app.config["DRAGON_NOTION_SYNC_ENABLED"]:
         return LibrarySyncResult(library_ids=None)
     provider = notion_movie_provider()
     if not provider.configured:
@@ -450,7 +474,7 @@ def add_to_library(
     tmdb_id: int,
     season: int | None = None,
 ) -> Movie:
-    if not current_app.config["DRAGON_NOTION_WRITEBACK_ENABLED"]:
+    if not notion_writeback_enabled():
         raise MediaIntegrationError("Notion write-back is disabled.")
     details = tmdb_catalog_provider().details(media_type, tmdb_id)
     if media_type == "tv":
@@ -492,7 +516,7 @@ def import_release(
     episode: int | None,
     release_mode: str = "episode",
 ) -> Movie:
-    if not current_app.config["DRAGON_NOTION_WRITEBACK_ENABLED"]:
+    if not notion_writeback_enabled():
         raise MediaIntegrationError("Notion write-back is disabled.")
     if release_mode not in {"episode", "season_pack"}:
         release_mode = "episode"
@@ -588,7 +612,7 @@ def release_lookup(
 
 
 def writeback_watch(movie: Movie, *, started: bool) -> None:
-    if not current_app.config["DRAGON_NOTION_WRITEBACK_ENABLED"]:
+    if not notion_writeback_enabled():
         return
     notion_page_id = str((movie.external_ids or {}).get("notion_page_id") or "")
     if not notion_page_id:
@@ -992,13 +1016,16 @@ def _hydrate_notion_item(provider: NotionMovieProvider, item: dict[str, Any]) ->
         **_hydrate_tv_details(tmdb_catalog_provider().details("tv", int(item["tmdb_id"]))),
     }
     if (
-        current_app.config.get("DRAGON_NOTION_WRITEBACK_ENABLED")
+        notion_writeback_enabled()
         and getattr(provider, "tv_show_configured", False)
         and getattr(provider, "tv_episode_configured", False)
     ):
         magnet_uri = ""
         release_mode = "episode"
-        source = next((entry for entry in item.get("playback_sources") or [] if entry.get("locator")), None)
+        source = next(
+            (entry for entry in item.get("playback_sources") or [] if entry.get("locator")),
+            None,
+        )
         if source:
             magnet_uri = str(source.get("locator") or "")
             metadata = dict(source.get("metadata") or {})

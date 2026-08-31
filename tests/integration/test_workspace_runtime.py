@@ -5,6 +5,7 @@ from sqlalchemy import func, select
 from app.auth.models import PersonalWorkspace, User
 from app.books.notion_sync import BookNotionSyncService
 from app.extensions import db
+from app.movies.external_library import notion_movie_provider
 from app.movies.models import Movie, MovieCustomList
 from app.vault.integrations import integration_settings, update_integration_settings
 from app.vault.runtime import bind_workspace, runtime_for
@@ -84,6 +85,7 @@ def test_workspace_integration_settings_are_private_and_portable(app):
             "notion",
             {
                 "token": "workspace-only-token",
+                "database_id": "notion-movies-one",
                 "book_data_source_id": "notion-books-one",
             },
         )
@@ -92,6 +94,9 @@ def test_workspace_integration_settings_are_private_and_portable(app):
         assert client is not None
         assert client.token == "workspace-only-token"
         assert client._configured_data_source_id == "notionbooksone"
+        movie_provider = notion_movie_provider()
+        assert movie_provider.token == "workspace-only-token"
+        assert movie_provider.database_id == "notionmoviesone"
         db.session.remove()
 
     with app.test_request_context("/"):

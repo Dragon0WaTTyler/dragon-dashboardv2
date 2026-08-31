@@ -29,6 +29,7 @@ from app.movies.external_library import (
     hydrate_movie_detail_if_needed,
     import_release,
     notion_movie_provider,
+    notion_writeback_enabled,
     refresh_movie_metadata,
     release_lookup,
     resolve_missing_tmdb_identity,
@@ -1309,7 +1310,7 @@ def update_score(movie_id: str):
         flash(str(exc), "error")
     else:
         notion_page_id = str((movie.external_ids or {}).get("notion_page_id") or "")
-        if notion_page_id and current_app.config["DRAGON_NOTION_WRITEBACK_ENABLED"]:
+        if notion_page_id and notion_writeback_enabled():
             try:
                 notion_movie_provider().set_score(
                     notion_page_id,
