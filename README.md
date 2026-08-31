@@ -88,6 +88,10 @@ The overflow menu for supporting parts of the workspace:
 - **Explicit external work:** rendering a page does not silently trigger imports, syncs, or provider calls.
 - **Git-safe storage:** secrets, tokens, caches, logs, and personal exports are excluded from version control.
 
+For a multi-user deployment, Google Drive personal workspaces are available now.
+The [cloud-provider options](docs/foundation/06-cloud-provider-options.md)
+document explains the safe future paths for GitHub and iCloud.
+
 ## Quick start
 
 ### Prerequisites
