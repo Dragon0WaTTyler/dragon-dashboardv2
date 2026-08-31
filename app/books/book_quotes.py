@@ -18,6 +18,11 @@ from app.books.kindle_sync import (
 from app.books.repositories import BookRepository
 from app.shared.text import text_direction
 from app.shared.time import utc_iso
+from app.vault.integrations import (
+    integration_settings,
+    personal_workspace_active,
+    update_integration_settings,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +151,29 @@ class BookQuotesSnapshotStore:
         if result.cleared:
             self.save(result.snapshot)
         return result
+
+
+class WorkspaceBookQuotesSnapshotStore(BookQuotesSnapshotStore):
+    """Keep a connected user's quote review state inside the synced cache."""
+
+    def __init__(self) -> None:
+        # The parent type provides the public assign and clear helpers; the
+        # workspace variant deliberately persists through WorkspaceIntegration.
+        pass
+
+    def load(self) -> BookQuotesSnapshot:
+        settings = integration_settings("book_quotes")
+        return BookQuotesSnapshot.from_dict(settings.get("snapshot"))
+
+    def save(self, snapshot: BookQuotesSnapshot | Mapping) -> None:
+        current = (
+            snapshot
+            if isinstance(snapshot, BookQuotesSnapshot)
+            else BookQuotesSnapshot.from_dict(snapshot)
+        )
+        settings = integration_settings("book_quotes")
+        settings["snapshot"] = current.as_dict()
+        update_integration_settings("book_quotes", settings)
 
 
 class BookQuotesSnapshotService:
@@ -692,6 +720,8 @@ def _matched_highlights_by_book(
 
 
 def _snapshot_store() -> BookQuotesSnapshotStore:
+    if personal_workspace_active():
+        return WorkspaceBookQuotesSnapshotStore()
     return BookQuotesSnapshotStore(
         Path(current_app.instance_path) / "knowledge" / "book_quotes_snapshot.json"
     )
@@ -710,13 +740,19 @@ def _book_quotes_client(
     session=None,
     timeout_seconds: float = KINDLE_NOTION_TIMEOUT_SECONDS,
 ) -> KindleBookQuotesClient:
-    token = str(current_app.config.get("DRAGON_NOTION_TOKEN") or "").strip()
-    data_source_id = str(
-        current_app.config.get("DRAGON_BOOK_QUOTES_DATA_SOURCE_ID") or ""
-    ).strip()
-    database_id = str(
-        current_app.config.get("DRAGON_BOOK_QUOTES_DATABASE_ID") or ""
-    ).strip()
+    if personal_workspace_active():
+        settings = integration_settings("notion")
+        token = str(settings.get("token") or "").strip()
+        data_source_id = str(settings.get("book_quotes_data_source_id") or "").strip()
+        database_id = str(settings.get("book_quotes_database_id") or "").strip()
+    else:
+        token = str(current_app.config.get("DRAGON_NOTION_TOKEN") or "").strip()
+        data_source_id = str(
+            current_app.config.get("DRAGON_BOOK_QUOTES_DATA_SOURCE_ID") or ""
+        ).strip()
+        database_id = str(
+            current_app.config.get("DRAGON_BOOK_QUOTES_DATABASE_ID") or ""
+        ).strip()
     if token and (data_source_id or database_id):
         return KindleBookQuotesClient(
             token=token,

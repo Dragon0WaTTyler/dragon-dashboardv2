@@ -183,6 +183,9 @@ def workspace():
             notion["token"] = form.notion_token.data
         notion["database_id"] = (form.notion_database_id.data or "").strip()
         notion["book_database_id"] = (form.book_notion_database_id.data or "").strip()
+        notion["book_quotes_database_id"] = (
+            form.book_quotes_notion_database_id.data or ""
+        ).strip()
         update_integration_settings("youtube", youtube)
         update_integration_settings("notion", notion)
         flash("Your private integrations were saved to this workspace.", "success")
@@ -191,6 +194,9 @@ def workspace():
         form.youtube_playlist_id.data = str(current_youtube.get("playlist_id") or "")
         form.notion_database_id.data = str(current_notion.get("database_id") or "")
         form.book_notion_database_id.data = str(current_notion.get("book_database_id") or "")
+        form.book_quotes_notion_database_id.data = str(
+            current_notion.get("book_quotes_database_id") or ""
+        )
     return render_template(
         "auth/workspace.html",
         connect_available=True,

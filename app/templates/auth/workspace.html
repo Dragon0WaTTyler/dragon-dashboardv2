@@ -45,6 +45,7 @@
   <label class="field"><span>{{ form.notion_token.label.text }}</span>{{ form.notion_token() }}<small>Leave blank to keep the saved token unchanged.</small></label>
   <label class="field"><span>{{ form.notion_database_id.label.text }}</span>{{ form.notion_database_id() }}</label>
   <label class="field"><span>{{ form.book_notion_database_id.label.text }}</span>{{ form.book_notion_database_id() }}</label>
+  <label class="field"><span>{{ form.book_quotes_notion_database_id.label.text }}</span>{{ form.book_quotes_notion_database_id() }}</label>
   <p class="form-help">{{ 'A private Notion token is saved in this workspace.' if notion_connected else 'No Notion token saved yet.' }}</p>
   {{ form.submit(class_='button button--primary') }}
 </form>

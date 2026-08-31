@@ -3,6 +3,12 @@ from __future__ import annotations
 from sqlalchemy import func, select
 
 from app.auth.models import PersonalWorkspace, User
+from app.books.book_quotes import (
+    BookQuotesSnapshot,
+    BookQuotesSnapshotItem,
+    BookQuotesSnapshotService,
+    _book_quotes_client,
+)
 from app.books.notion_sync import BookNotionSyncService
 from app.extensions import db
 from app.movies.external_library import notion_movie_provider
@@ -87,6 +93,7 @@ def test_workspace_integration_settings_are_private_and_portable(app):
                 "token": "workspace-only-token",
                 "database_id": "notion-movies-one",
                 "book_data_source_id": "notion-books-one",
+                "book_quotes_database_id": "notion-book-quotes-one",
             },
         )
         assert integration_settings("notion")["book_data_source_id"] == "notion-books-one"
@@ -97,11 +104,29 @@ def test_workspace_integration_settings_are_private_and_portable(app):
         movie_provider = notion_movie_provider()
         assert movie_provider.token == "workspace-only-token"
         assert movie_provider.database_id == "notionmoviesone"
+        quotes_client = _book_quotes_client()
+        assert quotes_client.token == "workspace-only-token"
+        assert quotes_client.target_id == "notionbookquotesone"
+        BookQuotesSnapshotService.store().save(
+            BookQuotesSnapshot(
+                items=(
+                    BookQuotesSnapshotItem(
+                        notion_page_id="quote-one",
+                        payload={"quote": "First workspace only"},
+                    ),
+                )
+            )
+        )
         db.session.remove()
 
     with app.test_request_context("/"):
         bind_workspace(second)
         assert integration_settings("notion") == {}
+        assert BookQuotesSnapshotService.store().load().items == ()
+
+    with app.test_request_context("/"):
+        bind_workspace(first)
+        assert BookQuotesSnapshotService.store().load().items[0].notion_page_id == "quote-one"
 
 
 def bind_workspace_for_test(workspace: PersonalWorkspace, app):

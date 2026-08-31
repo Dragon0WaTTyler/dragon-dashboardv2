@@ -44,6 +44,7 @@ def test_workspace_page_saves_youtube_and_notion_settings_in_the_private_cache(c
             "notion_token": "notion-private-token",
             "notion_database_id": "notion-movies",
             "book_notion_database_id": "notion-books",
+            "book_quotes_notion_database_id": "notion-book-quotes",
         },
         follow_redirects=False,
     )
@@ -64,4 +65,5 @@ def test_workspace_page_saves_youtube_and_notion_settings_in_the_private_cache(c
             "token": "notion-private-token",
             "database_id": "notion-movies",
             "book_database_id": "notion-books",
+            "book_quotes_database_id": "notion-book-quotes",
         }

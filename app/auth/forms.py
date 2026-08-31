@@ -48,4 +48,9 @@ class WorkspaceIntegrationsForm(FlaskForm):
         validators=[Length(max=160)],
         render_kw={"autocomplete": "off"},
     )
+    book_quotes_notion_database_id = StringField(
+        "Book quotes Notion database or data source ID",
+        validators=[Length(max=160)],
+        render_kw={"autocomplete": "off"},
+    )
     submit = SubmitField("Save private integrations")
