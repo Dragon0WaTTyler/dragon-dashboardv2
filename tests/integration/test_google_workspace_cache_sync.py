@@ -3,13 +3,18 @@ from __future__ import annotations
 import shutil
 from dataclasses import dataclass
 
+import pytest
 from sqlalchemy import select
 
 from app.auth.models import PersonalWorkspace, User, WorkspaceConnection
 from app.extensions import db
 from app.movies.models import Movie, MovieCustomList, MovieProgress
 from app.vault.crypto import encrypt_payload
-from app.vault.google import WORKSPACE_CACHE_FILENAME, DriveFile
+from app.vault.google import (
+    WORKSPACE_CACHE_FILENAME,
+    DriveFile,
+    GoogleVaultConflictError,
+)
 from app.vault.runtime import runtime_for
 
 
@@ -140,3 +145,59 @@ def test_workspace_cache_initializes_from_drive_and_saves_personal_content(app):
         assert progress is not None
         assert (progress.current_seconds, progress.duration_seconds) == (842, 2400)
         assert db.session.scalar(select(MovieCustomList.title)) == "I want to watch"
+
+
+def test_workspace_sync_preserves_dirty_local_cache_when_drive_changed(app):
+    client = FakeGoogleWorkspaceCache(
+        file=DriveFile(
+            id="cache-file",
+            name=WORKSPACE_CACHE_FILENAME,
+            version="2",
+            etag="etag-2",
+        )
+    )
+    app.extensions["dragon_google_oauth_client"] = client
+
+    with app.app_context():
+        user = User(username="google-conflict-user", password_hash="")
+        user.set_password("temporary-test-password")
+        db.session.add(user)
+        db.session.flush()
+        workspace = PersonalWorkspace(
+            id="workspace_conflict_test",
+            owner_user_id=user.id,
+            remote_locator="manifest-file",
+            state="ready",
+        )
+        db.session.add(workspace)
+        db.session.add(
+            WorkspaceConnection(
+                workspace_id=workspace.id,
+                provider="google_drive",
+                credential_ciphertext=encrypt_payload(
+                    app.config["SECRET_KEY"],
+                    {"refresh_token": "refresh-token"},
+                ),
+                scopes=[],
+            )
+        )
+        db.session.commit()
+        workspace_id = workspace.id
+
+    with app.test_request_context("/movies"):
+        workspace = db.session.get(PersonalWorkspace, workspace_id)
+        assert workspace is not None
+        runtime = runtime_for(app)
+        binding = runtime.bind(workspace)
+        runtime._write_sync_state(
+            binding,
+            {
+                "remote_version": "1",
+                "remote_etag": "etag-1",
+                "dirty": True,
+                "conflict": False,
+            },
+        )
+
+        with pytest.raises(GoogleVaultConflictError, match="unsynchronised local changes"):
+            runtime.prepare_google_sync(workspace)

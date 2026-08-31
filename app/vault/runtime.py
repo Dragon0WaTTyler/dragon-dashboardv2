@@ -318,6 +318,15 @@ def install_workspace_runtime(app: Flask) -> None:
         if app.config.get("DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED"):
             try:
                 runtime.prepare_google_sync(workspace)
+            except GoogleVaultConflictError:
+                abort(
+                    409,
+                    description=(
+                        "Your Google workspace changed on another device while this device "
+                        "still has unsynchronised changes. Dragon preserved both copies; "
+                        "resolve the conflict before continuing."
+                    ),
+                )
             except GoogleOAuthError as exc:
                 current_app.logger.warning("Google personal vault unavailable: %s", exc)
                 abort(503, description="Your private Google workspace is unavailable. Try again.")
