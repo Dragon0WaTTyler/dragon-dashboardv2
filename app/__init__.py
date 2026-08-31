@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, g
 
 from app.admin import bp as admin_bp
 from app.ai import bp as ai_bp
@@ -88,6 +88,7 @@ def create_app(config_override: Mapping[str, Any] | None = None) -> Flask:
         return {
             "logout_form": LogoutForm(),
             "feature_flags": settings.safe_summary(),
+            "personal_workspace_active": bool(getattr(g, "dragon_workspace_binding", None)),
         }
 
     app.register_blueprint(core_bp)

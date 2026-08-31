@@ -75,3 +75,7 @@ For a pre-existing local Dragon account, sign in with its normal password first,
 then open /auth/google/connect. Dragon creates a new private Drive workspace and
 copies the original SQLite workspace exactly once before future changes sync through
 Google Drive.
+
+After connection, open /auth/workspace to save that user's YouTube playlist and
+Notion connection details inside their private workspace. Tokens are never rendered
+back into the form after saving.

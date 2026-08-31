@@ -35,7 +35,8 @@
           <summary aria-label="Open account menu">{{ current_user.username[:1]|upper }}</summary>
           <div class="account-menu__panel">
             <strong>{{ current_user.username }}</strong>
-            <span>Local administrator</span>
+            <span>{{ 'Google Drive workspace' if personal_workspace_active else 'Local administrator' }}</span>
+            <a class="button button--quiet button--full" href="{{ url_for('auth.workspace') }}">Personal workspace</a>
             <form method="post" action="{{ url_for('auth.logout') }}">
               {{ logout_form.hidden_tag() }}
               <button class="button button--quiet button--full" type="submit">Sign out</button>

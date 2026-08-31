@@ -1,0 +1,52 @@
+{% extends "layouts/app.html" %}
+{% block title %}Personal workspace · Dragon{% endblock %}
+{% block content %}
+<section class="page-header">
+  <div>
+    <span class="eyebrow">Private data</span>
+    <h1>Personal workspace</h1>
+    <p>Each connected account keeps its Dragon data in its own Google Drive workspace.</p>
+  </div>
+</section>
+
+{% if workspace is none %}
+<section class="settings-detail-card">
+  <h2>Connect Google Drive</h2>
+  {% if connect_available %}
+  <p>Dragon will make one private copy of this local workspace, then keep future progress separate and in sync.</p>
+  <a class="button button--primary" href="{{ url_for('auth.google_connect_existing_account') }}">Connect Google Drive</a>
+  {% else %}
+  <p>Google Drive connection is not configured on this Dragon installation yet.</p>
+  {% endif %}
+</section>
+{% else %}
+<section class="settings-detail-card">
+  <span class="eyebrow">Connected</span>
+  <h2>Google Drive workspace</h2>
+  <p>Your personal data is isolated from other Dragon users and synchronises through your private Google Drive workspace.</p>
+</section>
+
+<form method="post" class="settings-detail-card settings-form">
+  {{ form.hidden_tag() }}
+  <div>
+    <span class="eyebrow">YouTube</span>
+    <h2>Playlist connection</h2>
+    <p>Use a playlist you can manage. Watch Later is not available through the public YouTube playlist API.</p>
+  </div>
+  <label class="field"><span>{{ form.youtube_api_key.label.text }}</span>{{ form.youtube_api_key() }}<small>Leave blank to keep the saved key unchanged.</small></label>
+  <label class="field"><span>{{ form.youtube_playlist_id.label.text }}</span>{{ form.youtube_playlist_id(placeholder='PL…') }}</label>
+  <p class="form-help">{{ 'A private key is saved in this workspace.' if youtube_connected else 'No YouTube key saved yet.' }}</p>
+
+  <div>
+    <span class="eyebrow">Notion</span>
+    <h2>Library connection</h2>
+    <p>These values stay in your personal workspace, not the shared server environment.</p>
+  </div>
+  <label class="field"><span>{{ form.notion_token.label.text }}</span>{{ form.notion_token() }}<small>Leave blank to keep the saved token unchanged.</small></label>
+  <label class="field"><span>{{ form.notion_database_id.label.text }}</span>{{ form.notion_database_id() }}</label>
+  <label class="field"><span>{{ form.book_notion_database_id.label.text }}</span>{{ form.book_notion_database_id() }}</label>
+  <p class="form-help">{{ 'A private Notion token is saved in this workspace.' if notion_connected else 'No Notion token saved yet.' }}</p>
+  {{ form.submit(class_='button button--primary') }}
+</form>
+{% endif %}
+{% endblock %}

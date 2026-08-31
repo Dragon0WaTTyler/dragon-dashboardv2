@@ -17,10 +17,11 @@ from flask import (
 from flask_login import current_user, login_required, login_user, logout_user
 from sqlalchemy import select
 
-from app.auth.forms import LoginForm, LogoutForm
-from app.auth.models import User
+from app.auth.forms import LoginForm, LogoutForm, WorkspaceIntegrationsForm
+from app.auth.models import PersonalWorkspace, User
 from app.extensions import db
 from app.vault.google import GoogleOAuthClient, GoogleOAuthError
+from app.vault.integrations import integration_settings, update_integration_settings
 from app.vault.services import GoogleWorkspaceService
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
@@ -154,6 +155,50 @@ def google_callback():
     login_user(user, remember=True, fresh=True)
     flash("Your private Google Drive workspace is ready.", "success")
     return redirect(target if _safe_next_url(target) else url_for("core.index"))
+
+
+@bp.route("/workspace", methods=["GET", "POST"])
+@login_required
+def workspace():
+    workspace_record = db.session.scalar(
+        select(PersonalWorkspace).where(PersonalWorkspace.owner_user_id == current_user.id)
+    )
+    if workspace_record is None:
+        return render_template(
+            "auth/workspace.html",
+            connect_available=_google_personal_vault_enabled(),
+            workspace=None,
+            form=None,
+        )
+    form = WorkspaceIntegrationsForm()
+    current_youtube = integration_settings("youtube")
+    current_notion = integration_settings("notion")
+    if form.validate_on_submit():
+        youtube = dict(current_youtube)
+        notion = dict(current_notion)
+        if form.youtube_api_key.data:
+            youtube["api_key"] = form.youtube_api_key.data
+        youtube["playlist_id"] = (form.youtube_playlist_id.data or "").strip()
+        if form.notion_token.data:
+            notion["token"] = form.notion_token.data
+        notion["database_id"] = (form.notion_database_id.data or "").strip()
+        notion["book_database_id"] = (form.book_notion_database_id.data or "").strip()
+        update_integration_settings("youtube", youtube)
+        update_integration_settings("notion", notion)
+        flash("Your private integrations were saved to this workspace.", "success")
+        return redirect(url_for("auth.workspace"))
+    if request.method == "GET":
+        form.youtube_playlist_id.data = str(current_youtube.get("playlist_id") or "")
+        form.notion_database_id.data = str(current_notion.get("database_id") or "")
+        form.book_notion_database_id.data = str(current_notion.get("book_database_id") or "")
+    return render_template(
+        "auth/workspace.html",
+        connect_available=True,
+        workspace=workspace_record,
+        form=form,
+        youtube_connected=bool(current_youtube.get("api_key")),
+        notion_connected=bool(current_notion.get("token")),
+    )
 
 
 @bp.post("/logout")

@@ -20,3 +20,32 @@ class LoginForm(FlaskForm):
 
 class LogoutForm(FlaskForm):
     submit = SubmitField("Sign out")
+
+
+class WorkspaceIntegrationsForm(FlaskForm):
+    youtube_api_key = PasswordField(
+        "YouTube API key",
+        validators=[Length(max=256)],
+        render_kw={"autocomplete": "off"},
+    )
+    youtube_playlist_id = StringField(
+        "YouTube playlist ID",
+        validators=[Length(max=160)],
+        render_kw={"autocomplete": "off"},
+    )
+    notion_token = PasswordField(
+        "Notion integration token",
+        validators=[Length(max=512)],
+        render_kw={"autocomplete": "off"},
+    )
+    notion_database_id = StringField(
+        "Movies Notion database or data source ID",
+        validators=[Length(max=160)],
+        render_kw={"autocomplete": "off"},
+    )
+    book_notion_database_id = StringField(
+        "Books Notion database or data source ID",
+        validators=[Length(max=160)],
+        render_kw={"autocomplete": "off"},
+    )
+    submit = SubmitField("Save private integrations")
