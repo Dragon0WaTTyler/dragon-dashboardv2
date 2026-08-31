@@ -190,4 +190,7 @@ Browser tests require a Chromium-based browser and the Playwright setup used by 
 
 ## Development note
 
-This is an evolving personal project. It is intentionally opinionated around a single owner, local data, deliberate integrations, and a responsive Dragon Noir interface—not multi-tenant hosting or a general-purpose media platform.
+This is an evolving personal project. It supports feature-gated Google personal
+workspaces so a user can keep their own data and supported integrations portable
+between local Dragon and PythonAnywhere. Large local media assets and alternative
+storage providers remain deliberate follow-up work.

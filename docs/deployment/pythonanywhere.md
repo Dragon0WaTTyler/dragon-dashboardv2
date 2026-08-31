@@ -15,6 +15,12 @@ DRAGON_MAGNETS_ENABLED=false
 DRAGON_JACKETT_ENABLED=false
 DRAGON_AI_ENABLED=false
 DRAGON_TV_EPG_ENABLED=false
+DRAGON_GOOGLE_OAUTH_ENABLED=true
+DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED=true
+DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED=true
+DRAGON_GOOGLE_OAUTH_CLIENT_ID=...
+DRAGON_GOOGLE_OAUTH_CLIENT_SECRET=...
+DRAGON_GOOGLE_OAUTH_REDIRECT_URI=https://YOUR-USERNAME.pythonanywhere.com/auth/google/callback
 ```
 
 The `DRAGON_PYTHONANYWHERE_LITE` flag enables eager movie relation loading and
@@ -24,6 +30,12 @@ is unchanged.
 Playback on this deployment is provider/embed based. Magnet/local-player
 routes are disabled, so PythonAnywhere does not need torrent state or a local
 FFmpeg playback path.
+
+For portable personal data, configure the Google OAuth callback exactly as shown
+in the Google Cloud client and keep all three Google flags enabled together. A
+user who signs in with the same Google account locally and on PythonAnywhere gets
+the same private Drive workspace; their watch progress, lists, RSS sources, and
+supported integration settings restore automatically.
 
 ## Upload
 

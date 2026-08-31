@@ -1,14 +1,14 @@
-# Google personal vault foundation
+# Google personal vault
 
-This document records the first safe step from Dragon's original single-owner
-installation toward portable personal workspaces. It is deliberately feature-gated:
-the Google button remains off until data isolation is complete.
+This document records Dragon's feature-gated personal-workspace model. Google
+Drive is the portable source of truth for a connected user's Dragon data; a
+local computer and a PythonAnywhere deployment each keep only a working cache.
 
 ## What is stored where
 
 | Location | Stored there | Not stored there |
 | --- | --- | --- |
-| User's Google Drive appDataFolder | Their Dragon vault document, snapshots, and future per-user integration settings | Another Dragon user's data |
+| User's Google Drive appDataFolder | Their Dragon workspace cache, personal progress, lists, RSS sources, PocketTube data, and integration settings | Another Dragon user's data |
 | Dragon application database | Login identity, a pointer to the vault file, and an encrypted refresh credential used to reach that user's Drive | Personal content, watch progress, RSS sources, PocketTube groups, or Notion data |
 | Local/PythonAnywhere runtime | A separate SQLite cache for that workspace only | The source of truth for a connected Google personal workspace |
 
@@ -34,23 +34,36 @@ which is what makes local and PythonAnywhere synchronisation possible.
 - Google sign-in and Drive workspace creation are disabled by default. They require
   both client credentials and two explicit feature flags.
 
-## Delivery order
+## Personal features in the workspace
 
-1. **Foundation (this change):** Google identity, a canonical Drive vault,
-   an isolated workspace cache, encrypted bootstrap credentials, and
-   concurrency-safe Drive read/write support.
-2. **Conflict resolution:** merge concurrent changes rather than retaining the
-   local cache for manual resolution.
-3. **Portable assets:** move local ebook/audio assets and their metadata into
-   per-workspace Drive files instead of only synchronising the workspace database.
-4. **Per-user integrations:** store each user's YouTube playlists, PocketTube
-   import, RSS sources, and Notion OAuth configuration inside that user's vault.
-5. **Other storage providers:** add GitHub as an explicit backup/portable export
-   provider, then evaluate CloudKit/iCloud as a separate Apple-specific provider.
+- Every content record is isolated per workspace, including Movie/TV progress,
+  custom watch lists, reading progress, books, RSS sources, and YouTube history.
+- A user can save their own YouTube API key and playlist ID. The public playlist
+  API does not expose Watch Later, so users should select a playlist they manage.
+- A user can upload a PocketTube JSON export directly from the PocketTube view;
+  its channels and cached videos belong only to that workspace.
+- Notion token and separate Movies, Books, and Book Quotes destination IDs are
+  stored in the workspace. The token is never rendered in the form after saving.
+- Book Quotes review state and Kindle clipping queues are persisted in the
+  workspace cache rather than a shared server file.
+- The News sources screen accepts a user-owned RSS or Atom feed URL directly.
+
+## Remaining limits
+
+- A concurrent conflicting save is detected and protected with an ETag; Dragon
+  does not yet offer an interactive merge screen.
+- Local ebook/audio files, downloaded playback files, and other large assets are
+  not uploaded to Drive yet. Their catalog metadata synchronises, but their local
+  file path cannot become a remote file automatically.
+- GitHub and iCloud/CloudKit are not storage providers yet. Google Drive is the
+  only supported personal sync provider in this branch.
+- PocketTube is an explicit JSON import, not an automated connection to the
+  browser extension.
 
 Do not enable the Google flags in a public deployment until the Google Cloud OAuth
-client is configured and this branch has been deployed. Legacy import is deliberately
-restricted to SQLite so it cannot accidentally copy a shared hosted database.
+client is configured and this branch has been deployed. Legacy import is
+deliberately restricted to SQLite so it cannot accidentally copy a shared hosted
+database.
 
 ## Configuration after workspace isolation is deployed
 
@@ -68,8 +81,7 @@ DRAGON_GOOGLE_OAUTH_REDIRECT_URI=https://your-host.example/auth/google/callback
 ```
 
 Do not put user OAuth refresh tokens, a personal playlist identifier, or a Notion
-token in this shared environment. Those belong to the user's own vault in the later
-per-user integration phase.
+token in this shared environment. Those belong to the user's own vault.
 
 For a pre-existing local Dragon account, sign in with its normal password first,
 then open /auth/google/connect. Dragon creates a new private Drive workspace and
@@ -79,3 +91,12 @@ Google Drive.
 After connection, open /auth/workspace to save that user's YouTube playlist and
 Notion connection details inside their private workspace. Tokens are never rendered
 back into the form after saving.
+
+## Local and PythonAnywhere setup
+
+Register a Google OAuth web client for each URL you use. It is normal to have one
+client/redirect URI for PythonAnywhere and another for localhost or a local HTTPS
+host. Sign into both Dragon installations with the same Google account: Drive
+discovers the same workspace ID and restores the same cache, including progress and
+watch lists. Each installation may keep its own application secret; it encrypts
+only that installation's bootstrap refresh credential.
