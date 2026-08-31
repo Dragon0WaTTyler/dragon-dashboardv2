@@ -185,6 +185,7 @@ Browser tests require a Chromium-based browser and the Playwright setup used by 
 - [Product UX, design system, and wireframes](docs/foundation/01-ux-and-wireframes.md)
 - [API v1 contracts](docs/foundation/02-api-contracts.md)
 - [Migration safety and milestones](docs/foundation/03-migration-and-milestones.md)
+- [Google personal vault foundation](docs/foundation/04-google-personal-vault.md)
 - [M11 redesign and approved import record](docs/milestones/M11.md)
 
 ## Development note

@@ -35,6 +35,8 @@ def test_feature_flags_default_safe(tmp_path: Path):
     assert settings.youtube_delete_enabled is False
     assert settings.youtube_sync_enabled is False
     assert settings.reading_tts_enabled is False
+    assert settings.google_oauth_enabled is False
+    assert settings.google_personal_vault_login_enabled is False
     assert settings.tv_epg_enabled is True
     assert settings.tv_epg_refresh_minutes == 360
     assert settings.tv_epg_urls == ""
@@ -49,6 +51,44 @@ def test_prefixed_feature_flag_override(tmp_path: Path):
         {"TESTING": True, "DRAGON_EXTERNAL_SYNC_ENABLED": "true"},
     )
     assert settings.external_sync_enabled is True
+
+
+def test_google_personal_vault_requires_explicit_credentials_and_flags(tmp_path: Path):
+    disabled = Settings.load(tmp_path, {"TESTING": True})
+    credentials_only = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "DRAGON_GOOGLE_OAUTH_CLIENT_ID": "client-id",
+            "DRAGON_GOOGLE_OAUTH_CLIENT_SECRET": "client-secret",
+        },
+    )
+    enabled = Settings.load(
+        tmp_path,
+        {
+            "TESTING": True,
+            "DRAGON_GOOGLE_OAUTH_CLIENT_ID": "client-id",
+            "DRAGON_GOOGLE_OAUTH_CLIENT_SECRET": "client-secret",
+            "DRAGON_GOOGLE_OAUTH_ENABLED": "true",
+            "DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED": "true",
+        },
+    )
+
+    assert disabled.google_oauth_enabled is False
+    assert credentials_only.google_oauth_enabled is False
+    assert enabled.google_oauth_enabled is True
+    assert enabled.google_personal_vault_login_enabled is True
+    assert "google_oauth_client_id" not in enabled.safe_summary()
+    assert "google_oauth_client_secret" not in enabled.safe_summary()
+
+    with pytest.raises(ValueError, match="GOOGLE_OAUTH_CLIENT_ID"):
+        Settings.load(
+            tmp_path,
+            {
+                "TESTING": True,
+                "DRAGON_GOOGLE_OAUTH_ENABLED": "true",
+            },
+        )
 
 
 def test_pythonanywhere_lite_flag_is_typed_and_exposed(tmp_path: Path):

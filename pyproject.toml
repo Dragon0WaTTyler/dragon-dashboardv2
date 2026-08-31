@@ -9,6 +9,7 @@ description = "A private, local-first personal workspace."
 readme = "README.md"
 requires-python = ">=3.10,<3.14"
 dependencies = [
+  "cryptography>=44,<47",
   "defusedxml>=0.7,<1",
   "Flask>=3.1,<4",
   "Flask-Login>=0.6,<1",

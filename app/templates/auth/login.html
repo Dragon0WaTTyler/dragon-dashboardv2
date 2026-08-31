@@ -34,6 +34,13 @@
     <label class="check-field">{{ form.remember() }}<span>{{ form.remember.label.text }}</span></label>
     {{ form.submit(class_='button button--primary button--full') }}
   </form>
+  {% if google_personal_vault_enabled %}
+  <div class="auth-divider" role="separator"><span>or</span></div>
+  <a class="button button--secondary button--full" href="{{ url_for('auth.google_connect', next=request.args.get('next')) }}">
+    Continue with Google
+  </a>
+  <p class="form-help">Creates your private Dragon workspace in your Google Drive. Your personal sources and progress stay separate.</p>
+  {% endif %}
   <p class="form-help">No account yet? Run <code>flask admin create</code> in the DragonV2 environment.</p>
 </section>
 {% endblock %}

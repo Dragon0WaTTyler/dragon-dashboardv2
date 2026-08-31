@@ -166,6 +166,11 @@ class Settings:
     youtube_api_key: str
     youtube_watch_later_playlist_id: str
     reading_tts_enabled: bool
+    google_oauth_enabled: bool
+    google_personal_vault_login_enabled: bool
+    google_oauth_client_id: str
+    google_oauth_client_secret: str
+    google_oauth_redirect_uri: str
 
     @classmethod
     def load(
@@ -253,6 +258,27 @@ class Settings:
             or _private_setting(instance_root, "youtube_watch_later_playlist_id")
         ).strip()
         youtube_oauth_token_available = (instance_root / "secrets" / "youtube_token.json").is_file()
+        google_oauth_client_id = str(
+            override_map.get("GOOGLE_OAUTH_CLIENT_ID")
+            or override_map.get("DRAGON_GOOGLE_OAUTH_CLIENT_ID")
+            or os.getenv("DRAGON_GOOGLE_OAUTH_CLIENT_ID", "")
+        ).strip()
+        google_oauth_client_secret = str(
+            override_map.get("GOOGLE_OAUTH_CLIENT_SECRET")
+            or override_map.get("DRAGON_GOOGLE_OAUTH_CLIENT_SECRET")
+            or os.getenv("DRAGON_GOOGLE_OAUTH_CLIENT_SECRET", "")
+        ).strip()
+        google_oauth_redirect_uri = str(
+            override_map.get("GOOGLE_OAUTH_REDIRECT_URI")
+            or override_map.get("DRAGON_GOOGLE_OAUTH_REDIRECT_URI")
+            or os.getenv("DRAGON_GOOGLE_OAUTH_REDIRECT_URI", "")
+        ).strip()
+        google_oauth_enabled = feature("GOOGLE_OAUTH_ENABLED", False)
+        if google_oauth_enabled and not (google_oauth_client_id and google_oauth_client_secret):
+            raise ValueError(
+                "DRAGON_GOOGLE_OAUTH_CLIENT_ID and DRAGON_GOOGLE_OAUTH_CLIENT_SECRET are required "
+                "when Google OAuth is enabled."
+            )
         vidsrc_embed_url = _https_base_url(
             str(
                 override_map.get("VIDSRC_EMBED_URL")
@@ -598,6 +624,13 @@ class Settings:
             youtube_api_key=youtube_api_key,
             youtube_watch_later_playlist_id=youtube_watch_later_playlist_id,
             reading_tts_enabled=feature("READING_TTS_ENABLED", False),
+            google_oauth_enabled=google_oauth_enabled,
+            google_personal_vault_login_enabled=feature(
+                "GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED", False
+            ),
+            google_oauth_client_id=google_oauth_client_id,
+            google_oauth_client_secret=google_oauth_client_secret,
+            google_oauth_redirect_uri=google_oauth_redirect_uri,
         )
 
     def flask_mapping(self, overrides: Mapping[str, Any] | None = None) -> dict[str, Any]:
@@ -700,6 +733,11 @@ class Settings:
             "DRAGON_YOUTUBE_API_KEY": self.youtube_api_key,
             "DRAGON_YOUTUBE_WATCH_LATER_PLAYLIST_ID": self.youtube_watch_later_playlist_id,
             "DRAGON_READING_TTS_ENABLED": self.reading_tts_enabled,
+            "DRAGON_GOOGLE_OAUTH_ENABLED": self.google_oauth_enabled,
+            "DRAGON_GOOGLE_PERSONAL_VAULT_LOGIN_ENABLED": self.google_personal_vault_login_enabled,
+            "DRAGON_GOOGLE_OAUTH_CLIENT_ID": self.google_oauth_client_id,
+            "DRAGON_GOOGLE_OAUTH_CLIENT_SECRET": self.google_oauth_client_secret,
+            "DRAGON_GOOGLE_OAUTH_REDIRECT_URI": self.google_oauth_redirect_uri,
         }
         mapping.update(overrides or {})
         return mapping
@@ -710,6 +748,9 @@ class Settings:
             "database_url",
             "youtube_api_key",
             "youtube_watch_later_playlist_id",
+            "google_oauth_client_id",
+            "google_oauth_client_secret",
+            "google_oauth_redirect_uri",
             "vidsrc_embed_url",
             "videotube_embed_url",
             "updown_embed_url",
