@@ -29,6 +29,7 @@
   const sourceFactType = player.querySelector("[data-player-source-type]");
   const sourceFactHealth = player.querySelector("[data-player-source-health]");
   const sourceFactPriority = player.querySelector("[data-player-source-priority]");
+  const serverHelp = player.querySelector("[data-player-server-help]");
   const launch = player.querySelector("[data-player-launch]");
   const launchTitle = player.querySelector("[data-player-launch-title]");
   const launchHint = player.querySelector("[data-player-launch-hint]");
@@ -43,7 +44,6 @@
   const externalBack = player.querySelector("[data-player-external-back]");
   const externalFullscreen = player.querySelector("[data-player-external-fullscreen]");
   const externalReload = player.querySelector("[data-player-external-reload]");
-  const externalOpen = player.querySelector("[data-player-external-open]");
   const badge = player.querySelector("[data-player-badge]");
   const frame = player.querySelector("[data-player-frame]");
   const mediaShell = player.querySelector("[data-player-shell]");
@@ -52,7 +52,6 @@
   const chromeStatus = player.querySelector("[data-player-chrome-status]");
   const controls = player.querySelector("[data-player-controls]");
   const reload = player.querySelector("[data-player-reload]");
-  const open = player.querySelector("[data-player-open]");
   const stop = player.querySelector("[data-player-stop]");
   const retry = player.querySelector("[data-player-retry]");
   const fallback = player.querySelector("[data-player-fallback]");
@@ -137,6 +136,7 @@
   const autoNextToggle = player.querySelector("[data-player-auto-next]");
   const startOver = player.querySelector("[data-player-start-over]");
   const csrf = document.querySelector('meta[name="csrf-token"]')?.content || "";
+  const attemptEndpoint = String(player.dataset.attemptEndpoint || "").trim();
   const initialParams = new URLSearchParams(window.location.search);
   const subtitlePrefsLegacyKey = "dragon:subtitle-style:v1";
   const subtitlePrefsKey = "dragon:subtitle-style:v2";
@@ -193,7 +193,6 @@
     },
   };
   let sourceUrl = "";
-  let sourceSandbox = "";
   let resolvedSourceId = "";
   let localSession = null;
   let pollTimer = 0;
@@ -203,6 +202,25 @@
   let subtitleOptionsKey = "";
   let subtitleRequestToken = 0;
   let watchReported = false;
+  let playbackAttemptId = "";
+  let playbackAttemptStartedAt = 0;
+  let playbackAttemptFinalized = false;
+  let autoFallbackAttemptedProviders = new Set();
+  let embedReloadInProgress = false;
+  let embedAttemptRunInProgress = false;
+  let embedAttemptRunGeneration = -1;
+  let embedResolutionGeneration = 0;
+  let embedPlaybackWatchdogTimer = 0;
+  const MAX_AUTO_FALLBACK_ATTEMPTS = 3;
+  const EMBED_PLAYBACK_WATCHDOG_MS = 15000;
+
+  const SAFE_EMBED_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-presentation";
+
+  const safeEmbedSandbox = () => {
+    // Fail closed when a resolver omits or corrupts the policy. Every embed
+    // provider must remain inside Dragon's no-popup/no-navigation boundary.
+    return SAFE_EMBED_SANDBOX;
+  };
   let activeSelection = { season: null, episode: null, episodeTitle: "", runtimeSeconds: null };
   let packRequestToken = 0;
   let videoPaintCheckTimer = 0;
@@ -335,10 +353,25 @@
     const parsed = Number(value);
     return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
   };
-  const selectedKind = () => source.selectedOptions[0]?.dataset.kind || "embed";
-  const selectedOption = () => source.selectedOptions[0] || null;
+  const rawSelectedOption = () => source.selectedOptions[0] || null;
+  const selectedOption = () => {
+    const option = rawSelectedOption();
+    if (option?.dataset.kind !== "auto") return option;
+    const targetId = option.dataset.autoTargetId || "";
+    return Array.from(source.options).find((candidate) => candidate.value === targetId) || option;
+  };
+  const selectedKind = () => selectedOption()?.dataset.kind || "embed";
   const selectedProvider = () => selectedOption()?.dataset.provider || "local";
   const selectedProviderLabel = () => selectedOption()?.dataset.providerLabel || "Local";
+  const selectedProviderOwnsServers = () => selectedOption()?.dataset.providerInternalServers === "true";
+  const selectedProviderSupportsLifecycleMessages = () =>
+    selectedOption()?.dataset.providerLifecycleMessages === "true";
+  const selectedProviderSupportsServerIdentity = () =>
+    selectedOption()?.dataset.providerServerIdentity === "true";
+  const selectedProviderSupportsLanguageMetadata = () =>
+    selectedOption()?.dataset.providerLanguageMetadata === "true";
+  const selectedProviderSupportsQualityMetadata = () =>
+    selectedOption()?.dataset.providerQualityMetadata === "true";
   const selectedEmbedEndpoint = () => selectedOption()?.dataset.embedEndpoint || "";
   const syncSourceFacts = () => {
     const option = selectedOption();
@@ -1110,6 +1143,64 @@
     }
   };
 
+  const playbackDeviceId = () => {
+    const storageKey = "dragon:playback-device:v1";
+    try {
+      const stored = String(window.localStorage.getItem(storageKey) || "").trim();
+      if (stored) return stored;
+      const generated = window.crypto?.randomUUID?.()
+        || `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      window.localStorage.setItem(storageKey, generated);
+      return generated;
+    } catch (_error) {
+      return "browser-session";
+    }
+  };
+  const newPlaybackAttempt = () => {
+    playbackAttemptId = window.crypto?.randomUUID?.()
+      || `attempt-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    playbackAttemptStartedAt = performance.now();
+    playbackAttemptFinalized = false;
+  };
+  const reportPlaybackAttempt = async (outcome, details = {}) => {
+    if (!attemptEndpoint || !playbackAttemptId) return;
+    const scope = selectedEpisodeScope();
+    const localMeta = selectedSourceMeta();
+    const startupMs = details.startupMs ?? (
+      playbackAttemptStartedAt ? Math.max(0, Math.round(performance.now() - playbackAttemptStartedAt)) : null
+    );
+    const payload = {
+      attempt_id: playbackAttemptId,
+      provider: activeKind === "local" ? "local" : selectedProvider(),
+      source_id: resolvedSourceId || localMeta?.sourceId || null,
+      season: scope.season,
+      episode: scope.episode,
+      outcome,
+      device_id: playbackDeviceId(),
+      startup_ms: startupMs,
+      quality: details.quality || localMeta?.quality || "",
+      language: details.language || "",
+      server_id: details.serverId || "",
+      failure_reason: details.failureReason || "",
+    };
+    try {
+      const response = await fetch(attemptEndpoint, {
+        method: "POST",
+        credentials: "same-origin",
+        keepalive: outcome === "failure" || outcome === "success",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-CSRFToken": csrf,
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok && outcome === "started") playbackAttemptId = "";
+    } catch (_error) {
+      // Diagnostics must never interrupt playback or make a source unusable.
+    }
+  };
+
   const clearPoll = () => {
     window.clearTimeout(pollTimer);
     pollTimer = 0;
@@ -1746,15 +1837,25 @@
       setEmbedCinemaMode(false);
     }
     clearVideoPaintCheck();
+    window.clearTimeout(embedPlaybackWatchdogTimer);
+    embedPlaybackWatchdogTimer = 0;
     clearNextEpisode();
     setWatchMode(false);
     activeKind = "";
+    playbackAttemptId = "";
+    playbackAttemptStartedAt = 0;
+    playbackAttemptFinalized = false;
+    embedReloadInProgress = false;
+    embedResolutionGeneration += 1;
     sourceUrl = "";
-    sourceSandbox = "";
     resolvedSourceId = "";
-    frame.removeAttribute("sandbox");
+    frame.setAttribute("sandbox", SAFE_EMBED_SANDBOX);
     frame.src = "about:blank";
     frame.hidden = true;
+    if (serverHelp) {
+      serverHelp.hidden = true;
+      serverHelp.textContent = "";
+    }
     if (externalToolbar) externalToolbar.hidden = true;
     if (mediaShell) mediaShell.hidden = true;
     if (captionLayer) captionLayer.hidden = true;
@@ -1768,7 +1869,6 @@
     controls.hidden = true;
     if (retry) retry.hidden = true;
     if (fallback) fallback.hidden = true;
-    open.hidden = true;
     stop.hidden = true;
     setSubtitlePanelOpen(false);
   };
@@ -1782,6 +1882,13 @@
     if (launchHint) launchHint.textContent = kind === "embed"
       ? "Loads only after you press play."
       : "The magnet starts only after you press play.";
+    if (serverHelp) {
+      const providerOwnsServers = kind === "embed" && selectedProviderOwnsServers();
+      serverHelp.hidden = !providerOwnsServers;
+      serverHelp.textContent = providerOwnsServers
+        ? `${selectedProviderLabel()} server picker is inside the player.`
+        : "";
+    }
     if (startOver) startOver.hidden = kind !== "local" || !savedProgress?.seconds;
     if (kind === "embed") {
       void loadPackEpisodes();
@@ -1817,7 +1924,17 @@
     }
   };
 
+  const finalizePlaybackFailure = (message) => {
+    if (playbackAttemptId && !playbackAttemptFinalized) {
+      playbackAttemptFinalized = true;
+      void reportPlaybackAttempt("failure", { failureReason: message });
+    }
+  };
+
   const showError = (message, { keepViewport = false } = {}) => {
+    finalizePlaybackFailure(message);
+    window.clearTimeout(embedPlaybackWatchdogTimer);
+    embedPlaybackWatchdogTimer = 0;
     clearPoll();
     clearVideoPaintCheck();
     setWatchMode(false);
@@ -1860,6 +1977,28 @@
 
   const fallbackEmbedOption = () => Array.from(source.querySelectorAll('option[data-kind="embed"]'))
     .find((option) => option.value !== source.value) || null;
+  const isAutoMode = () => rawSelectedOption()?.dataset.kind === "auto";
+  const canonicalProviderForOption = (option) =>
+    String(option?.dataset.provider || "").trim().toLowerCase();
+  const selectNextAutoProvider = () => {
+    if (!isAutoMode()) return false;
+    const current = selectedOption();
+    if (!current || current.dataset.kind !== "embed") return false;
+    const currentProvider = canonicalProviderForOption(current);
+    if (!currentProvider) return false;
+    autoFallbackAttemptedProviders.add(currentProvider);
+    if (autoFallbackAttemptedProviders.size >= MAX_AUTO_FALLBACK_ATTEMPTS) return false;
+    const next = Array.from(source.querySelectorAll('option[data-kind="embed"]'))
+      .find((option) => {
+        const provider = canonicalProviderForOption(option);
+        return provider && !autoFallbackAttemptedProviders.has(provider);
+      });
+    if (!next) return false;
+    const autoOption = rawSelectedOption();
+    if (!autoOption) return false;
+    autoOption.dataset.autoTargetId = next.value;
+    return true;
+  };
   const switchToFallbackEmbed = async () => {
     const embed = fallbackEmbedOption();
     if (!embed) return;
@@ -1924,23 +2063,27 @@
   };
 
   const loadEmbed = () => {
-    setWatchMode(true);
+    window.clearTimeout(embedPlaybackWatchdogTimer);
+    embedPlaybackWatchdogTimer = 0;
+    setWatchMode(selectedProviderOwnsServers());
     frame.hidden = false;
-    if (externalToolbar) externalToolbar.hidden = false;
+    if (externalToolbar) externalToolbar.hidden = !selectedProviderOwnsServers();
     if (mediaShell) mediaShell.hidden = true;
-    if (sourceSandbox) frame.setAttribute("sandbox", sourceSandbox);
-    else frame.removeAttribute("sandbox");
+    frame.setAttribute("sandbox", safeEmbedSandbox());
     frame.src = sourceUrl;
     launch.hidden = true;
     controls.hidden = false;
     if (retry) retry.hidden = true;
     if (fallback) fallback.hidden = true;
     reload.hidden = false;
-    open.hidden = false;
-    open.href = sourceUrl;
-    if (externalOpen) externalOpen.href = sourceUrl;
     stop.hidden = true;
     setStatus(`${selectedProviderLabel()} is loading…`);
+    if (isAutoMode() && selectedProviderSupportsLifecycleMessages()) {
+      embedPlaybackWatchdogTimer = window.setTimeout(() => {
+        embedPlaybackWatchdogTimer = 0;
+        void runEmbedAttempts(`${selectedProviderLabel()} did not confirm playback.`);
+      }, EMBED_PLAYBACK_WATCHDOG_MS);
+    }
   };
 
   const rememberSelectedEmbedSource = () => {
@@ -2068,7 +2211,6 @@
     if (retry) retry.hidden = true;
     if (fallback) fallback.hidden = true;
     reload.hidden = true;
-    open.hidden = true;
     stop.hidden = false;
     renderLocalStatus(payload.session || {});
     setPlayerState("preparing", "Reading torrent metadata…");
@@ -2081,6 +2223,83 @@
     else video.pause();
     syncQuickControls();
     showControlsBriefly();
+  };
+
+  const resolveSelectedEmbed = async () => {
+    const resolutionGeneration = embedResolutionGeneration;
+    setStatus(`Preparing ${selectedProviderLabel()}…`);
+    const embedEndpoint = selectedEmbedEndpoint();
+    if (!embedEndpoint) throw new Error("The selected embed provider is unavailable.");
+    const endpoint = new URL(embedEndpoint, window.location.origin);
+    const scope = selectedEpisodeScope();
+    if (scope.season !== null && scope.episode !== null) {
+      endpoint.searchParams.set("season", String(scope.season));
+      endpoint.searchParams.set("episode", String(scope.episode));
+    }
+    const response = await fetch(endpoint, {
+      credentials: "same-origin",
+      headers: { Accept: "application/json" },
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload?.error?.message || "source unavailable");
+    // A user may have changed source/episode while the Dragon resolver was
+    // waiting. Do not let a stale response replace the newly selected player.
+    if (resolutionGeneration !== embedResolutionGeneration || activeKind !== "embed") return false;
+    sourceUrl = String(payload?.source?.url || "").trim();
+    if (!sourceUrl) throw new Error("source unavailable");
+    resolvedSourceId = String(payload?.source?.source_id || "").trim();
+    loadEmbed();
+    return true;
+  };
+
+  const prepareNextAutoEmbedAttempt = (failureReason) => {
+    if (!selectNextAutoProvider()) return false;
+    finalizePlaybackFailure(failureReason);
+    resetViewport();
+    activeKind = "embed";
+    syncSourceUi();
+    if (viewport) viewport.hidden = false;
+    launch.disabled = true;
+    setStatus("Trying another provider…");
+    return true;
+  };
+
+  const runEmbedAttempts = async (initialFailure = "") => {
+    let runGeneration = embedResolutionGeneration;
+    if (embedAttemptRunInProgress && embedAttemptRunGeneration === runGeneration) return;
+    embedAttemptRunInProgress = true;
+    embedAttemptRunGeneration = runGeneration;
+    let failureReason = initialFailure;
+    try {
+      while (true) {
+        if (failureReason) {
+          if (runGeneration !== embedResolutionGeneration || activeKind !== "embed") return;
+          if (!prepareNextAutoEmbedAttempt(failureReason)) {
+            showError(isAutoMode()
+              ? "Automatic playback could not find a working provider. Choose a source to try manually."
+              : failureReason);
+            return;
+          }
+          runGeneration = embedResolutionGeneration;
+        }
+        failureReason = "";
+        newPlaybackAttempt();
+        void reportPlaybackAttempt("started");
+        try {
+          const resolved = await resolveSelectedEmbed();
+          if (resolved === false) return;
+          return;
+        } catch (error) {
+          if (runGeneration !== embedResolutionGeneration || activeKind !== "embed") return;
+          failureReason = String(error?.message || "Playback is unavailable for this movie.");
+        }
+      }
+    } finally {
+      if (embedAttemptRunGeneration === runGeneration) {
+        embedAttemptRunInProgress = false;
+        embedAttemptRunGeneration = -1;
+      }
+    }
   };
 
   const seekRelative = (seconds) => {
@@ -2157,8 +2376,11 @@
     launch.disabled = true;
     if (viewport) viewport.hidden = false;
     activeKind = selectedKind();
+    autoFallbackAttemptedProviders = new Set();
     try {
       if (activeKind === "local") {
+        newPlaybackAttempt();
+        void reportPlaybackAttempt("started");
         const meta = selectedSourceMeta();
         const scope = selectedEpisodeScope();
         const selection = scope.season !== null || scope.episode !== null
@@ -2179,26 +2401,8 @@
         await startLocal(selection);
         return;
       }
-      setStatus(`Preparing ${selectedProviderLabel()}…`);
-      const embedEndpoint = selectedEmbedEndpoint();
-      if (!embedEndpoint) throw new Error("The selected embed provider is unavailable.");
-      const endpoint = new URL(embedEndpoint, window.location.origin);
-      const scope = selectedEpisodeScope();
-      if (scope.season !== null && scope.episode !== null) {
-        endpoint.searchParams.set("season", String(scope.season));
-        endpoint.searchParams.set("episode", String(scope.episode));
-      }
-      const response = await fetch(endpoint, {
-        credentials: "same-origin",
-        headers: { Accept: "application/json" },
-      });
-      const payload = await response.json();
-      if (!response.ok) throw new Error(payload?.error?.message || "source unavailable");
-      sourceUrl = String(payload?.source?.url || "").trim();
-      if (!sourceUrl) throw new Error("source unavailable");
-      sourceSandbox = String(payload?.source?.sandbox || "").trim();
-      resolvedSourceId = String(payload?.source?.source_id || "").trim();
-      loadEmbed();
+      await runEmbedAttempts();
+      return;
     } catch (error) {
       showError(String(error?.message || "Playback is unavailable for this movie."));
     }
@@ -2208,16 +2412,74 @@
     if (activeKind === "embed" && frame.src !== "about:blank") {
       setStatus(`${selectedProviderLabel()} loaded. Playback controls are inside the player.`);
       rememberSelectedEmbedSource();
+      void reportPlaybackAttempt("embed_ready");
       void reportWatchStarted();
     }
   });
 
-  reload.addEventListener("click", () => {
-    if (!sourceUrl) return;
-    frame.src = "about:blank";
-    window.setTimeout(loadEmbed, 0);
+  window.addEventListener("message", (event) => {
+    if (
+      activeKind !== "embed"
+      || !sourceUrl
+      || !selectedProviderSupportsLifecycleMessages()
+      || event.source !== frame.contentWindow
+    ) return;
+    let expectedOrigin = "";
+    try {
+      expectedOrigin = new URL(sourceUrl).origin;
+    } catch (_error) {
+      return;
+    }
+    if (!expectedOrigin || event.origin !== expectedOrigin) return;
+    const payload = event.data;
+    const metadata = payload && typeof payload === "object" ? payload : {};
+    const eventType = typeof payload === "string"
+      ? payload
+      : payload && typeof payload === "object"
+        ? payload.type || payload.event || payload.name
+        : "";
+    if (!["play", "playing"].includes(String(eventType || "").trim().toLowerCase())) return;
+    window.clearTimeout(embedPlaybackWatchdogTimer);
+    embedPlaybackWatchdogTimer = 0;
+    setStatus(`${selectedProviderLabel()} is playing.`);
+    if (!playbackAttemptFinalized) {
+      playbackAttemptFinalized = true;
+      void reportPlaybackAttempt("success", {
+        serverId: selectedProviderSupportsServerIdentity()
+          ? String(metadata.server_id || metadata.serverId || "").trim()
+          : "",
+        language: selectedProviderSupportsLanguageMetadata()
+          ? String(metadata.language || metadata.audio_language || "").trim()
+          : "",
+        quality: selectedProviderSupportsQualityMetadata()
+          ? String(metadata.quality || metadata.quality_label || "").trim()
+          : "",
+      });
+    }
   });
-  externalReload?.addEventListener("click", () => reload.click());
+
+  frame.addEventListener("error", () => {
+    if (activeKind !== "embed" || !sourceUrl || frame.src === "about:blank") return;
+    window.clearTimeout(embedPlaybackWatchdogTimer);
+    embedPlaybackWatchdogTimer = 0;
+    void runEmbedAttempts(`${selectedProviderLabel()} failed before playback started.`);
+  });
+
+  const reloadPlayer = () => {
+    if (!sourceUrl || embedReloadInProgress) return;
+    embedReloadInProgress = true;
+    newPlaybackAttempt();
+    void reportPlaybackAttempt("started");
+    const reloadAfterBlank = () => {
+      frame.removeEventListener("load", reloadAfterBlank);
+      embedReloadInProgress = false;
+      if (sourceUrl) loadEmbed();
+    };
+    frame.addEventListener("load", reloadAfterBlank);
+    frame.src = "about:blank";
+  };
+  reload.addEventListener("click", reloadPlayer);
+  externalReload?.addEventListener("click", reloadPlayer);
   externalBack?.addEventListener("click", () => { void exitWatchMode(); });
   externalFullscreen?.addEventListener("click", () => {
     if (embedCinemaMode || document.fullscreenElement === player) {
@@ -2626,6 +2888,10 @@
         ? `Playing S${String(activeSelection.season).padStart(2, "0")}E${String(activeSelection.episode).padStart(2, "0")} from the selected season pack.`
         : "Playing directly from the local WebTorrent runtime.";
       setPlayerState("playing", selectionText);
+      if (!playbackAttemptFinalized) {
+        playbackAttemptFinalized = true;
+        void reportPlaybackAttempt("success");
+      }
       void reportWatchStarted();
       scheduleVideoPaintCheck();
       syncQuickControls();

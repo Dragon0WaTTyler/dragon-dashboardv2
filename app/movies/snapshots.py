@@ -143,6 +143,8 @@ def _normalize_preferences(value: Any) -> dict[str, Any]:
         "autoplay_next": True,
         "automatic_resume": True,
         "default_subtitle_language": "",
+        "preferred_audio_language": "auto",
+        "preferred_quality": "auto",
         "preferred_source": "",
         "preferred_region": "US",
         "reduced_effects": False,
@@ -165,6 +167,22 @@ def _normalize_preferences(value: Any) -> dict[str, Any]:
     if language and not re.fullmatch(r"[a-z]{2,3}", language):
         raise MoviesSnapshotValidationError("preferences.default_subtitle_language is invalid.")
     defaults["default_subtitle_language"] = language
+    audio_language = _bounded_text(
+        value.get("preferred_audio_language", "auto"),
+        "preferences.preferred_audio_language",
+        limit=8,
+    ).lower()
+    if audio_language not in {"auto", "original"} and not re.fullmatch(
+        r"[a-z]{2,3}", audio_language
+    ):
+        raise MoviesSnapshotValidationError("preferences.preferred_audio_language is invalid.")
+    defaults["preferred_audio_language"] = audio_language
+    quality = _bounded_text(
+        value.get("preferred_quality", "auto"), "preferences.preferred_quality", limit=8
+    ).lower()
+    if quality not in {"auto", "best", "1080p", "720p", "480p"}:
+        raise MoviesSnapshotValidationError("preferences.preferred_quality is invalid.")
+    defaults["preferred_quality"] = quality
     source = _bounded_text(
         value.get("preferred_source", ""), "preferences.preferred_source", limit=40
     ).lower()

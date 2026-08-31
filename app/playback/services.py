@@ -11,6 +11,7 @@ from app.history.services import HistoryService
 from app.playback.identity import PlaybackIdentity
 from app.playback.models import (
     MagnetCandidate,
+    PlaybackAttempt,
     PlaybackProviderPreference,
     PlaybackSource,
     ProviderAvailability,
@@ -29,6 +30,7 @@ from app.shared.time import utc_now
 MAGNET_HASH_PATTERN = re.compile(r"^(?:[A-Fa-f0-9]{40,64}|[A-Za-z2-7]{32})$")
 PROVIDER_AVAILABILITY_STATUSES = {"UNKNOWN", "AVAILABLE", "UNAVAILABLE", "DEGRADED"}
 PROVIDER_PROBE_LEVELS = {"", "REACHABLE", "EMBED_READY", "PLAYBACK_CONFIRMED"}
+PLAYBACK_ATTEMPT_OUTCOMES = {"started", "embed_ready", "success", "failure"}
 AUTHORIZED_EMBED_AUTHORIZATION_STATUSES = frozenset(
     {"account_authorized", "catalog_authorized", "manual_authorized"}
 )
@@ -41,7 +43,9 @@ DEFAULT_PROVIDER_PRIORITIES = {
 
 
 def _as_utc(value: datetime) -> datetime:
-    return value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value.astimezone(timezone.utc)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)  # noqa: UP017 - Python 3.10 compatibility
+    return value.astimezone(timezone.utc)  # noqa: UP017 - Python 3.10 compatibility
 
 
 def _optional_int(value) -> int | None:
@@ -197,7 +201,9 @@ class PlaybackService:
                     if key in rows
                     else DEFAULT_PROVIDER_PRIORITIES.get(key, 100)
                 ),
-                "background_checks": rows.get(key).background_checks if key in rows else False,
+                # Kept as a compatibility field only; background provider
+                # probing is not part of Dragon's explicit-action policy.
+                "background_checks": False,
             }
             for key in keys
         }
@@ -214,6 +220,13 @@ class PlaybackService:
     def save_provider_preference(
         *, provider: str, enabled: bool, priority: int, background_checks: bool
     ) -> PlaybackProviderPreference:
+        """Save local provider preferences without enabling background probes.
+
+        ``background_checks`` remains in the method signature and table for
+        compatibility with existing installations, but Dragon's playback
+        policy is explicit-action-only. Provider health runs only from the
+        settings Test action or an explicit playback request.
+        """
         provider = provider.strip().lower()
         if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", provider):
             raise ValueError("Playback provider is invalid.")
@@ -223,7 +236,7 @@ class PlaybackService:
             db.session.add(preference)
         preference.enabled = bool(enabled)
         preference.priority = max(0, min(int(priority), 10_000))
-        preference.background_checks = bool(background_checks)
+        preference.background_checks = False
         db.session.commit()
         return preference
 
@@ -438,7 +451,7 @@ class PlaybackService:
     @staticmethod
     def vidsrc_source(*, movie: dict, base_url: str) -> dict:
         identity = PlaybackIdentity.from_context(movie)
-        return VidSrcProvider(base_url=base_url).resolve(identity).response_item()
+        return VidSrcProvider(base_url=base_url).build_embed(identity).response_item()
 
     @staticmethod
     def upsert_resolved_source(
@@ -759,3 +772,388 @@ class ProviderAvailabilityService:
         if status == "UNKNOWN":
             return timedelta(minutes=5)
         return timedelta(minutes=min(360, 5 * (2 ** max(0, failure_count - 1))))
+
+
+class PlaybackAttemptService:
+    """Persist explicit player lifecycle observations for future source memory."""
+
+    @staticmethod
+    def record(
+        *,
+        user_id: int | str,
+        movie_id: str,
+        provider: str,
+        content_id: str,
+        scope_key: str,
+        client_attempt_id: str,
+        outcome: str,
+        playback_source_id: str | None = None,
+        server_id: str = "",
+        device_id: str = "",
+        startup_ms: int | None = None,
+        quality: str = "",
+        language: str = "",
+        failure_reason: str = "",
+    ) -> PlaybackAttempt:
+        try:
+            normalized_user_id = int(user_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Playback attempt user is invalid.") from exc
+        normalized_provider = str(provider or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", normalized_provider):
+            raise ValueError("Playback attempt provider is invalid.")
+        normalized_content_id = str(content_id or "").strip()
+        normalized_scope = str(scope_key or "").strip().lower()
+        normalized_attempt_id = str(client_attempt_id or "").strip()
+        if not normalized_content_id or len(normalized_content_id) > 96:
+            raise ValueError("Playback attempt content is invalid.")
+        if not re.fullmatch(r"(?:movie|s\d{2}e\d{2})", normalized_scope):
+            raise ValueError("Playback attempt scope is invalid.")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,80}", normalized_attempt_id):
+            raise ValueError("Playback attempt ID is invalid.")
+        normalized_outcome = str(outcome or "").strip().lower()
+        if normalized_outcome not in PLAYBACK_ATTEMPT_OUTCOMES:
+            raise ValueError("Playback attempt outcome is invalid.")
+
+        normalized_source_id = str(playback_source_id or "").strip() or None
+        normalized_server_id = str(server_id or "").strip()[:120]
+        normalized_device_id = str(device_id or "").strip()[:128]
+        normalized_quality = str(quality or "").strip()[:80]
+        normalized_language = str(language or "").strip().lower()[:24]
+        normalized_failure_reason = str(failure_reason or "").strip()[:500]
+        if startup_ms is None or startup_ms == "":
+            normalized_startup_ms = None
+        else:
+            try:
+                normalized_startup_ms = int(startup_ms)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("Playback attempt startup time is invalid.") from exc
+            if normalized_startup_ms < 0 or normalized_startup_ms > 86_400_000:
+                raise ValueError("Playback attempt startup time is invalid.")
+
+        attempt = db.session.scalar(
+            db.select(PlaybackAttempt).where(
+                PlaybackAttempt.user_id == normalized_user_id,
+                PlaybackAttempt.client_attempt_id == normalized_attempt_id,
+            )
+        )
+        if attempt is None:
+            attempt = PlaybackAttempt(
+                user_id=normalized_user_id,
+                movie_id=movie_id,
+                playback_source_id=normalized_source_id,
+                provider=normalized_provider,
+                server_id=normalized_server_id,
+                content_id=normalized_content_id,
+                scope_key=normalized_scope,
+                device_id=normalized_device_id,
+                client_attempt_id=normalized_attempt_id,
+                outcome=normalized_outcome,
+                success=(
+                    True
+                    if normalized_outcome == "success"
+                    else False
+                    if normalized_outcome == "failure"
+                    else None
+                ),
+                startup_ms=normalized_startup_ms,
+                quality=normalized_quality,
+                language=normalized_language,
+                failure_reason=normalized_failure_reason,
+            )
+            db.session.add(attempt)
+        else:
+            if (
+                attempt.movie_id != movie_id
+                or attempt.provider != normalized_provider
+                or attempt.scope_key != normalized_scope
+            ):
+                raise ValueError("Playback attempt ID is already used for another playback.")
+            if attempt.outcome in {"success", "failure"} and normalized_outcome != attempt.outcome:
+                return attempt
+            attempt.playback_source_id = normalized_source_id or attempt.playback_source_id
+            attempt.server_id = normalized_server_id or attempt.server_id
+            attempt.device_id = normalized_device_id or attempt.device_id
+            attempt.outcome = normalized_outcome
+            attempt.success = (
+                True
+                if normalized_outcome == "success"
+                else False
+                if normalized_outcome == "failure"
+                else None
+            )
+            if normalized_startup_ms is not None:
+                attempt.startup_ms = normalized_startup_ms
+            attempt.quality = normalized_quality or attempt.quality
+            attempt.language = normalized_language or attempt.language
+            if normalized_failure_reason:
+                attempt.failure_reason = normalized_failure_reason
+        db.session.commit()
+        return attempt
+
+    @staticmethod
+    def recent_summary(*, user_id: int | str, provider: str | None = None) -> dict[str, dict]:
+        try:
+            normalized_user_id = int(user_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Playback attempt user is invalid.") from exc
+        query = db.select(PlaybackAttempt).where(PlaybackAttempt.user_id == normalized_user_id)
+        normalized_provider = str(provider or "").strip().lower()
+        if normalized_provider:
+            query = query.where(PlaybackAttempt.provider == normalized_provider)
+        rows = list(
+            db.session.scalars(query.order_by(PlaybackAttempt.created_at.desc()).limit(500))
+        )
+        summaries: dict[str, dict] = {}
+        for row in rows:
+            summary = summaries.setdefault(
+                row.provider,
+                {
+                    "provider": row.provider,
+                    "attempts": 0,
+                    "successes": 0,
+                    "failures": 0,
+                    "avg_startup_ms": None,
+                    "last_success_at": None,
+                },
+            )
+            summary["attempts"] += 1
+            if row.success is True:
+                summary["successes"] += 1
+            elif row.success is False:
+                summary["failures"] += 1
+            if row.startup_ms is not None:
+                values = summary.setdefault("_startup_values", [])
+                values.append(row.startup_ms)
+            if row.success is True and summary["last_success_at"] is None:
+                summary["last_success_at"] = row.created_at.isoformat()
+        for summary in summaries.values():
+            values = summary.pop("_startup_values", [])
+            if values:
+                summary["avg_startup_ms"] = round(sum(values) / len(values))
+        return summaries
+
+    @staticmethod
+    def last_good_server_id(
+        *,
+        user_id: int | str,
+        provider: str,
+        movie_id: str | None = None,
+        scope_key: str | None = None,
+    ) -> str:
+        """Return a provider-supplied opaque server identity from success history."""
+        try:
+            normalized_user_id = int(user_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Playback attempt user is invalid.") from exc
+        normalized_provider = str(provider or "").strip().lower()
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", normalized_provider):
+            raise ValueError("Playback attempt provider is invalid.")
+
+        filters = [
+            PlaybackAttempt.user_id == normalized_user_id,
+            PlaybackAttempt.provider == normalized_provider,
+            PlaybackAttempt.success.is_(True),
+            PlaybackAttempt.server_id != "",
+        ]
+        if movie_id is not None:
+            filters.append(PlaybackAttempt.movie_id == str(movie_id).strip())
+        if scope_key is not None:
+            normalized_scope = str(scope_key or "").strip().lower()
+            if not re.fullmatch(r"(?:movie|s\d{2}e\d{2})", normalized_scope):
+                raise ValueError("Playback attempt scope is invalid.")
+            filters.append(PlaybackAttempt.scope_key == normalized_scope)
+        return str(
+            db.session.scalar(
+                db.select(PlaybackAttempt.server_id)
+                .where(*filters)
+                .order_by(PlaybackAttempt.created_at.desc())
+                .limit(1)
+            )
+            or ""
+        )
+
+    @staticmethod
+    def provider_scores(
+        *,
+        user_id: int | str,
+        movie_id: str,
+        scope_key: str,
+        provider_keys: set[str] | frozenset[str],
+        preferred_language: str = "",
+        preferred_quality: str = "",
+        metadata_capabilities: dict[str, dict[str, bool]] | None = None,
+        source_metadata: dict[str, list[dict[str, object]]] | None = None,
+    ) -> dict[str, dict]:
+        """Score already-known providers using local playback history only.
+
+        Language and quality preferences are applied only for providers whose
+        registered capabilities explicitly cover the corresponding metadata.
+        """
+        keys = {
+            str(key).strip().lower()
+            for key in provider_keys
+            if re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", str(key).strip().lower())
+        }
+        if not keys:
+            return {}
+        try:
+            normalized_user_id = int(user_id)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Playback attempt user is invalid.") from exc
+        rows = list(
+            db.session.scalars(
+                db.select(PlaybackAttempt)
+                .where(
+                    PlaybackAttempt.user_id == normalized_user_id,
+                    PlaybackAttempt.provider.in_(keys),
+                )
+                .order_by(PlaybackAttempt.created_at.desc())
+                .limit(1000)
+            )
+        )
+        now = _as_utc(utc_now())
+        normalized_language = str(preferred_language or "").strip().lower()
+        normalized_quality = str(preferred_quality or "").strip().lower()
+        quality_rank = {
+            "360p": 1,
+            "480p": 2,
+            "576p": 3,
+            "720p": 4,
+            "1080p": 5,
+            "1440p": 6,
+            "2160p": 7,
+        }
+        capability_map = {
+            str(key).strip().lower(): dict(value or {})
+            for key, value in (metadata_capabilities or {}).items()
+        }
+        source_metadata_map = {
+            str(key).strip().lower(): [
+                dict(item) for item in value if isinstance(item, dict)
+            ]
+            for key, value in (source_metadata or {}).items()
+            if isinstance(value, list)
+        }
+        reliable_quality_rows = [
+            row
+            for row in rows
+            if row.provider in keys
+            and capability_map.get(row.provider, {}).get("quality")
+            and row.success is True
+        ]
+        best_quality_rank = max(
+            (
+                quality_rank.get(str(row.quality or "").strip().lower(), 0)
+                for row in reliable_quality_rows
+            ),
+            default=0,
+        )
+        reliable_quality_values = [
+            str(item.get("quality") or "").strip().lower()
+            for key, metadata_rows in source_metadata_map.items()
+            if capability_map.get(key, {}).get("quality")
+            for item in metadata_rows
+            if str(item.get("quality") or "").strip()
+        ]
+        best_quality_rank = max(
+            [
+                best_quality_rank,
+                *[quality_rank.get(value, 0) for value in reliable_quality_values],
+            ],
+            default=0,
+        )
+        scores: dict[str, dict] = {}
+        for key in keys:
+            provider_rows = [row for row in rows if row.provider == key]
+            final_rows = [row for row in provider_rows if row.success is not None]
+            successes = sum(row.success is True for row in final_rows)
+            failures = sum(row.success is False for row in final_rows)
+            startup_values = [row.startup_ms for row in provider_rows if row.startup_ms is not None]
+            title_successes = sum(
+                row.success is True
+                and row.movie_id == movie_id
+                and row.scope_key == scope_key
+                for row in provider_rows
+            )
+            provider_capabilities = capability_map.get(key, {})
+            current_source_metadata = source_metadata_map.get(key, [])
+            language_matches = 0
+            if (
+                normalized_language
+                and normalized_language != "auto"
+                and provider_capabilities.get("language")
+            ):
+                language_matches = sum(
+                    row.success is True
+                    and str(row.language or "").strip().lower() == normalized_language
+                    for row in provider_rows
+                )
+                language_matches += sum(
+                    str(item.get("language") or "").strip().lower() == normalized_language
+                    for item in current_source_metadata
+                )
+            quality_matches = 0
+            if normalized_quality not in {"", "auto"} and provider_capabilities.get("quality"):
+                if normalized_quality == "best":
+                    quality_matches = sum(
+                        row.success is True
+                        and quality_rank.get(
+                            str(row.quality or "").strip().lower(), 0
+                        ) == best_quality_rank
+                        and best_quality_rank > 0
+                        for row in provider_rows
+                    )
+                    quality_matches += sum(
+                        quality_rank.get(str(item.get("quality") or "").strip().lower(), 0)
+                        == best_quality_rank
+                        and best_quality_rank > 0
+                        for item in current_source_metadata
+                    )
+                else:
+                    quality_matches = sum(
+                        row.success is True
+                        and str(row.quality or "").strip().lower() == normalized_quality
+                        for row in provider_rows
+                    )
+                    quality_matches += sum(
+                        str(item.get("quality") or "").strip().lower() == normalized_quality
+                        for item in current_source_metadata
+                    )
+            success_rate = successes / len(final_rows) if final_rows else 0.0
+            avg_startup = (
+                round(sum(startup_values) / len(startup_values)) if startup_values else None
+            )
+            recent_success_bonus = 0.0
+            for row in provider_rows:
+                if row.success is not True:
+                    continue
+                age_hours = max(0.0, (now - _as_utc(row.created_at)).total_seconds() / 3600)
+                recent_success_bonus = max(0.0, 10.0 - min(10.0, age_hours / 6.0))
+                break
+            startup_bonus = (
+                max(0.0, 20.0 - min(20.0, avg_startup / 250.0))
+                if avg_startup is not None
+                else 0.0
+            )
+            score = (
+                (success_rate * 60.0)
+                + min(20.0, successes * 2.0)
+                + min(20.0, title_successes * 5.0)
+                + startup_bonus
+                + recent_success_bonus
+                + min(10.0, language_matches * 2.0)
+                + min(10.0, quality_matches * 2.0)
+            )
+            scores[key] = {
+                "provider": key,
+                "score": round(score, 3),
+                "successes": successes,
+                "failures": failures,
+                "success_rate": round(success_rate, 4),
+                "avg_startup_ms": avg_startup,
+                "title_successes": title_successes,
+                "language_matches": language_matches,
+                "quality_matches": quality_matches,
+            }
+        return scores

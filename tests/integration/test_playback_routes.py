@@ -5,9 +5,19 @@ import pytest
 
 from app.extensions import db
 from app.movies.models import Movie
-from app.playback.models import PlaybackSource, ProviderAvailability
-from app.playback.providers import INDEXED_EMBED_PROVIDER_SPECS, ProviderProbeResult
-from app.playback.services import PlaybackService, ProviderAvailabilityService
+from app.playback.models import PlaybackAttempt, PlaybackSource, ProviderAvailability
+from app.playback.providers import (
+    INDEXED_EMBED_PROVIDER_SPECS,
+    IdCatalogEmbedProvider,
+    IndexedEmbedProvider,
+    ProviderProbeResult,
+    VidSrcProvider,
+)
+from app.playback.services import (
+    PlaybackAttemptService,
+    PlaybackService,
+    ProviderAvailabilityService,
+)
 from app.playback.subtitles import SubtitleCandidate
 from tests.conftest import csrf_from
 
@@ -64,7 +74,7 @@ def test_vidsrc_is_click_gated_and_resolved_by_protected_playback_route(authenti
     detail_html = detail.get_data(as_text=True)
     assert "Play with VidSrc" in detail_html
     assert "https://vsembed.ru" not in detail_html
-    assert "sandbox=" not in detail_html
+    assert 'sandbox="allow-scripts allow-same-origin allow-forms allow-presentation"' in detail_html
     assert "frame-src 'self' https://vsembed.ru" in detail.headers["Content-Security-Policy"]
 
     response = authenticated_client.get(f"/playback/movie/{movie_id}/vidsrc")
@@ -78,6 +88,7 @@ def test_vidsrc_is_click_gated_and_resolved_by_protected_playback_route(authenti
         "label": "VidSrc",
         "url": "https://vsembed.ru/embed/tt2543164",
         "match": "imdb",
+        "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
     }
 
     anonymous = app.test_client().get(f"/playback/movie/{movie_id}/vidsrc")
@@ -160,6 +171,7 @@ def test_vidsrc_tv_episode_uses_scope_and_materializes_a_source(authenticated_cl
         "label": "VidSrc",
         "url": "https://vsembed.ru/embed/tv/1399/2-5",
         "match": "tmdb",
+        "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
     }
     with app.app_context():
         source = db.session.scalar(
@@ -266,7 +278,7 @@ def test_authorized_indexed_embed_is_listed_and_resolved_through_its_provider(
         "label": "VideoTube",
         "url": "https://down.vidtube.one/embed-iuki4kda2u7l.html",
         "match": "indexed",
-        "sandbox": "allow-scripts allow-forms allow-popups allow-presentation",
+        "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
     }
 
     selection = authenticated_client.post(
@@ -847,6 +859,56 @@ def test_playback_settings_disable_a_provider_and_apply_its_preference(authentic
         }
 
 
+def test_playback_settings_exposes_vidlove_capabilities(authenticated_client, app):
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDLOVE_ENABLED=True)
+
+    response = authenticated_client.get("/settings/playback")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "VidLove" in html
+    assert "Content: movie, tv" in html
+    assert "Internal servers: provider-owned" in html
+    assert "Fullscreen: supported" in html
+    assert "Explicit Test only" in html
+    assert "Allow optional background checks" not in html
+
+
+def test_playback_settings_marks_vidsrc_safe_embed_protection_active(authenticated_client, app):
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDSRC_ENABLED=True)
+
+    response = authenticated_client.get("/settings/playback")
+    html = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    vidsrc_section = html.split('id="provider-vidsrc"', maxsplit=1)[1].split(
+        "</section>", maxsplit=1
+    )[0]
+    assert "Popup protection: Active" in vidsrc_section
+
+
+def test_playback_settings_get_does_not_run_provider_health_hooks(
+    authenticated_client, app, monkeypatch
+):
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=True,
+        DRAGON_VIDLOVE_ENABLED=True,
+        DRAGON_CINESRC_ENABLED=True,
+    )
+
+    def provider_must_not_run(*args, **kwargs):
+        raise AssertionError("provider health must be explicit, never a settings GET side effect")
+
+    for provider_class in (VidSrcProvider, IdCatalogEmbedProvider, IndexedEmbedProvider):
+        monkeypatch.setattr(provider_class, "probe", provider_must_not_run)
+        monkeypatch.setattr(provider_class, "health", provider_must_not_run)
+
+    response = authenticated_client.get("/settings/playback")
+
+    assert response.status_code == 200
+
+
 def test_authorized_catalog_settings_page_imports_and_activates_one_mapping(
     authenticated_client, app
 ):
@@ -1117,7 +1179,10 @@ def test_streamtape_account_library_sync_is_manual_disabled_and_visible_only_aft
         data={"csrf_token": csrf_from(page)},
         follow_redirects=True,
     )
-    assert "StreamTape library synced: 1 valid assets cached; 1 mappings await review." in synced.get_data(as_text=True)
+    assert (
+        "StreamTape library synced: 1 valid assets cached; 1 mappings await review."
+        in synced.get_data(as_text=True)
+    )
 
     with app.app_context():
         source = db.session.scalar(
@@ -1149,10 +1214,20 @@ def test_filelions_account_library_sync_is_manual_disabled_and_visible_only_afte
 ):
     class FakeFileLionsAccount:
         def list_files(self):
-            return [{"file_code": "filelions123", "title": "Arrival [tmdb-329865] 720p", "canplay": 1}]
+            return [
+                {
+                    "file_code": "filelions123",
+                    "title": "Arrival [tmdb-329865] 720p",
+                    "canplay": 1,
+                }
+            ]
 
     with app.app_context():
-        movie = Movie(title="Arrival", normalized_title="arrival", external_ids={"tmdb_id": "329865"})
+        movie = Movie(
+            title="Arrival",
+            normalized_title="arrival",
+            external_ids={"tmdb_id": "329865"},
+        )
         db.session.add(movie)
         db.session.commit()
         movie_id = movie.id
@@ -1171,7 +1246,10 @@ def test_filelions_account_library_sync_is_manual_disabled_and_visible_only_afte
         data={"csrf_token": csrf_from(page)},
         follow_redirects=True,
     )
-    assert "FileLions library synced: 1 valid assets cached; 1 mappings await review." in synced.get_data(as_text=True)
+    assert (
+        "FileLions library synced: 1 valid assets cached; 1 mappings await review."
+        in synced.get_data(as_text=True)
+    )
 
     with app.app_context():
         source = db.session.scalar(
@@ -1263,6 +1341,203 @@ def test_cinesrc_uses_exact_tv_episode_scope(authenticated_client, app):
         )
         assert source is not None
         assert source.scope_key == "s02e05"
+
+
+def test_vidlove_direct_tmdb_provider_resolves_inside_safe_embed(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="VidLove test title",
+            normalized_title="vidlove test title",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDLOVE_ENABLED=True)
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    resolved = authenticated_client.get(f"/playback/movie/{movie_id}/providers/vidlove")
+
+    assert detail.status_code == 200
+    assert "VidLove" in detail.get_data(as_text=True)
+    assert "https://player.vidlove.cc/embed/movie/550" not in detail.get_data(as_text=True)
+    assert "frame-src 'self' https://player.vidlove.cc" in detail.headers[
+        "Content-Security-Policy"
+    ]
+    assert resolved.status_code == 200
+    source_payload = resolved.get_json()["source"]
+    assert source_payload.pop("source_id").startswith("src_")
+    assert source_payload == {
+        "provider": "vidlove",
+        "label": "VidLove",
+        "url": "https://player.vidlove.cc/embed/movie/550",
+        "match": "tmdb",
+        "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
+    }
+
+
+def test_vidlove_direct_tmdb_provider_resolves_exact_tv_episode(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="VidLove TV test title",
+            normalized_title="vidlove tv test title",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_episodes": {
+                    "2": [{"season_number": 2, "episode_number": 5, "name": "Big Girls"}]
+                }
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDLOVE_ENABLED=True)
+    episode_page = authenticated_client.get(f"/movies/{movie_id}/seasons/2/episodes/5")
+    resolved = authenticated_client.get(
+        f"/playback/movie/{movie_id}/providers/vidlove?season=2&episode=5"
+    )
+
+    assert episode_page.status_code == 200
+    assert "VidLove" in episode_page.get_data(as_text=True)
+    assert resolved.status_code == 200
+    source_payload = resolved.get_json()["source"]
+    assert source_payload.pop("source_id").startswith("src_")
+    assert source_payload == {
+        "provider": "vidlove",
+        "label": "VidLove",
+        "url": "https://player.vidlove.cc/embed/tv/1399/2/5",
+        "match": "tmdb",
+        "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
+    }
+    with app.app_context():
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.provider == "vidlove",
+            )
+        )
+        assert source is not None
+        assert source.scope_key == "s02e05"
+
+
+def test_explicit_playback_attempt_endpoint_keeps_provider_health_history_scoped(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="VidLove attempt history",
+            normalized_title="vidlove attempt history",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDLOVE_ENABLED=True)
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    source_response = authenticated_client.get(f"/playback/movie/{movie_id}/providers/vidlove")
+    source_id = source_response.get_json()["source"]["source_id"]
+    headers = {"X-CSRFToken": csrf_from(detail)}
+
+    started = authenticated_client.post(
+        f"/playback/movie/{movie_id}/attempts",
+        json={
+            "attempt_id": "integration-attempt-1",
+            "provider": "vidlove",
+            "source_id": source_id,
+            "outcome": "started",
+            "device_id": "integration-device",
+        },
+        headers=headers,
+    )
+    ready = authenticated_client.post(
+        f"/playback/movie/{movie_id}/attempts",
+        json={
+            "attempt_id": "integration-attempt-1",
+            "provider": "vidlove",
+            "source_id": source_id,
+            "outcome": "embed_ready",
+            "startup_ms": 615,
+            "server_id": "Thunder",
+            "language": "English",
+            "quality": "1080p",
+        },
+        headers=headers,
+    )
+    failed = authenticated_client.post(
+        f"/playback/movie/{movie_id}/attempts",
+        json={
+            "attempt_id": "integration-attempt-2",
+            "provider": "vidlove",
+            "outcome": "failure",
+            "failure_reason": "provider timeout",
+        },
+        headers=headers,
+    )
+
+    assert started.status_code == ready.status_code == failed.status_code == 200
+    assert ready.get_json()["attempt"]["success"] is None
+    assert failed.get_json()["attempt"]["success"] is False
+    with app.app_context():
+        movie = db.session.get(Movie, movie_id)
+        rows = list(
+            db.session.scalars(
+                db.select(PlaybackAttempt).where(PlaybackAttempt.movie_id == movie_id)
+            )
+        )
+        summary = PlaybackAttemptService.recent_summary(user_id=1)["vidlove"]
+
+    assert len(rows) == 2
+    assert {row.outcome for row in rows} == {"embed_ready", "failure"}
+    assert movie is not None
+    assert {row.content_id for row in rows} == {movie.media_key}
+    ready_row = next(row for row in rows if row.outcome == "embed_ready")
+    assert ready_row.server_id == ""
+    assert ready_row.language == ""
+    assert ready_row.quality == ""
+    assert summary["attempts"] >= 2
+    assert summary["failures"] >= 1
+
+
+def test_playback_attempt_endpoint_rejects_vidlove_internal_alias_as_provider(
+    authenticated_client, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="VidLove alias boundary",
+            normalized_title="vidlove alias boundary",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDLOVE_ENABLED=True)
+    detail = authenticated_client.get(f"/movies/{movie_id}")
+    response = authenticated_client.post(
+        f"/playback/movie/{movie_id}/attempts",
+        json={
+            "attempt_id": "vidlove-alias-attempt",
+            "provider": "thunder",
+            "outcome": "started",
+        },
+        headers={"X-CSRFToken": csrf_from(detail)},
+    )
+
+    assert response.status_code == 409
+    assert response.get_json()["error"]["code"] == "provider_disabled"
+    with app.app_context():
+        assert db.session.scalar(
+            db.select(db.func.count(PlaybackAttempt.id)).where(
+                PlaybackAttempt.movie_id == movie_id
+            )
+        ) == 0
 
 
 def test_videm_direct_tmdb_provider_resolves_movie_and_exact_tv_episode(
@@ -1405,6 +1680,117 @@ def test_provider_priority_orders_the_generic_embed_selector(authenticated_clien
 
     assert html.index("VideoTube · Arabic Subs") < html.index("Player 1 · VidSrc")
     assert 'value="vidsrc"' not in html.split("VideoTube · Arabic Subs", maxsplit=1)[0]
+
+
+def test_recorded_playback_history_orders_auto_provider_selection(
+    authenticated_client, app, admin_user
+):
+    with app.app_context():
+        movie = Movie(
+            title="History-ranked Providers",
+            normalized_title="history-ranked providers",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+        PlaybackAttemptService.record(
+            user_id=admin_user.id,
+            movie_id=movie_id,
+            provider="cinesrc",
+            content_id=movie_id,
+            scope_key="movie",
+            client_attempt_id="cinesrc-auto-success",
+            outcome="success",
+            startup_ms=500,
+        )
+        PlaybackAttemptService.record(
+            user_id=admin_user.id,
+            movie_id=movie_id,
+            provider="vidlove",
+            content_id=movie_id,
+            scope_key="movie",
+            client_attempt_id="vidlove-auto-failure",
+            outcome="failure",
+            failure_reason="provider unavailable",
+        )
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_CINESRC_ENABLED=True,
+        DRAGON_VIDLOVE_ENABLED=True,
+    )
+    html = authenticated_client.get(f"/movies/{movie_id}").get_data(as_text=True)
+
+    assert html.index('value="provider-cinesrc"') < html.index('value="provider-vidlove"')
+
+
+def test_playback_settings_shows_and_resets_user_scoped_provider_health(
+    authenticated_client, app, admin_user
+):
+    with app.app_context():
+        movie = Movie(
+            title="Playback diagnostics",
+            normalized_title="playback diagnostics",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+        PlaybackAttemptService.record(
+            user_id=admin_user.id,
+            movie_id=movie_id,
+            provider="vidlove",
+            content_id=movie_id,
+            scope_key="movie",
+            client_attempt_id="diagnostics-success",
+            outcome="success",
+            startup_ms=900,
+        )
+        PlaybackAttemptService.record(
+            user_id=admin_user.id,
+            movie_id=movie_id,
+            provider="vidlove",
+            content_id=movie_id,
+            scope_key="movie",
+            client_attempt_id="diagnostics-failure",
+            outcome="failure",
+            failure_reason="fixture failure",
+        )
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDLOVE_ENABLED=True)
+    settings = authenticated_client.get("/settings/playback")
+    assert settings.status_code == 200
+    html = settings.get_data(as_text=True)
+    assert 'data-provider-health="vidlove"' in html
+    assert "Health: <strong>Degraded</strong>" in html
+    assert "1 confirmed success" in html
+    assert "1 failure" in html
+    assert "Avg startup: 900 ms" in html
+    assert "Popup protection: Active" in html
+    assert "Test VidLove" in html
+
+    test = authenticated_client.post(
+        "/settings/playback/providers/vidlove/test",
+        data={"csrf_token": csrf_from(settings), "movie_id": movie_id},
+        follow_redirects=True,
+    )
+    assert test.status_code == 200
+    assert "VidLove test completed for Playback diagnostics: UNKNOWN" in test.get_data(
+        as_text=True
+    )
+
+    reset = authenticated_client.post(
+        "/settings/playback/providers/vidlove/health/reset",
+        data={"csrf_token": csrf_from(settings)},
+        follow_redirects=True,
+    )
+    assert reset.status_code == 200
+    assert "Playback health history reset for vidlove." in reset.get_data(as_text=True)
+    with app.app_context():
+        assert PlaybackAttemptService.recent_summary(
+            user_id=admin_user.id, provider="vidlove"
+        ) == {}
 
 
 def test_all_requested_authorized_hosters_are_available_in_player_source(authenticated_client, app):

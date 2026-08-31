@@ -180,7 +180,7 @@ class ReadingSourceManager:
         language = str(values.get("language") or "auto")
         try:
             interval = int(values.get("refresh_interval_minutes") or 60)
-            maximum = int(values.get("maximum_articles") or 200)
+            maximum = int(values.get("maximum_articles") or 50)
         except (TypeError, ValueError) as exc:
             raise ReadingSourceValidationError("Choose valid refresh and article limits.") from exc
         if not name:

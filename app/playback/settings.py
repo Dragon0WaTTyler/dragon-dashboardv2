@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from flask import Blueprint, abort, current_app, flash, redirect, render_template, request, url_for
-from flask_login import login_required
+from flask_login import current_user, login_required
 
 from app.extensions import db
 from app.movies.models import Movie
@@ -28,7 +28,8 @@ from app.playback.host_library import (
     build_streamtape_account_client,
     build_streamwish_account_client,
 )
-from app.playback.models import ImportBatch, ImportRow, PlaybackSource
+from app.playback.identity import PlaybackIdentity
+from app.playback.models import ImportBatch, ImportRow, PlaybackAttempt, PlaybackSource
 from app.playback.providers import (
     ID_CATALOG_EMBED_PROVIDER_SPECS,
     INDEXED_EMBED_PROVIDER_SPECS,
@@ -37,7 +38,9 @@ from app.playback.providers import (
 from app.playback.services import (
     AUTHORIZED_EMBED_AUTHORIZATION_STATUSES,
     INDEXED_EMBED_SOURCE_TYPES,
+    PlaybackAttemptService,
     PlaybackService,
+    ProviderAvailabilityService,
 )
 
 bp = Blueprint("playback_settings", __name__, url_prefix="/settings/playback")
@@ -65,14 +68,39 @@ def _configured_providers() -> list[dict]:
             if spec.key in registered_provider_keys
         )
     preferences = PlaybackService.provider_preferences(frozenset(provider_keys))
-    return [
-        {
-            "key": key,
-            "label": registry.require(key).display_name if key != "vidsrc" else "VidSrc",
-            **preferences[key],
-        }
-        for key in provider_keys
-    ]
+    providers = []
+    for key in provider_keys:
+        provider = registry.require(key)
+        summary = PlaybackAttemptService.recent_summary(
+            user_id=current_user.get_id(), provider=key
+        ).get(
+            key,
+            {
+                "provider": key,
+                "attempts": 0,
+                "successes": 0,
+                "failures": 0,
+                "avg_startup_ms": None,
+                "last_success_at": None,
+            },
+        )
+        if summary["successes"]:
+            health_status = "Healthy" if summary["successes"] > summary["failures"] else "Degraded"
+        elif summary["failures"]:
+            health_status = "Degraded"
+        else:
+            health_status = "No confirmed playback"
+        providers.append(
+            {
+                "key": key,
+                "label": provider.display_name,
+                "capabilities": provider.capabilities.as_dict(),
+                "safe_embed": bool(getattr(provider, "sandbox", "")),
+                "health": {**summary, "status": health_status},
+                **preferences[key],
+            }
+        )
+    return providers
 
 
 def _require_playback() -> None:
@@ -262,10 +290,25 @@ def _catalog_batch_view(batch: ImportBatch, *, row_limit: int = 100) -> dict:
 @bp.get("")
 @login_required
 def index():
+    candidate_movies = list(
+        db.session.scalars(
+            db.select(Movie)
+            .where(Movie.media_type == "movie")
+            .order_by(Movie.title.asc())
+            .limit(100)
+        )
+    )
+    test_movies = [
+        movie
+        for movie in candidate_movies
+        if str((movie.external_ids or {}).get("tmdb_id") or "").strip().isdigit()
+        or str((movie.external_ids or {}).get("imdb_id") or "").strip().lower().startswith("tt")
+    ]
     return render_template(
         "playback/settings.html",
         active_module="more",
         providers=_configured_providers(),
+        test_movies=test_movies,
     )
 
 
@@ -504,7 +547,111 @@ def update_provider(provider: str):
         provider=provider,
         enabled=request.form.get("enabled") == "on",
         priority=priority,
-        background_checks=request.form.get("background_checks") == "on",
+        background_checks=False,
     )
     flash("Playback provider preference saved.", "success")
+    return redirect(url_for("playback_settings.index"))
+
+
+@bp.post("/providers/<provider>/test")
+@login_required
+def test_provider(provider: str):
+    """Run one explicit, content-scoped provider test from Playback settings."""
+    _require_playback()
+    configured = {item["key"]: item for item in _configured_providers()}
+    provider_info = configured.get(provider)
+    if provider_info is None:
+        abort(404)
+
+    movie_id = str(request.form.get("movie_id") or "").strip()
+    movie = db.session.get(Movie, movie_id)
+    if movie is None or movie.media_type != "movie":
+        flash("Choose a valid Movie with a playback identity before testing.", "error")
+        return redirect(url_for("playback_settings.index"))
+
+    try:
+        identity = PlaybackIdentity.from_context(
+            {
+                "id": movie.id,
+                "title": movie.title,
+                "year": movie.year,
+                "media_type": movie.media_type,
+                "external_ids": movie.external_ids,
+            }
+        )
+    except ValueError as exc:
+        flash(f"{provider_info['label']} test failed: {exc}", "error")
+        return redirect(url_for("playback_settings.index"))
+    registry = build_provider_registry_from_config(current_app.config)
+    playback_provider = registry.get(provider)
+    if playback_provider is None:
+        abort(404)
+
+    source = None
+    if provider in {spec.key for spec in INDEXED_EMBED_PROVIDER_SPECS}:
+        source = db.session.scalar(
+            db.select(PlaybackSource)
+            .where(
+                PlaybackSource.movie_id == movie.id,
+                PlaybackSource.provider == provider,
+                PlaybackSource.kind == "embed",
+                PlaybackSource.scope_key == identity.scope_key,
+                PlaybackSource.enabled.is_(True),
+                PlaybackSource.authorization_status.in_(AUTHORIZED_EMBED_AUTHORIZATION_STATUSES),
+            )
+            .order_by(PlaybackSource.updated_at.desc())
+        )
+        if source is None:
+            flash(
+                f"{provider_info['label']} has no authorized enabled mapping for that Movie.",
+                "error",
+            )
+            return redirect(url_for("playback_settings.index"))
+
+    try:
+        preferred_server_id = ""
+        if playback_provider.capabilities.supports_server_identity:
+            preferred_server_id = PlaybackAttemptService.last_good_server_id(
+                user_id=current_user.get_id(),
+                provider=playback_provider.key,
+                movie_id=identity.movie_id,
+                scope_key=identity.scope_key,
+            )
+        resolved = playback_provider.build_embed(
+            identity,
+            source=source,
+            preferred_server_id=preferred_server_id,
+        )
+        source_row = source or PlaybackService.upsert_resolved_source(
+            identity=identity, resolved=resolved
+        )
+        result = playback_provider.health(identity, source=source_row)
+        availability = ProviderAvailabilityService.record(source_row, result)
+    except ValueError as exc:
+        flash(f"{provider_info['label']} test failed: {exc}", "error")
+        return redirect(url_for("playback_settings.index"))
+
+    flash(
+        f"{provider_info['label']} test completed for {movie.title}: "
+        f"{availability.status} ({availability.probe_level or 'resolver checked'}).",
+        "success",
+    )
+    return redirect(url_for("playback_settings.index"))
+
+
+@bp.post("/providers/<provider>/health/reset")
+@login_required
+def reset_provider_health(provider: str):
+    _require_playback()
+    configured = {item["key"] for item in _configured_providers()}
+    if provider not in configured:
+        abort(404)
+    db.session.execute(
+        db.delete(PlaybackAttempt).where(
+            PlaybackAttempt.user_id == int(current_user.get_id()),
+            PlaybackAttempt.provider == provider,
+        )
+    )
+    db.session.commit()
+    flash(f"Playback health history reset for {provider}.", "success")
     return redirect(url_for("playback_settings.index"))

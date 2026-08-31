@@ -416,11 +416,40 @@ Ordinary Home, Browse and Search rendering does not start source resolution or
 probe every provider. The Movies templates pass only same-origin Dragon source
 resolver endpoints to the browser; configured embed URLs are built/validated by
 the Playback layer after explicit user action. The Movies player script uses
-DOM-safe text assignment for dynamic messages and has no `postMessage`
-listener. The iframe keeps a no-referrer policy, uses the configured sandbox
-where the provider supports it, and opens externally only with
-`noopener noreferrer`; the legacy VidSrc exception remains explicitly
-feature-gated because that provider rejects sandboxing.
+DOM-safe text assignment for dynamic messages. It accepts only a documented
+playback lifecycle message from the exact iframe origin and source window; it
+does not infer servers or aliases. The iframe keeps a no-referrer policy.
+All embed providers now use the strict Dragon safe-playback sandbox
+(`allow-scripts allow-same-origin allow-forms allow-presentation`); popup,
+popup-escape and top-navigation permissions are rejected by the provider
+contract, and the external/open-separately controls stay hidden for embedded
+playback. Providers that cannot operate under this policy are incompatible
+with Dragon Safe Playback rather than receiving broader permissions.
+Explicit player lifecycle observations are stored separately in
+`playback_attempts` for later health memory. Embeds report `started` and
+`embed_ready`, and a verified provider `play` message may report `success`; an
+iframe load is not treated as confirmed playback, and provider server names
+remain opaque rather than becoming Dragon providers.
+When explicit attempt history exists, configured embed providers are locally
+ranked for Auto using success/failure outcomes, success rate, title history,
+startup time and recent success; without history, configured priority remains
+the fallback. Auto never probes providers during page load.
+When the user explicitly chooses Auto, a resolver failure can advance through
+the current ranked embed list, with a maximum of three attempts for that Play
+action. Providers that declare lifecycle messages also have a bounded
+post-load watchdog: missing documented `play` confirmation and native iframe
+errors use the same fallback path. Manual provider selections do not
+auto-fallback; iframe load is not treated as confirmed playback.
+Playback Settings now exposes the same user-scoped attempt history as a local
+provider diagnostic summary and offers explicit Test, Disable, and Reset
+actions. Test requires a selected identity-bearing Movie and runs only on
+POST; it does not probe providers on GET, and an iframe load is not counted as
+confirmed health.
+M7-M9 remain deliberately contract-gated: the schema accepts opaque server,
+language, and quality observations, and M7 has a user/movie/scope-scoped
+last-good server lookup. Provider capability metadata currently declares server
+identity and language/quality metadata unsupported, so the player does not
+infer them from VidLove aliases or labels and does not expose false precision.
 
 **Known ownership limitation — not silently fixed:** `MovieCustomList` is
 owner-scoped, but `MovieLibraryEntry`, `MovieProgress`, and the compact Movies
@@ -441,7 +470,7 @@ real bottleneck.
 
 ## Verified Phase 29 release gate
 
-The fresh Alembic path reaches `b1d2e3f4a5b6` (head). A SQLite online backup of
+The fresh Alembic path reaches `c2f7a1d9e4b6` (head). A SQLite online backup of
 the existing local database was migrated on a copy before the same additive
 `a9c4e1f7b2d6 → b1d2e3f4a5b6` custom-list migration was applied to the local
 database; Movie and MovieProgress row counts were preserved and both
@@ -471,7 +500,7 @@ Movies blueprint (/movies)
 
 Playback blueprint (/playback)
   ├─ models.py                 PlaybackSource, availability, provider preference,
-  │                            import rows, local/magnet candidates
+  │                            attempt history, import rows, local/magnet candidates
   ├─ services.py/runtime.py    source selection and isolated local runtime
   ├─ subtitles.py              track discovery, proxy and sync support
   └─ routes.py                 feature-gated player/source/local-runtime APIs
@@ -680,6 +709,7 @@ claim that every Jackett/provider setup is available locally.
 | `f6c0e4b1a953_add_playback_provider_preferences` | Added provider preferences | active playback foundation |
 | `a9c4e1f7b2d6_add_movies_v2_foundation` | Added typed `media_key`, library state and scoped unique MovieProgress with safe duplicate archival | active V2 foundation |
 | `b1d2e3f4a5b6_add_movie_custom_lists` | Added owner-scoped custom lists and memberships | active; current local DB upgraded in Phase 29 after a verified SQLite backup/copy migration |
+| `c2f7a1d9e4b6_add_playback_attempt_history` | Added explicit provider playback attempt history | active playback health memory |
 
 ## Relevant tests
 
@@ -688,6 +718,7 @@ claim that every Jackett/provider setup is available locally.
 | Movie model/service/progress/filter/recommendation | `tests/unit/test_movie_services.py` |
 | Movies routes, discovery/library mutations, TV workspace, release/source behavior | `tests/integration/test_movies.py` |
 | Player, resume, subtitles, local runtime and TV season-pack behavior | `tests/browser/test_movie_player.py` |
+| Playback provider capabilities and explicit attempt history | `tests/unit/test_playback_providers.py`, `tests/unit/test_playback_services.py`, `tests/integration/test_playback_routes.py` |
 | API envelope/progress contracts | `tests/contracts/test_movies_api.py`, `tests/contracts/test_content_api.py` |
 | TMDB adapter behavior | `tests/unit/test_tmdb_provider.py`, `tests/unit/test_movie_integrations.py` |
 

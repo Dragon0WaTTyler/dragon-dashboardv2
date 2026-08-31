@@ -942,6 +942,8 @@ const showMovieToast = (message, level = "success") => {
   const preview = document.querySelector("[data-discover-player]");
   if (!preview) return;
 
+  const SAFE_EMBED_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-presentation";
+
   const source = preview.querySelector("[data-preview-source]");
   const season = preview.querySelector("[data-preview-season]");
   const episode = preview.querySelector("[data-preview-episode]");
@@ -974,6 +976,7 @@ const showMovieToast = (message, level = "success") => {
   };
 
   const clearPreview = () => {
+    frame.setAttribute("sandbox", SAFE_EMBED_SANDBOX);
     frame.src = "about:blank";
     frame.hidden = true;
     viewport.hidden = true;
@@ -1040,6 +1043,7 @@ const showMovieToast = (message, level = "success") => {
       const payload = await api(url);
       const sourceUrl = String(payload?.source?.url || "").trim();
       if (!sourceUrl) throw new Error("The selected preview provider returned no player.");
+      frame.setAttribute("sandbox", SAFE_EMBED_SANDBOX);
       frame.src = sourceUrl;
       frame.hidden = false;
       viewport.hidden = false;

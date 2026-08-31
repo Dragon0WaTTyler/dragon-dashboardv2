@@ -7,6 +7,78 @@ from urllib.parse import urlsplit
 
 from app.playback.identity import PlaybackIdentity
 
+# This is the browser boundary for every indexed/authorized embed. Keep the
+# token set deliberately small: a provider must work inside this boundary and
+# cannot ask Dragon for popup or top-level navigation permissions.
+SAFE_EMBED_SANDBOX = "allow-scripts allow-same-origin allow-forms allow-presentation"
+SAFE_EMBED_SANDBOX_TOKENS = frozenset(SAFE_EMBED_SANDBOX.split())
+FORBIDDEN_EMBED_SANDBOX_TOKENS = frozenset(
+    {
+        "allow-popups",
+        "allow-popups-to-escape-sandbox",
+        "allow-top-navigation",
+        "allow-top-navigation-by-user-activation",
+        "allow-top-navigation-to-custom-protocols",
+    }
+)
+
+
+def validate_embed_sandbox(value: str, *, display_name: str = "Embed") -> str:
+    """Return a canonical sandbox policy or reject an unsafe one."""
+    tokens = str(value or "").split()
+    if not tokens:
+        return SAFE_EMBED_SANDBOX
+    if FORBIDDEN_EMBED_SANDBOX_TOKENS.intersection(tokens):
+        raise ValueError(f"{display_name} embed sandbox cannot allow popups or top navigation.")
+    if set(tokens) != SAFE_EMBED_SANDBOX_TOKENS:
+        raise ValueError(
+            f"{display_name} embed sandbox must use the Dragon safe playback policy."
+        )
+    return SAFE_EMBED_SANDBOX
+
+
+@dataclass(frozen=True, slots=True)
+class ProviderCapabilities:
+    """Static capabilities used by source selection and playback UI."""
+
+    supported_content: frozenset[str]
+    supports_internal_servers: bool = False
+    supports_fullscreen: bool = True
+    supports_subtitles: bool | None = None
+    supports_lifecycle_messages: bool = False
+    supports_server_identity: bool = False
+    supports_language_metadata: bool = False
+    supports_quality_metadata: bool = False
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "supported_content": sorted(self.supported_content),
+            "supports_internal_servers": self.supports_internal_servers,
+            "supports_fullscreen": self.supports_fullscreen,
+            "supports_subtitles": self.supports_subtitles,
+            "supports_lifecycle_messages": self.supports_lifecycle_messages,
+            "supports_server_identity": self.supports_server_identity,
+            "supports_language_metadata": self.supports_language_metadata,
+            "supports_quality_metadata": self.supports_quality_metadata,
+        }
+
+    def sanitize_attempt_metadata(
+        self,
+        *,
+        server_id: object = "",
+        language: object = "",
+        quality: object = "",
+    ) -> dict[str, str]:
+        """Keep only metadata covered by this provider's explicit contract."""
+        return {
+            "server_id": str(server_id or "").strip() if self.supports_server_identity else "",
+            "language": str(language or "").strip() if self.supports_language_metadata else "",
+            "quality": str(quality or "").strip() if self.supports_quality_metadata else "",
+        }
+
+
+SUPPORTED_EMBED_CONTENT = frozenset({"movie", "tv"})
+
 
 @dataclass(frozen=True, slots=True)
 class IndexedEmbedProviderSpec:
@@ -19,6 +91,13 @@ class IndexedEmbedProviderSpec:
     asset_id_pattern: str
     default_embed_url_template: str
     default_priority: int
+    supports_internal_servers: bool = False
+    supports_fullscreen: bool = True
+    supports_subtitles: bool | None = None
+    supports_lifecycle_messages: bool = False
+    supports_server_identity: bool = False
+    supports_language_metadata: bool = False
+    supports_quality_metadata: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +110,14 @@ class IdCatalogEmbedProviderSpec:
     movie_url_template: str
     tv_url_template: str
     default_priority: int
+    sandbox: str = SAFE_EMBED_SANDBOX
+    supports_internal_servers: bool = False
+    supports_fullscreen: bool = True
+    supports_subtitles: bool | None = None
+    supports_lifecycle_messages: bool = False
+    supports_server_identity: bool = False
+    supports_language_metadata: bool = False
+    supports_quality_metadata: bool = False
 
 
 # These are provider identification and rendering rules only. A provider still
@@ -155,6 +242,17 @@ INDEXED_EMBED_PROVIDER_SPECS = (
 )
 ID_CATALOG_EMBED_PROVIDER_SPECS = (
     IdCatalogEmbedProviderSpec(
+        key="vidlove",
+        display_name="VidLove",
+        allowed_domains=frozenset({"player.vidlove.cc"}),
+        movie_url_template="https://player.vidlove.cc/embed/movie/{tmdb_id}",
+        tv_url_template="https://player.vidlove.cc/embed/tv/{tmdb_id}/{season}/{episode}",
+        default_priority=14,
+        sandbox=SAFE_EMBED_SANDBOX,
+        supports_internal_servers=True,
+        supports_lifecycle_messages=True,
+    ),
+    IdCatalogEmbedProviderSpec(
         key="cinesrc",
         display_name="CineSrc",
         allowed_domains=frozenset({"cinesrc.st"}),
@@ -257,7 +355,16 @@ class ResolvedPlayback:
     source_type: str
     playback_mode: str
     match: str
-    sandbox: str = ""
+    sandbox: str = SAFE_EMBED_SANDBOX
+
+    def __post_init__(self) -> None:
+        # Keep the safety invariant at the resolved-playback boundary too;
+        # callers cannot accidentally bypass provider constructor validation.
+        object.__setattr__(
+            self,
+            "sandbox",
+            validate_embed_sandbox(self.sandbox, display_name=self.label or "Embed"),
+        )
 
     def response_item(self) -> dict[str, str]:
         item = {
@@ -266,8 +373,7 @@ class ResolvedPlayback:
             "url": self.url,
             "match": self.match,
         }
-        if self.sandbox:
-            item["sandbox"] = self.sandbox
+        item["sandbox"] = self.sandbox
         return item
 
 
@@ -279,17 +385,73 @@ class ProviderProbeResult:
     latency_ms: int | None = None
 
 
-class PlaybackProvider(Protocol):
-    key: str
+class _PlaybackProviderContract:
+    """Shared public contract for registered playback providers.
 
-    def resolve(self, identity: PlaybackIdentity, *, source=None) -> ResolvedPlayback: ...
+    ``resolve`` remains the compatibility-level implementation name used by
+    older Dragon call sites.  ``build_embed`` is the provider-facing contract
+    name from the playback architecture and deliberately delegates to it so
+    both paths preserve the same identity, source, and server-preference
+    boundary.
+    """
+
+    key: str
+    capabilities: ProviderCapabilities
+
+    @property
+    def id(self) -> str:
+        return self.key
+
+    @property
+    def supported_content(self) -> frozenset[str]:
+        return self.capabilities.supported_content
+
+    def build_embed(
+        self,
+        identity: PlaybackIdentity,
+        *,
+        source=None,
+        preferred_server_id: str = "",
+    ) -> ResolvedPlayback:
+        return self.resolve(
+            identity,
+            source=source,
+            preferred_server_id=preferred_server_id,
+        )
+
+
+class PlaybackProvider(Protocol):
+    id: str
+    key: str
+    display_name: str
+    sandbox: str
+    supported_content: frozenset[str]
+    capabilities: ProviderCapabilities
+
+    def build_embed(
+        self,
+        identity: PlaybackIdentity,
+        *,
+        source=None,
+        preferred_server_id: str = "",
+    ) -> ResolvedPlayback: ...
+
+    def resolve(
+        self,
+        identity: PlaybackIdentity,
+        *,
+        source=None,
+        preferred_server_id: str = "",
+    ) -> ResolvedPlayback: ...
 
     def probe(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult: ...
+
+    def health(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult: ...
 
 
 class ProviderRegistry:
     def __init__(self, providers: tuple[PlaybackProvider, ...] = ()) -> None:
-        self._providers = {provider.key: provider for provider in providers}
+        self._providers = {provider.id: provider for provider in providers}
 
     def get(self, key: str) -> PlaybackProvider | None:
         return self._providers.get(key)
@@ -303,9 +465,27 @@ class ProviderRegistry:
     def keys(self) -> frozenset[str]:
         return frozenset(self._providers)
 
+    def describe(self) -> tuple[dict[str, object], ...]:
+        """Return static provider metadata without contacting any provider."""
+        return tuple(
+            {
+                "id": provider.id,
+                "display_name": provider.display_name,
+                "capabilities": provider.capabilities.as_dict(),
+            }
+            for provider in self._providers.values()
+        )
 
-class VidSrcProvider:
+
+class VidSrcProvider(_PlaybackProviderContract):
     key = "vidsrc"
+    display_name = "VidSrc"
+    sandbox = SAFE_EMBED_SANDBOX
+    capabilities = ProviderCapabilities(
+        supported_content=SUPPORTED_EMBED_CONTENT,
+        supports_fullscreen=True,
+        supports_subtitles=None,
+    )
 
     def __init__(self, *, base_url: str) -> None:
         normalized = base_url.strip().rstrip("/")
@@ -330,7 +510,9 @@ class VidSrcProvider:
             raise ValueError("VidSrc must use a plain HTTPS embed base URL.")
         self.base_url = normalized
 
-    def resolve(self, identity: PlaybackIdentity, *, source=None) -> ResolvedPlayback:
+    def resolve(
+        self, identity: PlaybackIdentity, *, source=None, preferred_server_id: str = ""
+    ) -> ResolvedPlayback:
         match, provider_asset_id = identity.provider_id()
         if identity.is_tv:
             if identity.season is None or identity.episode is None:
@@ -346,12 +528,16 @@ class VidSrcProvider:
             source_type="id_catalog",
             playback_mode="embed",
             match=match,
+            sandbox=SAFE_EMBED_SANDBOX,
         )
 
     def probe(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult:
         # V0 deliberately performs no third-party request before the user asks to watch.
         self.resolve(identity)
         return ProviderProbeResult(status="UNKNOWN")
+
+    def health(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult:
+        return self.probe(identity, source=source)
 
 
 def _validated_embed_url_template(value: str, *, display_name: str) -> tuple[str, object]:
@@ -428,10 +614,10 @@ def _validate_id_catalog_template(
 class IndexedEmbedProviderConfig:
     key: str
     embed_url_template: str
-    sandbox: str = "allow-scripts allow-forms allow-popups allow-presentation"
+    sandbox: str = SAFE_EMBED_SANDBOX
 
 
-class IndexedEmbedProvider:
+class IndexedEmbedProvider(_PlaybackProviderContract):
     """A provider with authorized, Dragon-owned source mappings only."""
 
     def __init__(self, config: IndexedEmbedProviderConfig) -> None:
@@ -441,13 +627,25 @@ class IndexedEmbedProvider:
         self.key = spec.key
         self.config = config
         self.display_name = spec.display_name
-        self.sandbox = config.sandbox
+        self.capabilities = ProviderCapabilities(
+            supported_content=SUPPORTED_EMBED_CONTENT,
+            supports_internal_servers=spec.supports_internal_servers,
+            supports_fullscreen=spec.supports_fullscreen,
+            supports_subtitles=spec.supports_subtitles,
+            supports_lifecycle_messages=spec.supports_lifecycle_messages,
+            supports_server_identity=spec.supports_server_identity,
+            supports_language_metadata=spec.supports_language_metadata,
+            supports_quality_metadata=spec.supports_quality_metadata,
+        )
+        self.sandbox = validate_embed_sandbox(config.sandbox, display_name=self.display_name)
         self.embed_url_template = validate_indexed_embed_url_template(
             spec.key, config.embed_url_template
         )
         self._asset_id_pattern = re.compile(spec.asset_id_pattern)
 
-    def resolve(self, identity: PlaybackIdentity, *, source=None) -> ResolvedPlayback:
+    def resolve(
+        self, identity: PlaybackIdentity, *, source=None, preferred_server_id: str = ""
+    ) -> ResolvedPlayback:
         if source is None:
             raise ValueError(f"{self.display_name} requires an indexed source mapping.")
         asset_id = str(getattr(source, "provider_asset_id", "") or "").strip()
@@ -469,8 +667,11 @@ class IndexedEmbedProvider:
             self.resolve(identity, source=source)
         return ProviderProbeResult(status="UNKNOWN")
 
+    def health(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult:
+        return self.probe(identity, source=source)
 
-class IdCatalogEmbedProvider:
+
+class IdCatalogEmbedProvider(_PlaybackProviderContract):
     """Direct TMDb movie/episode iframe provider with no per-title mapping."""
 
     def __init__(self, key: str) -> None:
@@ -479,10 +680,25 @@ class IdCatalogEmbedProvider:
             raise ValueError("ID catalog provider is not supported.")
         self.key = spec.key
         self.display_name = spec.display_name
-        self._movie_template = _validate_id_catalog_template(spec, spec.movie_url_template, tv=False)
+        self.capabilities = ProviderCapabilities(
+            supported_content=SUPPORTED_EMBED_CONTENT,
+            supports_internal_servers=spec.supports_internal_servers,
+            supports_fullscreen=spec.supports_fullscreen,
+            supports_subtitles=spec.supports_subtitles,
+            supports_lifecycle_messages=spec.supports_lifecycle_messages,
+            supports_server_identity=spec.supports_server_identity,
+            supports_language_metadata=spec.supports_language_metadata,
+            supports_quality_metadata=spec.supports_quality_metadata,
+        )
+        self.sandbox = validate_embed_sandbox(spec.sandbox, display_name=self.display_name)
+        self._movie_template = _validate_id_catalog_template(
+            spec, spec.movie_url_template, tv=False
+        )
         self._tv_template = _validate_id_catalog_template(spec, spec.tv_url_template, tv=True)
 
-    def resolve(self, identity: PlaybackIdentity, *, source=None) -> ResolvedPlayback:
+    def resolve(
+        self, identity: PlaybackIdentity, *, source=None, preferred_server_id: str = ""
+    ) -> ResolvedPlayback:
         if not identity.tmdb_id:
             raise ValueError(f"{self.display_name} requires a TMDb ID.")
         if identity.is_tv:
@@ -501,11 +717,15 @@ class IdCatalogEmbedProvider:
             source_type="id_catalog",
             playback_mode="embed",
             match="tmdb",
+            sandbox=self.sandbox,
         )
 
     def probe(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult:
         self.resolve(identity)
         return ProviderProbeResult(status="UNKNOWN")
+
+    def health(self, identity: PlaybackIdentity, *, source=None) -> ProviderProbeResult:
+        return self.probe(identity, source=source)
 
 
 def build_provider_registry(
@@ -531,6 +751,7 @@ def build_provider_registry(
     lulustream_embed_url: str = "",
     uqload_enabled: bool = False,
     uqload_embed_url: str = "",
+    vidlove_enabled: bool = False,
     cinesrc_enabled: bool = False,
     vidcore_enabled: bool = False,
     vidzee_enabled: bool = False,
@@ -569,6 +790,7 @@ def build_provider_registry(
             )
         )
     direct_provider_options = {
+        "vidlove": vidlove_enabled,
         "cinesrc": cinesrc_enabled,
         "vidcore": vidcore_enabled,
         "vidzee": vidzee_enabled,

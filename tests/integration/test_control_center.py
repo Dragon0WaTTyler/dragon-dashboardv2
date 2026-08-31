@@ -248,6 +248,8 @@ def test_movies_v2_preferences_and_discovery_cache_are_personal_and_disposable(
             "autoplay_next": "on",
             "automatic_resume": "on",
             "default_subtitle_language": "ar",
+            "preferred_audio_language": "fr",
+            "preferred_quality": "1080p",
             "preferred_source": "vidsrc",
             "preferred_region": "ma",
             "reduced_effects": "on",
@@ -257,6 +259,8 @@ def test_movies_v2_preferences_and_discovery_cache_are_personal_and_disposable(
     )
     body = saved.get_data(as_text=True)
     assert 'value="ar"' in body
+    assert 'value="fr" selected' in body
+    assert 'value="1080p" selected' in body
     assert 'value="vidsrc"' in body
     assert 'value="MA"' in body
     assert "Disposable discovery cache" in body

@@ -29,7 +29,7 @@ def _lifecycle_status_column():
     )
 
 
-def _library_options():
+def library_options():
     return (
         selectinload(Movie.library_entry),
         selectinload(Movie.progress),
@@ -42,7 +42,7 @@ class MovieRepository:
     def get(movie_id: str) -> Movie | None:
         return db.session.scalar(
             db.select(Movie)
-            .options(*_library_options())
+            .options(*library_options())
             .where(Movie.id == movie_id)
         )
 
@@ -58,7 +58,7 @@ class MovieRepository:
         query = (
             db.select(Movie)
             .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
-            .options(*_library_options())
+            .options(*library_options())
         )
         count_query = (
             db.select(func.count())
@@ -120,7 +120,7 @@ class MovieRepository:
             db.select(Movie)
             .join(MovieProgress, MovieProgress.movie_id == Movie.id)
             .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
-            .options(*_library_options())
+            .options(*library_options())
             .where(
                 MovieProgress.current_seconds > 0,
                 MovieProgress.completed.is_(False),
@@ -139,7 +139,7 @@ class MovieRepository:
         query = (
             db.select(Movie)
             .outerjoin(MovieLibraryEntry, MovieLibraryEntry.movie_id == Movie.id)
-            .options(*_library_options())
+            .options(*library_options())
             .where(lifecycle_status == "want_to_watch")
             .order_by(
                 func.coalesce(

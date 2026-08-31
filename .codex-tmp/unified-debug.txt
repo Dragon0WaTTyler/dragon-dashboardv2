@@ -1,0 +1,73 @@
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> b86bbec3d904, create local admin user
+INFO  [alembic.runtime.migration] Running upgrade b86bbec3d904 -> 5f2c1b7a9d10, add shared local-first foundation
+INFO  [alembic.runtime.migration] Running upgrade 5f2c1b7a9d10 -> 1c7f96e2a4b8, create movies and progress
+INFO  [alembic.runtime.migration] Running upgrade 1c7f96e2a4b8 -> 7d4a9c2e61f3, add youtube reading and books
+INFO  [alembic.runtime.migration] Running upgrade 7d4a9c2e61f3 -> 93bfe4d276a0, add training learning and history
+INFO  [alembic.runtime.migration] Running upgrade 93bfe4d276a0 -> af6c42e9b831, add isolated playback sources
+INFO  [alembic.runtime.migration] Running upgrade af6c42e9b831 -> c3e7a1f4902b, allow a YouTube video to belong to more than one source
+INFO  [alembic.runtime.migration] Running upgrade c3e7a1f4902b -> e4b7d2c9a6f1, add my tv catalogue
+INFO  [alembic.runtime.migration] Running upgrade e4b7d2c9a6f1 -> f5c8a1d3e7b2, add smart TV themes and off-by-default sources
+INFO  [alembic.runtime.migration] Running upgrade f5c8a1d3e7b2 -> a6d9e2f4b8c3, add TV fetch memory and favorites
+INFO  [alembic.runtime.migration] Running upgrade a6d9e2f4b8c3 -> b7e1c3f5a9d4, merge all TV sources into one automatic catalogue
+INFO  [alembic.runtime.migration] Running upgrade b7e1c3f5a9d4 -> c8f2d4a6b0e5, Add a materialized representative for each logical TV channel.
+INFO  [alembic.runtime.migration] Running upgrade c8f2d4a6b0e5 -> d9a3e5b7c1f6, Add persistent logical TV channel health.
+INFO  [alembic.runtime.migration] Running upgrade d9a3e5b7c1f6 -> e8b6c2a9f4d1, scope movie progress by episode
+INFO  [alembic.runtime.migration] Running upgrade e8b6c2a9f4d1 -> f2a4d8c9e731, add knowledge identity v1
+INFO  [alembic.runtime.migration] Running upgrade f2a4d8c9e731 -> 1f6c4b8d9e72, add episode-scoped playback sources
+INFO  [alembic.runtime.migration] Running upgrade 1f6c4b8d9e72 -> e6b4d2a1c8f7, add article content blocks
+INFO  [alembic.runtime.migration] Running upgrade e6b4d2a1c8f7 -> d4a8f2c9e731, add playback provider foundation
+INFO  [alembic.runtime.migration] Running upgrade d4a8f2c9e731 -> e5b9d3a0f842, add provider availability cache
+INFO  [alembic.runtime.migration] Running upgrade e5b9d3a0f842 -> f6c0e4b1a953, add playback provider preferences
+INFO  [alembic.runtime.migration] Running upgrade f6c0e4b1a953 -> a7d1e5c3b924, add playback source catalog imports
+INFO  [alembic.runtime.migration] Running upgrade a7d1e5c3b924 -> b4e8d2a6c9f1, add provider account asset mirror
+INFO  [alembic.runtime.migration] Running upgrade b4e8d2a6c9f1 -> c5f9a7d2e164, add managed tv and news sources
+INFO  [alembic.runtime.migration] Running upgrade c5f9a7d2e164 -> d6a4f8b1c320, persist tv bouquet preferences
+INFO  [alembic.runtime.migration] Running upgrade d6a4f8b1c320 -> e7b3c9d1a5f2, add TV EPG cache and watch history
+INFO  [alembic.runtime.migration] Running upgrade e7b3c9d1a5f2 -> f7a8b9c0d1e2, update the primary TV catalogue
+INFO  [alembic.runtime.migration] Running upgrade f7a8b9c0d1e2 -> f8a1b2c3d4e5, split article saved state from reading progress
+INFO  [alembic.runtime.migration] Running upgrade f8a1b2c3d4e5 -> f9c1d2e3a4b5, add personal television programming sessions
+INFO  [alembic.runtime.migration] Running upgrade f9c1d2e3a4b5 -> fa2d4e6c8b10, extend personal television programming
+INFO  [alembic.runtime.migration] Running upgrade fa2d4e6c8b10 -> fb3e5a7c9d12, persist the last working source for each logical TV channel
+INFO  [alembic.runtime.migration] Running upgrade fb3e5a7c9d12 -> fc4e8a9d0b21, add personal tv catalogue memberships and runtime playhead
+INFO  [alembic.runtime.migration] Running upgrade fc4e8a9d0b21 -> fd5a9b1c2e34, add soft creator preferences for personal tv
+INFO  [alembic.runtime.migration] Running upgrade fd5a9b1c2e34 -> fe6a0b2c3d4e, persist the manually arranged favorite channel order
+INFO  [alembic.runtime.migration] Running upgrade fe6a0b2c3d4e -> a9c4e1f7b2d6, add Movies V2 personal-state foundation
+INFO  [alembic.runtime.migration] Running upgrade a9c4e1f7b2d6 -> b1d2e3f4a5b6, add user-owned Movies custom lists
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:06] "GET /auth/login HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/css/components.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/css/luxury.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/js/core.js HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/css/layout.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/css/base.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/css/tokens.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/fonts/ibm-plex-sans-latin-600-normal.woff2 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/fonts/ibm-plex-sans-latin-400-normal.woff2 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /static/fonts/ibm-plex-mono-latin-400-normal.woff2 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:07] "GET /favicon.ico HTTP/1.1" 404 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "POST /auth/login HTTP/1.1" 302 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET / HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/tokens.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/base.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/components.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/layout.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/pages/today.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/luxury.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/js/core.js HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/js/today.js HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/js/reading.js HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /movies/mov_7180cdb12dec4a19af59821c00d30e3d?season=1 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/tokens.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/base.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/components.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/layout.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/pages/movies.css?v=movies-v2-series-cinematic-1 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/css/luxury.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/js/core.js HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/js/movies-feedback.js?v=1 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/js/movies.js?v=movies-v2-series-rails-1 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 15:38:08] "GET /static/js/movies-ambient.js?v=1 HTTP/1.1" 200 -
+UNIFIED DEBUG {'x': 0, 'y': 200.17056274414062, 'width': 1600, 'height': 760.0000305175781} {'x': 1278, 'y': 513.7176513671875, 'width': 248, 'height': 372} {'x': 74, 'y': 474.6005859375, 'width': 690, 'height': 410.953125} {'minHeight': '760px', 'grid': '612px', 'align': 'end'}
+.
+1 passed, 1 deselected in 9.12s

@@ -21,6 +21,7 @@ def test_production_requires_secret(tmp_path: Path, monkeypatch):
 def test_feature_flags_default_safe(tmp_path: Path):
     settings = Settings.load(tmp_path, {"TESTING": True})
     assert settings.auth_required is True
+    assert settings.pythonanywhere_lite is False
     assert settings.ai_enabled is False
     assert settings.playback_enabled is False
     assert settings.vidsrc_enabled is False
@@ -48,6 +49,16 @@ def test_prefixed_feature_flag_override(tmp_path: Path):
         {"TESTING": True, "DRAGON_EXTERNAL_SYNC_ENABLED": "true"},
     )
     assert settings.external_sync_enabled is True
+
+
+def test_pythonanywhere_lite_flag_is_typed_and_exposed(tmp_path: Path):
+    settings = Settings.load(
+        tmp_path,
+        {"TESTING": True, "DRAGON_PYTHONANYWHERE_LITE": "true"},
+    )
+
+    assert settings.pythonanywhere_lite is True
+    assert settings.flask_mapping()["DRAGON_PYTHONANYWHERE_LITE"] is True
 
 
 def test_tv_epg_configuration_is_typed(tmp_path: Path):
@@ -130,14 +141,17 @@ def test_cinesrc_is_an_explicitly_disabled_by_default_direct_provider(tmp_path: 
             "DRAGON_VIDCORE_ENABLED": "true",
             "DRAGON_VIDZEE_ENABLED": "true",
             "DRAGON_VIDEM_ENABLED": "true",
+            "DRAGON_VIDLOVE_ENABLED": "true",
         },
     )
 
     assert disabled.cinesrc_enabled is False
+    assert disabled.vidlove_enabled is False
     assert enabled.cinesrc_enabled is True
     assert enabled.vidcore_enabled is True
     assert enabled.vidzee_enabled is True
     assert enabled.videm_enabled is True
+    assert enabled.vidlove_enabled is True
     assert enabled.safe_summary()["cinesrc_enabled"] is True
 
 

@@ -62,6 +62,8 @@ def test_movie_preferences_are_validated_and_preserved(tmp_path):
         "autoplay_next": False,
         "automatic_resume": True,
         "default_subtitle_language": "ar",
+        "preferred_audio_language": "auto",
+        "preferred_quality": "auto",
         "preferred_source": "videotube",
         "preferred_region": "MA",
         "reduced_effects": True,

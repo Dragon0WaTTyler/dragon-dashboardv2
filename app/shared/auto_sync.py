@@ -15,6 +15,7 @@ LOGGER = logging.getLogger(__name__)
 # PocketTube membership is refreshed explicitly.  My TV hydrates only the collections
 # the viewer selects, so Dragon never performs a daily all-channel crawl.
 READING_AUTO_SYNC_INTERVAL_SECONDS = 5 * 60
+POCKETTUBE_AUTO_SYNC_INTERVAL_SECONDS = 24 * 60 * 60
 _CHECK_INTERVAL_SECONDS = 60
 _sync_lock = threading.Lock()
 
@@ -106,8 +107,26 @@ def _sync_epg_if_due(app: Flask) -> None:
         _sync_lock.release()
 
 
+def _sync_pockettube_if_due(app: Flask) -> None:
+    """Keep the legacy hook importable without restoring background sync.
+
+    PocketTube refreshes are explicit in the current product contract. Older
+    callers still import this helper, so the compatibility hook intentionally
+    exits without network or database work.
+    """
+    if not app.config.get("DRAGON_YOUTUBE_SYNC_ENABLED"):
+        return
+    LOGGER.debug("PocketTube auto sync is disabled; use the explicit sync action.")
+
+
 def _reading_sync_due() -> bool:
     return _snapshot_sync_due("reading", seconds=READING_AUTO_SYNC_INTERVAL_SECONDS)
+
+
+def _pockettube_sync_due() -> bool:
+    return _snapshot_sync_due(
+        "youtube_pockettube", seconds=POCKETTUBE_AUTO_SYNC_INTERVAL_SECONDS
+    )
 
 
 def _snapshot_sync_due(domain: str, *, seconds: int) -> bool:

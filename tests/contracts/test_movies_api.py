@@ -51,6 +51,33 @@ def test_movie_recommendation_contract(authenticated_client, app):
     assert payload["item"]["items"][0]["recommendation_reason"]
 
 
+def test_pythonanywhere_lite_caps_movies_recommendation_payload(authenticated_client, app):
+    with app.app_context():
+        db.session.add_all(
+            [
+                Movie(
+                    title=f"Recommendation {index}",
+                    normalized_title=f"recommendation {index}",
+                    year=2000 + index,
+                    status="want_to_watch",
+                    category="movie",
+                    source="My library",
+                    overview="A recommendation with enough metadata for the curated rail.",
+                    poster_url="https://example.test/poster.jpg",
+                    genres=[{"name": "Drama"}],
+                )
+                for index in range(30)
+            ]
+        )
+        db.session.commit()
+
+    app.config["DRAGON_PYTHONANYWHERE_LITE"] = True
+    response = authenticated_client.get("/movies")
+
+    assert response.status_code == 200
+    assert response.get_data(as_text=True).count("recommendation_explanation") == 24
+
+
 def test_live_home_rotation_contract(authenticated_client, app):
     add_movie(app)
     response = authenticated_client.get("/api/v1/home/live")

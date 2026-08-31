@@ -17,11 +17,25 @@
         <div><span class="eyebrow">{{ provider.key }}</span><h2 id="provider-{{ provider.key }}">{{ provider.label }}</h2></div>
         <label><input type="checkbox" name="enabled"{% if provider.enabled %} checked{% endif %}> Enabled</label>
       </div>
+      <p class="muted">Content: {{ provider.capabilities.supported_content|join(', ') }} · Fullscreen: {{ 'supported' if provider.capabilities.supports_fullscreen else 'not declared' }} · Internal servers: {{ 'provider-owned' if provider.capabilities.supports_internal_servers else 'not declared' }} · Subtitles: {{ 'supported' if provider.capabilities.supports_subtitles else 'unknown' if provider.capabilities.supports_subtitles is none else 'not declared' }} · Popup protection: {{ 'Active' if provider.safe_embed else 'Not declared' }}</p>
+      <p class="muted">Lifecycle messages: {{ 'supported' if provider.capabilities.supports_lifecycle_messages else 'not declared' }} · Server identity: {{ 'supported' if provider.capabilities.supports_server_identity else 'not declared' }} · Language metadata: {{ 'supported' if provider.capabilities.supports_language_metadata else 'not declared' }} · Quality metadata: {{ 'supported' if provider.capabilities.supports_quality_metadata else 'not declared' }} · Tests run only after you choose a Movie.</p>
+      <p class="muted" data-provider-health="{{ provider.key }}">Health: <strong>{{ provider.health.status }}</strong> · {{ provider.health.successes }} confirmed success{{ '' if provider.health.successes == 1 else 'es' }} · {{ provider.health.failures }} failure{{ '' if provider.health.failures == 1 else 's' }}{% if provider.health.avg_startup_ms is not none %} · Avg startup: {{ provider.health.avg_startup_ms }} ms{% endif %}{% if provider.health.last_success_at %} · Last success: {{ provider.health.last_success_at }}{% endif %}</p>
       <div class="definition-grid">
         <label class="field"><span>Priority</span><input type="number" name="priority" min="0" max="10000" value="{{ provider.priority }}"><small>Lower values appear first.</small></label>
-        <label class="field"><span>Availability checks</span><span><input type="checkbox" name="background_checks"{% if provider.background_checks %} checked{% endif %}> Allow optional background checks</span><small>Off by default to preserve the no-request-on-detail-page rule.</small></label>
+        <div class="field"><span>Availability checks</span><span>Explicit Test only</span><small>Dragon never probes providers in the background. Use Test or press Play to perform an explicit check.</small></div>
       </div>
       <p><button class="button button--primary" type="submit">Save {{ provider.label }}</button></p>
+    </form>
+    {% if test_movies %}
+    <form method="post" action="{{ url_for('playback_settings.test_provider', provider=provider.key) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label class="field"><span>Test provider on a Movie</span><select name="movie_id" required><option value="">Choose a Movie</option>{% for movie in test_movies %}<option value="{{ movie.id }}">{{ movie.title }}{% if movie.year %} ({{ movie.year }}){% endif %}</option>{% endfor %}</select></label>
+      <p><button class="button button--secondary" type="submit">Test {{ provider.label }}</button></p>
+    </form>
+    {% else %}<p class="muted">Add a Movie with an external identity to enable explicit provider tests.</p>{% endif %}
+    <form method="post" action="{{ url_for('playback_settings.reset_provider_health', provider=provider.key) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="button button--quiet" type="submit">Reset health history</button>
     </form>
   </section>
   {% endfor %}

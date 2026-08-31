@@ -10,6 +10,7 @@ def get_playback_context(movie_id: str) -> dict | None:
         return None
     return {
         "id": movie.id,
+        "media_key": movie.media_key,
         "title": movie.title,
         "year": movie.year,
         "poster_url": movie.poster_url,

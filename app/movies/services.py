@@ -5,8 +5,7 @@ from datetime import datetime, timezone
 from random import SystemRandom
 from typing import Any
 
-UTC = getattr(datetime, "UTC", timezone.utc)
-
+from flask import current_app, has_app_context
 from sqlalchemy import case, func
 from sqlalchemy.orm import selectinload
 
@@ -20,6 +19,7 @@ from app.movies.models import (
     MovieProgress,
     canonical_media_key,
 )
+from app.movies.repositories import library_options
 from app.movies.scoring import score_option_for_input
 from app.playback.models import PlaybackSource
 from app.shared.time import utc_now
@@ -53,6 +53,10 @@ TITLE_NOISE_TOKENS = (
     "yify",
     "dvdrip",
 )
+
+
+def _pythonanywhere_lite_enabled() -> bool:
+    return has_app_context() and bool(current_app.config.get("DRAGON_PYTHONANYWHERE_LITE"))
 
 
 class ProgressConflictError(ValueError):
@@ -1477,11 +1481,13 @@ class MovieService:
         local library.
         """
 
-        movies = list(
-            db.session.scalars(
-                db.select(Movie).options(selectinload(Movie.library_entry))
-            )
-        )
+        movie_query = db.select(Movie).options(selectinload(Movie.library_entry))
+        if _pythonanywhere_lite_enabled():
+            # The recommendation rail calls movie_item() for every candidate.
+            # Load all relations it reads in bounded follow-up queries instead
+            # of issuing one lazy query per candidate.
+            movie_query = db.select(Movie).options(*library_options())
+        movies = list(db.session.scalars(movie_query))
         local_keys = {movie.media_key for movie in movies}
         anchors = [
             movie
@@ -1560,7 +1566,13 @@ class MovieService:
 
     @staticmethod
     def recommendation_pool(*, category: str = "", source: str = "") -> dict[str, Any]:
-        movies = list(db.session.scalars(db.select(Movie)))
+        movie_query = db.select(Movie)
+        if _pythonanywhere_lite_enabled():
+            # movie_item() reads library_entry, progress and progress_entries.
+            # Eager loading removes the N+1 pattern on the PA deployment while
+            # leaving the default/local query path unchanged.
+            movie_query = movie_query.options(*library_options())
+        movies = list(db.session.scalars(movie_query))
         profile = _recommendation_profile(movies)
         category_key = _normalized_key(category)
         source_key = _normalized_key(source)

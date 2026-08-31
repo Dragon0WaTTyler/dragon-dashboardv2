@@ -84,6 +84,50 @@ class ProviderAvailability(db.Model):
     last_success_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class PlaybackAttempt(db.Model):
+    """An explicit playback lifecycle record, separate from movie metadata.
+
+    ``server_id`` is intentionally opaque. Providers may report a server name
+    later, but Dragon never promotes that provider-owned value into its
+    provider registry.
+    """
+
+    __tablename__ = "playback_attempts"
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "client_attempt_id",
+            name="uq_playback_attempt_user_client_id",
+        ),
+        Index("ix_playback_attempt_provider_time", "provider", "created_at"),
+        Index("ix_playback_attempt_content_scope", "movie_id", "scope_key", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(40), primary_key=True, default=lambda: new_id("att"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    movie_id: Mapped[str] = mapped_column(ForeignKey("movies.id", ondelete="CASCADE"))
+    playback_source_id: Mapped[str | None] = mapped_column(
+        ForeignKey("playback_sources.id", ondelete="SET NULL")
+    )
+    provider: Mapped[str] = mapped_column(String(40), nullable=False)
+    server_id: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    # Canonical Movies identity (Movie.media_key); movie_id remains the FK.
+    content_id: Mapped[str] = mapped_column(String(96), nullable=False)
+    scope_key: Mapped[str] = mapped_column(String(24), default="movie", nullable=False)
+    device_id: Mapped[str] = mapped_column(String(128), default="", nullable=False)
+    client_attempt_id: Mapped[str] = mapped_column(String(80), nullable=False)
+    outcome: Mapped[str] = mapped_column(String(24), default="started", nullable=False)
+    success: Mapped[bool | None] = mapped_column(Boolean)
+    startup_ms: Mapped[int | None] = mapped_column(Integer)
+    quality: Mapped[str] = mapped_column(String(80), default="", nullable=False)
+    language: Mapped[str] = mapped_column(String(24), default="", nullable=False)
+    failure_reason: Mapped[str] = mapped_column(String(500), default="", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
 class PlaybackProviderPreference(db.Model):
     __tablename__ = "playback_provider_preferences"
 

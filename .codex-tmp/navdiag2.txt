@@ -1,0 +1,412 @@
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> b86bbec3d904, create local admin user
+INFO  [alembic.runtime.migration] Running upgrade b86bbec3d904 -> 5f2c1b7a9d10, add shared local-first foundation
+INFO  [alembic.runtime.migration] Running upgrade 5f2c1b7a9d10 -> 1c7f96e2a4b8, create movies and progress
+INFO  [alembic.runtime.migration] Running upgrade 1c7f96e2a4b8 -> 7d4a9c2e61f3, add youtube reading and books
+INFO  [alembic.runtime.migration] Running upgrade 7d4a9c2e61f3 -> 93bfe4d276a0, add training learning and history
+INFO  [alembic.runtime.migration] Running upgrade 93bfe4d276a0 -> af6c42e9b831, add isolated playback sources
+INFO  [alembic.runtime.migration] Running upgrade af6c42e9b831 -> c3e7a1f4902b, allow a YouTube video to belong to more than one source
+INFO  [alembic.runtime.migration] Running upgrade c3e7a1f4902b -> e4b7d2c9a6f1, add my tv catalogue
+INFO  [alembic.runtime.migration] Running upgrade e4b7d2c9a6f1 -> f5c8a1d3e7b2, add smart TV themes and off-by-default sources
+INFO  [alembic.runtime.migration] Running upgrade f5c8a1d3e7b2 -> a6d9e2f4b8c3, add TV fetch memory and favorites
+INFO  [alembic.runtime.migration] Running upgrade a6d9e2f4b8c3 -> b7e1c3f5a9d4, merge all TV sources into one automatic catalogue
+INFO  [alembic.runtime.migration] Running upgrade b7e1c3f5a9d4 -> c8f2d4a6b0e5, Add a materialized representative for each logical TV channel.
+INFO  [alembic.runtime.migration] Running upgrade c8f2d4a6b0e5 -> d9a3e5b7c1f6, Add persistent logical TV channel health.
+INFO  [alembic.runtime.migration] Running upgrade d9a3e5b7c1f6 -> e8b6c2a9f4d1, scope movie progress by episode
+INFO  [alembic.runtime.migration] Running upgrade e8b6c2a9f4d1 -> f2a4d8c9e731, add knowledge identity v1
+INFO  [alembic.runtime.migration] Running upgrade f2a4d8c9e731 -> 1f6c4b8d9e72, add episode-scoped playback sources
+INFO  [alembic.runtime.migration] Running upgrade 1f6c4b8d9e72 -> e6b4d2a1c8f7, add article content blocks
+INFO  [alembic.runtime.migration] Running upgrade e6b4d2a1c8f7 -> d4a8f2c9e731, add playback provider foundation
+INFO  [alembic.runtime.migration] Running upgrade d4a8f2c9e731 -> e5b9d3a0f842, add provider availability cache
+INFO  [alembic.runtime.migration] Running upgrade e5b9d3a0f842 -> f6c0e4b1a953, add playback provider preferences
+INFO  [alembic.runtime.migration] Running upgrade f6c0e4b1a953 -> a7d1e5c3b924, add playback source catalog imports
+INFO  [alembic.runtime.migration] Running upgrade a7d1e5c3b924 -> b4e8d2a6c9f1, add provider account asset mirror
+INFO  [alembic.runtime.migration] Running upgrade b4e8d2a6c9f1 -> c5f9a7d2e164, add managed tv and news sources
+INFO  [alembic.runtime.migration] Running upgrade c5f9a7d2e164 -> d6a4f8b1c320, persist tv bouquet preferences
+INFO  [alembic.runtime.migration] Running upgrade d6a4f8b1c320 -> e7b3c9d1a5f2, add TV EPG cache and watch history
+INFO  [alembic.runtime.migration] Running upgrade e7b3c9d1a5f2 -> f7a8b9c0d1e2, update the primary TV catalogue
+INFO  [alembic.runtime.migration] Running upgrade f7a8b9c0d1e2 -> f8a1b2c3d4e5, split article saved state from reading progress
+INFO  [alembic.runtime.migration] Running upgrade f8a1b2c3d4e5 -> f9c1d2e3a4b5, add personal television programming sessions
+INFO  [alembic.runtime.migration] Running upgrade f9c1d2e3a4b5 -> fa2d4e6c8b10, extend personal television programming
+INFO  [alembic.runtime.migration] Running upgrade fa2d4e6c8b10 -> fb3e5a7c9d12, persist the last working source for each logical TV channel
+INFO  [alembic.runtime.migration] Running upgrade fb3e5a7c9d12 -> fc4e8a9d0b21, add personal tv catalogue memberships and runtime playhead
+INFO  [alembic.runtime.migration] Running upgrade fc4e8a9d0b21 -> fd5a9b1c2e34, add soft creator preferences for personal tv
+INFO  [alembic.runtime.migration] Running upgrade fd5a9b1c2e34 -> fe6a0b2c3d4e, persist the manually arranged favorite channel order
+INFO  [alembic.runtime.migration] Running upgrade fe6a0b2c3d4e -> a9c4e1f7b2d6, add Movies V2 personal-state foundation
+INFO  [alembic.runtime.migration] Running upgrade a9c4e1f7b2d6 -> b1d2e3f4a5b6, add user-owned Movies custom lists
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /auth/login HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/tokens.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/components.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/layout.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/base.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/luxury.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/js/core.js HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:25] "GET /static/fonts/ibm-plex-mono-latin-400-normal.woff2 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:25] "GET /static/fonts/ibm-plex-sans-latin-600-normal.woff2 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:25] "GET /static/fonts/ibm-plex-sans-latin-400-normal.woff2 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:25] "GET /favicon.ico HTTP/1.1" 404 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "POST /auth/login HTTP/1.1" 302 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET / HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/tokens.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/base.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/layout.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/components.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/pages/today.css HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/luxury.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/core.js HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/today.js HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/reading.js HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /movies?because=mov_19af1e2d9aab445db9ed0d9fdcf9e88f HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/tokens.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/base.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/layout.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/components.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/core.js HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/pages/movies.css?v=movies-v2-final-correction-2 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/luxury.css HTTP/1.1" 304 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/movies-feedback.js?v=1 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/movies.js?v=movie-recommendation-rotation-4 HTTP/1.1" 200 -
+INFO  [werkzeug] 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/movies-ambient.js?v=1 HTTP/1.1" 200 -
+F
+================================== FAILURES ===================================
+__________ test_movies_phase1_home_and_detail_screenshots[chromium] ___________
+
+page = <Page url='http://127.0.0.1:59003/movies?because=mov_19af1e2d9aab445db9ed0d9fdcf9e88f'>
+live_app = 'http://127.0.0.1:59003', app = <Flask 'app'>
+
+    def test_movies_phase1_home_and_detail_screenshots(page, live_app, app):
+        poster = _art("DRAGON", "#22162d", "#c5294f")
+        backdrop = _art("CINEMA", "#120c28", "#7b243e")
+        backdrop_two = _art("SECOND", "#101d2b", "#1f8a70")
+        with app.app_context():
+            resume = Movie(
+                title="Resume Feature",
+                normalized_title="resume feature",
+                media_type="movie",
+                year=2024,
+                status="watching",
+                poster_url=poster,
+                overview="A local feature ready to continue.",
+                external_ids={"tmdb_id": "700", "tmdb_type": "movie"},
+                metadata_state={
+                    "tmdb_detail": {"backdrop_url": backdrop, "tmdb_rating": 8.2},
+                    "tmdb_enrichment": {
+                        "release_date": "2024-06-01",
+                        "production_companies": [{"name": "Dragon Pictures", "logo_url": ""}],
+                    },
+                },
+            )
+            resume_two = Movie(
+                title="Second Resume Feature",
+                normalized_title="second resume feature",
+                media_type="movie",
+                year=2023,
+                status="watching",
+                poster_url=poster,
+                overview="A second local feature proving the hero can rotate.",
+                external_ids={"tmdb_id": "705", "tmdb_type": "movie"},
+                metadata_state={"tmdb_detail": {"backdrop_url": backdrop_two}},
+            )
+            want = Movie(
+                title="Want To Watch Feature",
+                normalized_title="want to watch feature",
+                media_type="movie",
+                year=2025,
+                status="want_to_watch",
+                poster_url=poster,
+                overview="A saved title ready for a deliberate first watch.",
+                external_ids={"tmdb_id": "706", "tmdb_type": "movie"},
+            )
+            anchor = Movie(
+                title="Watched Anchor",
+                normalized_title="watched anchor",
+                media_type="movie",
+                year=2022,
+                status="watched",
+                poster_url=poster,
+                external_ids={"tmdb_id": "701", "tmdb_type": "movie"},
+                metadata_state={
+                    "tmdb_detail": {
+                        "backdrop_url": backdrop,
+                        "recommendations": [
+                            {
+                                "tmdb_id": 702,
+                                "media_type": "movie",
+                                "title": "Recommendation One",
+                                "poster_url": poster,
+                                "year": 2023,
+                                "rating": 7.9,
+                            }
+                        ],
+                        "trailers": [
+                            {
+                                "name": "Official Trailer",
+                                "url": "https://www.youtube.com/watch?v=phase1",
+                                "official": True,
+                            }
+                        ],
+                        "reviews": [
+                            {
+                                "author": "Reviewer",
+                                "content": (
+                                    "A long review used to verify the compact default presentation."
+                                ),
+                                "url": "",
+                            }
+                        ],
+                        "similar": [
+                            {
+                                "tmdb_id": 703,
+                                "media_type": "movie",
+                                "title": "Similar One",
+                                "poster_url": poster,
+                                "year": 2021,
+                                "rating": 7.4,
+                            }
+                        ],
+                    },
+                    "tmdb_enrichment": {
+                        "production_companies": [{"name": "Dragon Pictures", "logo_url": ""}]
+                    },
+                },
+                cast=[{"name": "Ada Example", "character": "Lead", "profile_url": poster}],
+            )
+            anchor_two = Movie(
+                title="Second Anchor",
+                normalized_title="second anchor",
+                media_type="movie",
+                year=2020,
+                status="watched",
+                poster_url=poster,
+                metadata_state={
+                    "tmdb_detail": {
+                        "recommendations": [
+                            {
+                                "tmdb_id": 704,
+                                "media_type": "movie",
+                                "title": "Recommendation Two",
+                                "poster_url": poster,
+                                "year": 2020,
+                                "rating": 7.2,
+                            }
+                        ]
+                    }
+                },
+            )
+            db.session.add_all([resume, resume_two, want, anchor, anchor_two])
+            db.session.flush()
+            db.session.add(
+                MovieProgress(movie_id=resume.id, current_seconds=600, duration_seconds=1800)
+            )
+            db.session.add(
+                MovieProgress(movie_id=resume_two.id, current_seconds=420, duration_seconds=1500)
+            )
+            db.session.commit()
+            anchor_id = anchor.id
+            app.extensions["dragon_tmdb_catalog_provider"] = Phase1Provider()
+            app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDSRC_ENABLED=True)
+    
+        page.set_viewport_size({"width": 1600, "height": 900})
+        evidence_dir = Path(r"C:\Users\walid\Pictures\movies-v2-phase1")
+        evidence_dir.mkdir(parents=True, exist_ok=True)
+        phase1_dir = evidence_dir
+        page_errors = []
+        page.on("pageerror", lambda error: page_errors.append(str(error)))
+        _sign_in(page, live_app)
+        page.goto(f"{live_app}/movies?because={anchor_id}")
+        page.locator(".movie-provider-browser").wait_for()
+        assert page.get_by_role("heading", name="Choose a provider").is_visible()
+        assert (
+            page.get_by_role("link", name="Browse titles available on Netflix").get_attribute(
+                "aria-current"
+            )
+            == "true"
+        )
+        assert page.get_by_role("heading", name="Movies on Netflix").is_visible()
+        assert page.get_by_role("heading", name="TV Series on Netflix").is_visible()
+        assert page.get_by_role("heading", name="Because you watched Watched Anchor").is_visible()
+        canvas = page.locator(".page-frame").bounding_box()
+        assert canvas is not None
+        assert 32 <= canvas["x"] <= 64
+        assert canvas["width"] >= 1400
+        local_nav = page.locator(".movie-v2-nav")
+        hero = page.locator(".movie-personal-hero")
+        nav_box_before = local_nav.bounding_box()
+        hero_box = hero.bounding_box()
+        assert nav_box_before is not None and hero_box is not None
+        assert local_nav.evaluate("element => getComputedStyle(element).position") == "fixed"
+        assert hero_box["y"] <= nav_box_before["y"] + nav_box_before["height"]
+        nav_x_before = nav_box_before["x"]
+        page.screenshot(path=str(phase1_dir / "A-home-1600.png"), full_page=False)
+        page.locator(".movie-now").first.scroll_into_view_if_needed()
+        page.screenshot(path=str(phase1_dir / "B-home-rails-1600.png"), full_page=False)
+        page.evaluate("window.scrollTo(0, 520)")
+        page.screenshot(path=str(phase1_dir / "C-home-after-scroll-1600.png"), full_page=False)
+        provider_tv = page.locator("[data-discovery-rail='provider_tv']")
+        provider_rail = provider_tv.locator("[data-movie-rail]")
+        provider_controls = provider_tv.locator(".movie-rail__control")
+        assert provider_rail.evaluate(
+            "element => element.parentElement?.classList.contains('movie-rail-shell')"
+        )
+        assert provider_controls.first.evaluate(
+            "element => element.parentElement?.classList.contains('movie-rail__controls')"
+        )
+        assert provider_controls.first.evaluate(
+            "element => !element.closest('[data-movie-rail]')"
+        )
+        provider_rail_box = provider_rail.bounding_box()
+        assert provider_rail_box is not None
+        assert provider_controls.count() == 2
+        left_control_box = provider_controls.first.bounding_box()
+        right_control_box = provider_controls.last.bounding_box()
+        assert left_control_box is not None and right_control_box is not None
+        assert left_control_box["x"] <= provider_rail_box["x"] + 12
+        assert (
+            right_control_box["x"] + right_control_box["width"]
+            >= provider_rail_box["x"] + provider_rail_box["width"] - 12
+        )
+        provider_tv.screenshot(path=str(phase1_dir / "E-provider-tv-start-1600.png"))
+        provider_controls.last.click()
+        page.wait_for_timeout(550)
+        prev_x_before = left_control_box["x"]
+        next_x_before = right_control_box["x"]
+        prev_x_after_one = provider_controls.first.bounding_box()["x"]
+        next_x_after_one = provider_controls.last.bounding_box()["x"]
+        assert prev_x_after_one == pytest.approx(prev_x_before, abs=1)
+        assert next_x_after_one == pytest.approx(next_x_before, abs=1)
+        provider_tv.screenshot(path=str(phase1_dir / "F-provider-tv-after-one-1600.png"))
+        for _ in range(8):
+            if provider_controls.last.is_disabled():
+                break
+            provider_controls.last.click()
+            page.wait_for_timeout(550)
+        provider_tv.screenshot(path=str(phase1_dir / "G-provider-tv-after-several-1600.png"))
+        prev_at_end = provider_controls.first.bounding_box()
+        next_at_end = provider_controls.last.bounding_box()
+        assert prev_at_end is not None and next_at_end is not None
+        assert prev_at_end["x"] == pytest.approx(prev_x_before, abs=1)
+        assert next_at_end["x"] == pytest.approx(next_x_before, abs=1)
+        assert provider_controls.last.is_disabled()
+        page.screenshot(path=str(phase1_dir / "H-provider-tv-end-1600.png"), full_page=False)
+        page.wait_for_timeout(550)
+        for _ in range(8):
+            if provider_controls.first.is_disabled():
+                break
+            provider_controls.first.click()
+            page.wait_for_timeout(550)
+        prev_at_start = provider_controls.first.bounding_box()
+        next_at_start = provider_controls.last.bounding_box()
+        assert prev_at_start is not None and next_at_start is not None
+        assert prev_at_start["x"] == pytest.approx(prev_x_before, abs=1)
+        assert next_at_start["x"] == pytest.approx(next_x_before, abs=1)
+        assert provider_controls.first.is_disabled()
+        page.screenshot(path=str(phase1_dir / "I-provider-tv-back-start-1600.png"), full_page=False)
+        page.evaluate("window.scrollTo(0, 0)")
+        provider_selector = page.locator(".movie-provider-selector").first
+        provider_selector.locator("summary").click()
+        assert provider_selector.get_by_role("menu").is_visible()
+        page.screenshot(
+            path=str(evidence_dir / "I-provider-selector-open.png"),
+            full_page=True,
+        )
+        provider_selector.locator("summary").click()
+        page.evaluate("window.scrollTo(0, document.body.scrollHeight / 2)")
+        page.wait_for_timeout(250)
+        print(
+            "NAV_SCROLL_DIAG",
+>           page.evaluate(
+                """() => ({
+                    scrollY: window.scrollY,
+                    rect: document.querySelector('.movie-v2-nav')?.getBoundingClientRect().toJSON(),
+                    position: getComputedStyle(document.querySelector('.movie-v2-nav')).position,
+                    ancestors: [...document.querySelector('.movie-v2-nav').parentElement ? (() => {
+                        const rows = []; let node = document.querySelector('.movie-v2-nav').parentElement;
+                        while (node && node !== document.body) {
+                            const style = getComputedStyle(node);
+                            rows.push({tag: node.tagName, cls: node.className, transform: style.transform, filter: style.filter, contain: style.contain, willChange: style.willChange, overflow: style.overflow, overflowX: style.overflowX});
+                            node = node.parentElement;
+                        }
+                        return rows;
+                    })() : []
+                })"""
+            ),
+        )
+
+tests\browser\test_movies_phase1.py:326: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+.venv\Lib\site-packages\playwright\sync_api\_generated.py:9280: in evaluate
+    self._sync(
+.venv\Lib\site-packages\playwright\_impl\_page.py:472: in evaluate
+    return await self._main_frame.evaluate(expression, arg)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\playwright\_impl\_frame.py:345: in evaluate
+    await self._channel.send(
+.venv\Lib\site-packages\playwright\_impl\_connection.py:69: in send
+    return await self._connection.wrap_api_call(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <playwright._impl._connection.Connection object at 0x0000012A6604CEC0>
+cb = <function Channel.send.<locals>.<lambda> at 0x0000012A66D22AC0>
+is_internal = False, title = None
+
+    async def wrap_api_call(
+        self, cb: Callable[[], Any], is_internal: bool = False, title: str = None
+    ) -> Any:
+        if self._api_zone.get():
+            return await cb()
+        task = asyncio.current_task(self._loop)
+        st: List[inspect.FrameInfo] = getattr(
+            task, "__pw_stack__", None
+        ) or inspect.stack(0)
+    
+        parsed_st = _extract_stack_trace_information_from_stack(st, is_internal, title)
+        self._api_zone.set(parsed_st)
+        try:
+            return await cb()
+        except Exception as error:
+>           raise rewrite_error(error, f"{parsed_st['apiName']}: {error}") from None
+E           playwright._impl._errors.Error: Page.evaluate: SyntaxError: Unexpected token '}'
+E               at eval (<anonymous>)
+E               at UtilityScript.evaluate (<anonymous>:303:30)
+E               at UtilityScript.<anonymous> (<anonymous>:1:44)
+
+.venv\Lib\site-packages\playwright\_impl\_connection.py:563: Error
+------------------------------ Captured log call ------------------------------
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /auth/login HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/tokens.css HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/components.css HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/layout.css HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/base.css HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/css/luxury.css HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:24] "GET /static/js/core.js HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:25] "GET /static/fonts/ibm-plex-mono-latin-400-normal.woff2 HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:25] "GET /static/fonts/ibm-plex-sans-latin-600-normal.woff2 HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:25] "GET /static/fonts/ibm-plex-sans-latin-400-normal.woff2 HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:25] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[32mPOST /auth/login HTTP/1.1[0m" 302 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET / HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/tokens.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/base.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/layout.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/components.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/pages/today.css HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/luxury.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/js/core.js HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/today.js HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/reading.js HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /movies?because=mov_19af1e2d9aab445db9ed0d9fdcf9e88f HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/tokens.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/base.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/layout.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/components.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/js/core.js HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/css/pages/movies.css?v=movies-v2-final-correction-2 HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "[36mGET /static/css/luxury.css HTTP/1.1[0m" 304 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/movies-feedback.js?v=1 HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/movies.js?v=movie-recommendation-rotation-4 HTTP/1.1" 200 -
+INFO     werkzeug:_internal.py:97 127.0.0.1 - - [28/Aug/2026 04:35:26] "GET /static/js/movies-ambient.js?v=1 HTTP/1.1" 200 -
+=========================== short test summary info ===========================
+FAILED tests/browser/test_movies_phase1.py::test_movies_phase1_home_and_detail_screenshots[chromium]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed in 15.58s

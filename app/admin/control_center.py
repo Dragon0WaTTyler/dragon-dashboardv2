@@ -307,6 +307,8 @@ class PreferenceStore:
                                 "autoplay_next": True,
                                 "automatic_resume": True,
                                 "default_subtitle_language": "",
+                                "preferred_audio_language": "auto",
+                                "preferred_quality": "auto",
                                 "preferred_source": "",
                                 "preferred_region": "US",
                                 "reduced_effects": False,
@@ -420,6 +422,16 @@ class PreferenceStore:
                     language = str(movie_preferences.get("default_subtitle_language") or "").lower()
                     if not language or re.fullmatch(r"[a-z]{2,3}", language):
                         target_preferences["default_subtitle_language"] = language
+                    audio_language = str(
+                        movie_preferences.get("preferred_audio_language") or "auto"
+                    ).lower()
+                    if audio_language == "auto" or audio_language == "original" or re.fullmatch(
+                        r"[a-z]{2,3}", audio_language
+                    ):
+                        target_preferences["preferred_audio_language"] = audio_language
+                    quality = str(movie_preferences.get("preferred_quality") or "auto").lower()
+                    if quality in {"auto", "best", "1080p", "720p", "480p"}:
+                        target_preferences["preferred_quality"] = quality
                     source = str(movie_preferences.get("preferred_source") or "").lower()
                     if not source or re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,39}", source):
                         target_preferences["preferred_source"] = source
@@ -494,6 +506,17 @@ class PreferenceStore:
             movie_preferences["default_subtitle_language"] = (
                 language if not language or re.fullmatch(r"[a-z]{2,3}", language) else ""
             )
+            audio_language = str(values.get("preferred_audio_language") or "auto").strip().lower()
+            movie_preferences["preferred_audio_language"] = (
+                audio_language
+                if audio_language in {"auto", "original"}
+                or re.fullmatch(r"[a-z]{2,3}", audio_language)
+                else "auto"
+            )
+            quality = str(values.get("preferred_quality") or "auto").strip().lower()
+            movie_preferences["preferred_quality"] = (
+                quality if quality in {"auto", "best", "1080p", "720p", "480p"} else "auto"
+            )
             source = str(values.get("preferred_source") or "").strip().lower()
             movie_preferences["preferred_source"] = (
                 source
@@ -520,6 +543,8 @@ class PreferenceStore:
         for key in ("autoplay_next", "automatic_resume", "reduced_effects"):
             target[key] = bool(values[key])
         target["default_subtitle_language"] = str(values["default_subtitle_language"])
+        target["preferred_audio_language"] = str(values.get("preferred_audio_language") or "auto")
+        target["preferred_quality"] = str(values.get("preferred_quality") or "auto")
         target["preferred_source"] = str(values["preferred_source"])
         target["preferred_region"] = str(values["preferred_region"])
         target["ambient_level"] = str(values["ambient_level"])

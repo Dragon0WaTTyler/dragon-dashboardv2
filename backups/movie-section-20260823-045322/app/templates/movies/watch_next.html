@@ -1,0 +1,34 @@
+{% extends "layouts/app.html" %}
+{% from "components/ui.html" import empty_state %}
+{% block title %}Watch next · Dragon{% endblock %}
+{% block styles %}<link rel="stylesheet" href="{{ url_for('static', filename='css/pages/movies.css') }}">{% endblock %}
+{% block content %}
+<header class="page-header">
+  <div>
+    <span class="eyebrow">A deliberate queue</span>
+    <h1>Watch next</h1>
+    <p>Unwatched titles, ordered by your score first and then by the shortest commitment.</p>
+  </div>
+  <a class="button button--secondary" href="{{ url_for('movies.index') }}">Back to all movies</a>
+</header>
+{% if library_sync_error %}<div class="notice notice--error" role="status">Notion could not refresh. Showing the last locally synced items. {{ library_sync_error }}</div>{% endif %}
+{% if movies %}
+<div class="movie-grid" aria-label="Watch next titles">
+  {% for movie in movies %}
+  <article class="movie-tile">
+    <a class="movie-tile__poster" data-media-frame href="{{ url_for('movies.detail', movie_id=movie.id) }}">
+      {% if movie.poster_url %}<img data-media-image src="{{ movie.poster_url }}" alt="Poster for {{ movie.title }}" loading="lazy" width="300" height="450"><span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% else %}<span class="media-fallback" aria-hidden="true">{{ movie.title[:1]|upper }}</span>{% endif %}
+    </a>
+    <div class="movie-tile__body">
+      <h2><a href="{{ url_for('movies.detail', movie_id=movie.id) }}">{{ movie.title }}</a></h2>
+      <p>{{ movie.year or 'Year unknown' }}{% if movie.runtime_minutes %} · {{ movie.runtime_minutes }} min{% endif %}</p>
+      {% if movie.personal_score is not none %}<p>Personal score {{ '%.1f'|format(movie.personal_score) }}/5</p>{% endif %}
+      <a class="button button--primary" href="{{ url_for('movies.detail', movie_id=movie.id) }}#movie-player">Choose to watch</a>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+{{ empty_state('Your watch-next queue is clear', 'Add a title or move something to Want to watch when you are ready.') }}
+{% endif %}
+{% endblock %}

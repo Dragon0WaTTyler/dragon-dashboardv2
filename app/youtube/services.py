@@ -688,11 +688,18 @@ class YouTubeService:
         )
         existing = {video.external_id: video for video in existing_rows}
         watched_by_canonical: dict[str, bool] = {}
+        group_counts: dict[str, int] = {}
         for video in existing_rows:
             canonical = _canonical_external_id(video.external_id)
             watched_by_canonical[canonical] = (
                 watched_by_canonical.get(canonical, False) or video.watched
             )
+            if (
+                video.group_name in scope
+                and not video.removed_from_source
+                and not _cached_video_is_short(video)
+            ):
+                group_counts[video.group_name] = group_counts.get(video.group_name, 0) + 1
 
         now = utc_now()
         counts = {"channels": len(channel_ids), "videos": 0, "created": 0, "updated": 0}
@@ -709,6 +716,12 @@ class YouTubeService:
                 for group in groups_by_channel.get(channel_id, []):
                     membership_id = _pockettube_external_id(video_id, group)
                     video = existing.get(membership_id)
+                    was_active = video is not None and not video.removed_from_source
+                    if (
+                        not was_active
+                        and group_counts.get(group, 0) >= POCKETTUBE_GROUP_VIDEO_LIMIT
+                    ):
+                        continue
                     if video is None:
                         video = YouTubeVideo(
                             external_id=membership_id,
@@ -720,6 +733,8 @@ class YouTubeService:
                         counts["created"] += 1
                     else:
                         counts["updated"] += 1
+                    if not was_active:
+                        group_counts[group] = group_counts.get(group, 0) + 1
                     video.playlist_item_id = str(record.get("id") or "")[:100]
                     video.group_name = group
                     video.channel_id = channel_id[:100]

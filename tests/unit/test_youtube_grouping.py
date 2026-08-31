@@ -153,3 +153,71 @@ def test_group_map_relabels_cached_pockettube_videos_without_network(app, tmp_pa
         )
         assert {video.group_name for video in fresh} == {"Science & Knowledge", "my favoret"}
         assert all(item.last_hydrated_at is not None for item in memberships)
+
+
+def test_pockettube_hydration_caps_each_group_at_200_videos(app):
+    with app.app_context():
+        membership = PocketTubeChannelMembership(
+            group_name="Science & Knowledge",
+            channel_id="UCcap0001",
+        )
+        db.session.add(membership)
+        db.session.add_all(
+            [
+                YouTubeVideo(
+                    external_id=f"cached-{index}",
+                    source="pockettube",
+                    group_name="Science & Knowledge",
+                    channel_id="UCcap0001",
+                    title=f"Cached {index}",
+                    position=index,
+                    duration_seconds=600,
+                )
+                for index in range(199)
+            ]
+        )
+        db.session.commit()
+
+        class FakeYouTubeClient:
+            def fetch_channel_uploads(self, channel_limits, *, maximum):
+                assert channel_limits == {"UCcap0001": 12}
+                assert maximum == 288
+                return {
+                    "UCcap0001": [
+                        {
+                            "id": "upload-new-1",
+                            "snippet": {
+                                "resourceId": {"videoId": "new-1"},
+                                "title": "New one",
+                                "publishedAt": "2026-08-24T12:00:00Z",
+                            },
+                        },
+                        {
+                            "id": "upload-new-2",
+                            "snippet": {
+                                "resourceId": {"videoId": "new-2"},
+                                "title": "New two",
+                                "publishedAt": "2026-08-24T11:00:00Z",
+                            },
+                        },
+                    ]
+                }
+
+            def fetch_durations(self, video_ids, *, maximum):
+                assert video_ids == ["new-1", "new-2"]
+                assert maximum == 2
+                return {"new-1": 600, "new-2": 600}
+
+        counts = YouTubeService.hydrate_pockettube_groups(
+            FakeYouTubeClient(), ("Science & Knowledge",)
+        )
+        feed = YouTubeService.feed(
+            source="pockettube", group="Science & Knowledge", limit=None
+        )
+
+        assert counts["videos"] == 1
+        assert feed["total"] == 200
+        assert {item["external_id"] for item in feed["items"]} == {
+            *(f"cached-{index}" for index in range(199)),
+            "new-1",
+        }

@@ -79,11 +79,13 @@ class Settings:
     environment: str
     secret_key: str
     database_url: str
+    pythonanywhere_lite: bool
     auth_required: bool
     ai_enabled: bool
     playback_enabled: bool
     vidsrc_enabled: bool
     vidsrc_embed_url: str
+    vidlove_enabled: bool
     cinesrc_enabled: bool
     vidcore_enabled: bool
     vidzee_enabled: bool
@@ -476,11 +478,13 @@ class Settings:
             environment=environment,
             secret_key=secret_key,
             database_url=database_url,
+            pythonanywhere_lite=feature("PYTHONANYWHERE_LITE", False),
             auth_required=feature("AUTH_REQUIRED", True),
             ai_enabled=feature("AI_ENABLED", False),
             playback_enabled=feature("PLAYBACK_ENABLED", False),
             vidsrc_enabled=feature("VIDSRC_ENABLED", False),
             vidsrc_embed_url=vidsrc_embed_url,
+            vidlove_enabled=feature("VIDLOVE_ENABLED", False),
             cinesrc_enabled=feature("CINESRC_ENABLED", False),
             vidcore_enabled=feature("VIDCORE_ENABLED", False),
             vidzee_enabled=feature("VIDZEE_ENABLED", False),
@@ -601,6 +605,7 @@ class Settings:
             "ENVIRONMENT": self.environment,
             "SECRET_KEY": self.secret_key,
             "SQLALCHEMY_DATABASE_URI": self.database_url,
+            "DRAGON_PYTHONANYWHERE_LITE": self.pythonanywhere_lite,
             "SQLALCHEMY_TRACK_MODIFICATIONS": False,
             "SESSION_COOKIE_HTTPONLY": True,
             "SESSION_COOKIE_SAMESITE": "Lax",
@@ -614,6 +619,7 @@ class Settings:
             "DRAGON_PLAYBACK_ENABLED": self.playback_enabled,
             "DRAGON_VIDSRC_ENABLED": self.vidsrc_enabled,
             "DRAGON_VIDSRC_EMBED_URL": self.vidsrc_embed_url,
+            "DRAGON_VIDLOVE_ENABLED": self.vidlove_enabled,
             "DRAGON_CINESRC_ENABLED": self.cinesrc_enabled,
             "DRAGON_VIDCORE_ENABLED": self.vidcore_enabled,
             "DRAGON_VIDZEE_ENABLED": self.vidzee_enabled,

@@ -45,6 +45,7 @@ from app.playback.runtime import (
 from app.playback.services import (
     AUTHORIZED_EMBED_AUTHORIZATION_STATUSES,
     INDEXED_EMBED_SOURCE_TYPES,
+    PlaybackAttemptService,
     PlaybackService,
     ProviderAvailabilityService,
 )
@@ -162,6 +163,18 @@ def _provider_priorities() -> dict[str, int]:
     }
 
 
+def _preferred_server_id(provider, identity: PlaybackIdentity) -> str:
+    """Pass last-good memory only to providers that explicitly support opaque IDs."""
+    if not provider.capabilities.supports_server_identity:
+        return ""
+    return PlaybackAttemptService.last_good_server_id(
+        user_id=current_user.get_id(),
+        provider=provider.key,
+        movie_id=identity.movie_id,
+        scope_key=identity.scope_key,
+    )
+
+
 def _configured_embed_provider(key: str) -> tuple[bool, str]:
     """Return local configuration readiness without contacting a provider."""
     config_key = key.upper()
@@ -244,7 +257,9 @@ def vidsrc_source(movie_id: str):
             context["external_ids"] = save_playback_external_ids(movie_id, resolved_ids) or {}
             identity = PlaybackIdentity.from_context(context, season=season, episode=episode)
         provider = _provider_registry().require("vidsrc")
-        source = provider.resolve(identity)
+        source = provider.build_embed(
+            identity, preferred_server_id=_preferred_server_id(provider, identity)
+        )
         source_row = PlaybackService.upsert_resolved_source(identity=identity, resolved=source)
         availability = ProviderAvailabilityService.revalidate_if_stale(
             source_row,
@@ -309,7 +324,9 @@ def id_catalog_source(movie_id: str, provider_key: str):
         )
     try:
         identity = PlaybackIdentity.from_context(context, season=season, episode=episode)
-        resolved = provider.resolve(identity)
+        resolved = provider.build_embed(
+            identity, preferred_server_id=_preferred_server_id(provider, identity)
+        )
     except ValueError as exc:
         return _playback_source_error(str(exc), code="identity_unavailable", status=503)
     source_row = PlaybackService.upsert_resolved_source(identity=identity, resolved=resolved)
@@ -322,7 +339,139 @@ def id_catalog_source(movie_id: str, provider_key: str):
             code="source_unavailable",
             status=503,
         )
-    response = jsonify({"ok": True, "source": resolved.response_item() | {"source_id": source_row.id}})
+    response = jsonify(
+        {"ok": True, "source": resolved.response_item() | {"source_id": source_row.id}}
+    )
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@bp.post("/movie/<movie_id>/attempts")
+@login_required
+def record_playback_attempt(movie_id: str):
+    """Record one explicit player lifecycle observation.
+
+    This endpoint only stores client-reported playback state. It never probes
+    a provider and it does not expose provider URLs or server aliases.
+    """
+    _require_playback()
+    context = get_playback_context(movie_id)
+    if context is None:
+        abort(404)
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        return _playback_source_error(
+            "A JSON playback attempt is required.", code="invalid_attempt", status=400
+        )
+    provider_key = str(payload.get("provider") or "").strip().lower()
+    if provider_key == "local":
+        provider_enabled = current_app.config["DRAGON_MAGNETS_ENABLED"]
+    else:
+        provider_enabled = _provider_is_enabled(provider_key)
+    if not provider_enabled:
+        return _playback_source_error(
+            "The selected provider is not enabled.", code="provider_disabled", status=409
+        )
+    # Metadata is an explicit provider capability, not something Dragon may
+    # infer from a server label or accept from an untrusted client. Keep local
+    # release metadata available, while external provider metadata is retained
+    # only when that provider declares a reliable contract for it.
+    provider = None if provider_key == "local" else _provider_registry().require(provider_key)
+    capabilities = provider.capabilities if provider is not None else None
+    if provider_key == "local":
+        reported_server_id = payload.get("server_id")
+        reported_language = payload.get("language")
+        reported_quality = payload.get("quality")
+    else:
+        reported = capabilities.sanitize_attempt_metadata(
+            server_id=payload.get("server_id"),
+            language=payload.get("language"),
+            quality=payload.get("quality"),
+        )
+        reported_server_id = reported["server_id"]
+        reported_language = reported["language"]
+        reported_quality = reported["quality"]
+    season = _optional_positive_int(payload.get("season"))
+    episode = _optional_positive_int(payload.get("episode"))
+    if (season is None) != (episode is None):
+        return _playback_source_error(
+            "TV playback requires both a season and an episode.",
+            code="invalid_playback_scope",
+            status=400,
+        )
+    if context["media_type"] == "tv" and (
+        season is None
+        or episode is None
+        or not tv_episode_exists(movie_id, season=season, episode=episode)
+    ):
+        return _playback_source_error(
+            "A valid TV season and episode are required for playback.",
+            code="invalid_playback_scope",
+            status=400,
+        )
+    if context["media_type"] != "tv" and (season is not None or episode is not None):
+        return _playback_source_error(
+            "Movie playback does not accept a TV season or episode.",
+            code="invalid_playback_scope",
+            status=400,
+        )
+    try:
+        identity = PlaybackIdentity.from_context(context, season=season, episode=episode)
+    except ValueError as exc:
+        return _playback_source_error(str(exc), code="invalid_playback_scope", status=400)
+
+    source_id = str(payload.get("source_id") or "").strip() or None
+    source = None
+    if source_id:
+        source = db.session.scalar(
+            db.select(PlaybackSource).where(
+                PlaybackSource.id == source_id,
+                PlaybackSource.movie_id == movie_id,
+                PlaybackSource.enabled.is_(True),
+            )
+        )
+        if source is None:
+            return _playback_source_error(
+                "The playback source is unavailable.", code="source_unavailable", status=409
+            )
+        if source.provider != provider_key or source.scope_key != identity.scope_key:
+            return _playback_source_error(
+                "The playback source does not match this attempt.",
+                code="invalid_attempt_source",
+                status=400,
+            )
+    try:
+        attempt = PlaybackAttemptService.record(
+            user_id=current_user.get_id(),
+            movie_id=movie_id,
+            provider=provider_key,
+            content_id=context["media_key"],
+            scope_key=identity.scope_key,
+            client_attempt_id=payload.get("attempt_id"),
+            outcome=payload.get("outcome"),
+            playback_source_id=source.id if source else None,
+            server_id=reported_server_id,
+            device_id=payload.get("device_id"),
+            startup_ms=payload.get("startup_ms"),
+            quality=reported_quality,
+            language=reported_language,
+            failure_reason=payload.get("failure_reason"),
+        )
+    except ValueError as exc:
+        return _playback_source_error(str(exc), code="invalid_attempt", status=400)
+    response = jsonify(
+        {
+            "ok": True,
+            "attempt": {
+                "id": attempt.id,
+                "provider": attempt.provider,
+                "scope_key": attempt.scope_key,
+                "outcome": attempt.outcome,
+                "success": attempt.success,
+                "startup_ms": attempt.startup_ms,
+            },
+        }
+    )
     response.headers["Cache-Control"] = "private, no-store"
     return response
 
@@ -540,7 +689,11 @@ def indexed_embed_source(movie_id: str, source_id: str):
             "The selected provider is not enabled.", code="provider_disabled", status=409
         )
     try:
-        resolved = provider.resolve(identity, source=source)
+        resolved = provider.build_embed(
+            identity,
+            source=source,
+            preferred_server_id=_preferred_server_id(provider, identity),
+        )
     except ValueError as exc:
         return _playback_source_error(str(exc), code="source_unavailable", status=409)
     availability = ProviderAvailabilityService.revalidate_if_stale(
@@ -650,7 +803,7 @@ def add_indexed_embed_source(movie_id: str):
             raise ValueError("Movie mappings cannot use a TV episode scope.")
         identity = PlaybackIdentity.from_context(context, season=season, episode=episode)
         provider_asset_id = str(request.form.get("provider_asset_id") or "").strip()
-        provider.resolve(identity, source=SimpleNamespace(provider_asset_id=provider_asset_id))
+        provider.build_embed(identity, source=SimpleNamespace(provider_asset_id=provider_asset_id))
         subtitle_languages = [
             value.strip().lower()
             for value in str(request.form.get("subtitle_languages") or "").split(",")

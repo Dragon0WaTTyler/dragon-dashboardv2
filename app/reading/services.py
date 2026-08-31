@@ -18,7 +18,9 @@ from app.shared.text import text_direction
 from app.shared.time import utc_iso, utc_now
 
 ARTICLE_STATUSES = {"unread", "reading", "finished"}
-READING_CACHE_LIMIT = 200
+# News is a deliberately small rolling cache.  This is a hard global limit,
+# independent of each source's own refresh preference.
+READING_CACHE_LIMIT = 50
 PROTECTED_READING_STATUSES = {"reading"}
 
 
@@ -241,6 +243,9 @@ class ReadingService:
                 source.id, maximum=source.maximum_articles
             )
 
+        # Keep the News section bounded across all sources.  Per-source
+        # retention above is not enough when several feeds are enabled.
+        counts["trimmed"] += ReadingService.trim_cache()
         counts["changed"] = counts["created"] + counts["updated"]
         checksum = hashlib.sha256("\n".join(sorted(seen)).encode()).hexdigest()
         snapshot = db.session.scalar(
@@ -314,32 +319,20 @@ class ReadingService:
 
     @staticmethod
     def trim_cache(*, maximum: int = READING_CACHE_LIMIT) -> int:
+        """Keep only the newest ``maximum`` articles across every source."""
+
         articles = list(
             db.session.scalars(
-                db.select(Article).order_by(Article.published_at.desc(), Article.created_at.desc())
+                db.select(Article).order_by(
+                    Article.published_at.desc().nullslast(),
+                    Article.created_at.desc().nullslast(),
+                    Article.id.desc(),
+                )
             )
         )
         if len(articles) <= maximum:
             return 0
 
-        protected = [
-            article
-            for article in articles
-            if article.status in PROTECTED_READING_STATUSES or article.is_saved
-        ]
-        remaining_slots = max(0, maximum - len(protected))
-        kept_ids = {article.id for article in protected}
-        for article in articles:
-            if article.id in kept_ids:
-                continue
-            if remaining_slots <= 0:
-                break
-            kept_ids.add(article.id)
-            remaining_slots -= 1
-
-        trimmed = 0
-        for article in articles:
-            if article.id not in kept_ids:
-                db.session.delete(article)
-                trimmed += 1
-        return trimmed
+        for article in articles[maximum:]:
+            db.session.delete(article)
+        return len(articles) - maximum

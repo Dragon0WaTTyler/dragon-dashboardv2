@@ -21,7 +21,7 @@ class ReadingSource(db.Model):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     auto_refresh: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     refresh_interval_minutes: Mapped[int] = mapped_column(Integer, default=60, nullable=False)
-    maximum_articles: Mapped[int] = mapped_column(Integer, default=200, nullable=False)
+    maximum_articles: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
     download_fulltext: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     download_images: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     health_state: Mapped[str] = mapped_column(String(30), default="unknown", nullable=False)

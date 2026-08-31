@@ -64,7 +64,7 @@ from app.playback.providers import (
     ID_CATALOG_EMBED_PROVIDER_SPECS,
     build_provider_registry_from_config,
 )
-from app.playback.services import PlaybackService
+from app.playback.services import PlaybackAttemptService, PlaybackService
 
 bp = Blueprint("movies", __name__, url_prefix="/movies")
 
@@ -146,13 +146,19 @@ def _id_catalog_embed_candidates(movie: Movie) -> list[dict]:
     priorities = _provider_priorities()
     candidates = []
     for key in _enabled_id_catalog_embed_providers():
+        provider = registry.require(key)
         candidates.append(
             {
                 "id": f"provider-{key}",
                 "provider": key,
-                "label": registry.require(key).display_name,
+                "label": provider.display_name,
                 "quality": "",
                 "priority": priorities.get(key, 100),
+                "supports_internal_servers": provider.capabilities.supports_internal_servers,
+                "supports_lifecycle_messages": provider.capabilities.supports_lifecycle_messages,
+                "supports_server_identity": provider.capabilities.supports_server_identity,
+                "supports_language_metadata": provider.capabilities.supports_language_metadata,
+                "supports_quality_metadata": provider.capabilities.supports_quality_metadata,
                 "id_catalog": True,
                 "enabled": True,
                 "source_type_label": "Configured embed provider",
@@ -190,6 +196,7 @@ def _discover_embed_player_sources(media: dict) -> list[dict]:
                 "provider": "vidsrc",
                 "label": "VidSrc",
                 "priority": priorities.get("vidsrc", 100),
+                "supports_lifecycle_messages": False,
             }
         )
     for spec in ID_CATALOG_EMBED_PROVIDER_SPECS:
@@ -204,6 +211,11 @@ def _discover_embed_player_sources(media: dict) -> list[dict]:
                 "provider": spec.key,
                 "label": provider.display_name,
                 "priority": priorities.get(spec.key, spec.default_priority),
+                "supports_internal_servers": provider.capabilities.supports_internal_servers,
+                "supports_lifecycle_messages": provider.capabilities.supports_lifecycle_messages,
+                "supports_server_identity": provider.capabilities.supports_server_identity,
+                "supports_language_metadata": provider.capabilities.supports_language_metadata,
+                "supports_quality_metadata": provider.capabilities.supports_quality_metadata,
             }
         )
     return sorted(sources, key=lambda source: (source["priority"], source["label"].casefold()))
@@ -228,10 +240,17 @@ def _jackett_search_available(movie: Movie) -> bool:
     return bool((movie.external_ids or {}).get("tmdb_id"))
 
 
-def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> list[dict]:
+def _embed_player_sources(
+    movie: Movie,
+    indexed_embed_sources: list[dict],
+    *,
+    season: int | None = None,
+    episode: int | None = None,
+) -> list[dict]:
     if not _playback_is_enabled():
         return []
     priorities = _provider_priorities()
+    registry = build_provider_registry_from_config(current_app.config)
     sources: list[dict] = []
     if _vidsrc_is_usable_candidate(movie):
         sources.append(
@@ -241,6 +260,10 @@ def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> li
                 "label": "VidSrc",
                 "quality": "",
                 "priority": priorities.get("vidsrc", 100),
+                "supports_internal_servers": False,
+                "supports_server_identity": False,
+                "supports_language_metadata": False,
+                "supports_quality_metadata": False,
                 "enabled": True,
                 "source_type_label": "Configured embed provider",
                 "availability_status": "UNKNOWN",
@@ -256,9 +279,69 @@ def _embed_player_sources(movie: Movie, indexed_embed_sources: list[dict]) -> li
         }
         for item in indexed_embed_sources
     )
+    scope_key = PlaybackIdentity(
+        movie_id=movie.id,
+        season=season,
+        episode=episode,
+    ).scope_key
+    movie_preferences = _movie_preferences()
+    metadata_capabilities = {
+        source["provider"]: {
+            "language": bool(
+                registry.get(source["provider"])
+                and registry.get(source["provider"]).capabilities.supports_language_metadata
+            ),
+            "quality": bool(
+                registry.get(source["provider"])
+                and registry.get(source["provider"]).capabilities.supports_quality_metadata
+            ),
+        }
+        for source in sources
+    }
+    source_metadata = {}
+    for source in sources:
+        source_metadata.setdefault(source["provider"], []).append(
+            {
+                "language": source.get("language", ""),
+                "quality": source.get("quality", ""),
+            }
+        )
+    scores = PlaybackAttemptService.provider_scores(
+        user_id=current_user.get_id(),
+        movie_id=movie.id,
+        scope_key=scope_key,
+        provider_keys={source["provider"] for source in sources},
+        preferred_language=movie_preferences.get("preferred_audio_language", "auto"),
+        preferred_quality=movie_preferences.get("preferred_quality", "auto"),
+        metadata_capabilities=metadata_capabilities,
+        source_metadata=source_metadata,
+    )
+    for source in sources:
+        provider = registry.get(source["provider"])
+        source["supports_internal_servers"] = bool(
+            provider and provider.capabilities.supports_internal_servers
+        )
+        source["supports_lifecycle_messages"] = bool(
+            provider and provider.capabilities.supports_lifecycle_messages
+        )
+        source["supports_server_identity"] = bool(
+            provider and provider.capabilities.supports_server_identity
+        )
+        source["supports_language_metadata"] = bool(
+            provider and provider.capabilities.supports_language_metadata
+        )
+        source["supports_quality_metadata"] = bool(
+            provider and provider.capabilities.supports_quality_metadata
+        )
+        source["auto_score"] = scores.get(source["provider"], {}).get("score", 0.0)
+    has_history = any(source["auto_score"] > 0 for source in sources)
     return sorted(
         sources,
-        key=lambda source: priorities.get(source["provider"], 100),
+        key=lambda source: (
+            -source["auto_score"] if has_history else 0.0,
+            priorities.get(source["provider"], 100),
+            source["label"].casefold(),
+        ),
     )
 
 
@@ -340,6 +423,10 @@ def index():
     recommendations = MovieService.recommendation_pool(
         category=filters["category"], source=filters["source"]
     )["items"]
+    if current_app.config.get("DRAGON_PYTHONANYWHERE_LITE"):
+        # This list is embedded in a data attribute for the browser's rotation
+        # UI. Keep the PA response bounded without changing local behaviour.
+        recommendations = recommendations[:24]
     recommendation = recommendations[0] if recommendations else None
     home_focus = continue_items[0] if continue_items else personal_pick or recommendation
     home_focus_kind = (
@@ -1043,7 +1130,12 @@ def tv_episode(movie_id: str, season_number: int, episode_number: int):
     last_selected_source_id, last_selected_provider = _default_player_selection(
         last_selected_source, player_sources
     )
-    embed_player_sources = _embed_player_sources(movie, indexed_embed_sources)
+    embed_player_sources = _embed_player_sources(
+        movie,
+        indexed_embed_sources,
+        season=season_number,
+        episode=episode_number,
+    )
     movie_preferences = _movie_preferences()
     return render_template(
         "movies/tv_season.html",
@@ -1168,7 +1260,7 @@ def discover_preview_source(media_type: str, tmdb_id: int, provider_key: str):
         episode=episode,
     )
     try:
-        resolved = provider.resolve(identity)
+        resolved = provider.build_embed(identity)
     except ValueError as exc:
         return _api_error(str(exc), 503)
     response = jsonify({"ok": True, "preview": True, "source": resolved.response_item()})

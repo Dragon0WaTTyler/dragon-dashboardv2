@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
 
 import pytest
 
@@ -7,12 +8,16 @@ from app.movies.models import Movie
 from app.playback.identity import PlaybackIdentity
 from app.playback.models import PlaybackSource, ProviderAvailability
 from app.playback.providers import (
+    SAFE_EMBED_SANDBOX,
     IdCatalogEmbedProvider,
     IndexedEmbedProvider,
     IndexedEmbedProviderConfig,
+    ProviderCapabilities,
     ProviderProbeResult,
+    ResolvedPlayback,
     VidSrcProvider,
     build_provider_registry,
+    validate_embed_sandbox,
 )
 from app.playback.services import (
     DEFAULT_PROVIDER_PRIORITIES,
@@ -22,8 +27,28 @@ from app.playback.services import (
 from app.shared.time import utc_now
 
 
+def test_provider_capabilities_sanitize_only_declared_attempt_metadata():
+    capabilities = ProviderCapabilities(
+        supported_content=frozenset({"movie"}),
+        supports_server_identity=True,
+        supports_quality_metadata=True,
+    )
+
+    assert capabilities.sanitize_attempt_metadata(
+        server_id=" native-server ",
+        language="English",
+        quality="1080p",
+    ) == {
+        "server_id": "native-server",
+        "language": "",
+        "quality": "1080p",
+    }
+
+
 def test_vidsrc_provider_resolves_movie_with_imdb_identity():
     provider = VidSrcProvider(base_url="https://vidsrc-embed.ru/embed")
+
+    assert provider.sandbox == SAFE_EMBED_SANDBOX
 
     resolved = provider.resolve(
         PlaybackIdentity(
@@ -39,6 +64,7 @@ def test_vidsrc_provider_resolves_movie_with_imdb_identity():
         "label": "VidSrc",
         "url": "https://vidsrc-embed.ru/embed/tt2543164",
         "match": "imdb",
+        "sandbox": SAFE_EMBED_SANDBOX,
     }
     assert resolved.provider_asset_id == "tt2543164"
     assert resolved.playback_mode == "embed"
@@ -91,9 +117,26 @@ def test_direct_id_catalog_provider_resolves_tmdb_movie_and_exact_tv_episode(
 
     assert movie.url == movie_url
     assert movie.provider_asset_id == "550"
+    assert movie.sandbox == SAFE_EMBED_SANDBOX
     assert episode.url == episode_url
+    assert episode.sandbox == SAFE_EMBED_SANDBOX
     with pytest.raises(ValueError, match="TMDb ID"):
         provider.resolve(PlaybackIdentity(movie_id="mov_1", imdb_id="tt0137523"))
+
+
+def test_vidlove_resolves_tmdb_movie_and_exact_tv_episode_inside_safe_embed():
+    provider = IdCatalogEmbedProvider("vidlove")
+
+    movie = provider.resolve(PlaybackIdentity(movie_id="mov_1", tmdb_id="550", media_type="movie"))
+    episode = provider.resolve(
+        PlaybackIdentity(movie_id="mov_1", tmdb_id="1399", media_type="tv", season=1, episode=5)
+    )
+
+    assert movie.url == "https://player.vidlove.cc/embed/movie/550"
+    assert episode.url == "https://player.vidlove.cc/embed/tv/1399/1/5"
+    assert movie.sandbox == SAFE_EMBED_SANDBOX
+    assert episode.sandbox == SAFE_EMBED_SANDBOX
+    assert "allow-popups" not in movie.sandbox
 
 
 def test_provider_registry_exposes_vidsrc_as_the_only_v0_provider():
@@ -112,6 +155,7 @@ def test_provider_registry_enables_cinesrc_as_a_direct_identity_provider():
         videm_enabled=True,
         multiembed_enabled=True,
         multiembed_vip_enabled=True,
+        vidlove_enabled=True,
     )
 
     assert registry.keys() >= {
@@ -121,7 +165,78 @@ def test_provider_registry_enables_cinesrc_as_a_direct_identity_provider():
         "videm",
         "multiembed",
         "multiembed_vip",
+        "vidlove",
     }
+
+
+def test_provider_registry_exposes_static_capabilities_without_provider_requests():
+    registry = build_provider_registry(
+        vidsrc_embed_url="https://vidsrc-embed.ru/embed",
+        videotube_enabled=True,
+        videotube_embed_url="https://down.vidtube.one/embed-{asset_id}.html",
+        vidlove_enabled=True,
+    )
+
+    metadata = {item["id"]: item for item in registry.describe()}
+
+    assert metadata["vidlove"] == {
+        "id": "vidlove",
+        "display_name": "VidLove",
+        "capabilities": {
+            "supported_content": ["movie", "tv"],
+            "supports_internal_servers": True,
+            "supports_fullscreen": True,
+            "supports_subtitles": None,
+            "supports_lifecycle_messages": True,
+            "supports_server_identity": False,
+            "supports_language_metadata": False,
+            "supports_quality_metadata": False,
+        },
+    }
+    assert metadata["videotube"]["capabilities"] == {
+        "supported_content": ["movie", "tv"],
+        "supports_internal_servers": False,
+        "supports_fullscreen": True,
+        "supports_subtitles": None,
+        "supports_lifecycle_messages": False,
+        "supports_server_identity": False,
+        "supports_language_metadata": False,
+        "supports_quality_metadata": False,
+    }
+
+
+def test_registered_providers_expose_the_public_provider_contract():
+    registry = build_provider_registry(
+        vidsrc_embed_url="https://vidsrc-embed.ru/embed",
+        videotube_enabled=True,
+        videotube_embed_url="https://down.vidtube.one/embed-{asset_id}.html",
+        vidlove_enabled=True,
+    )
+    identity = PlaybackIdentity(movie_id="mov_1", tmdb_id="550", media_type="movie")
+
+    for key in registry.keys():
+        provider = registry.require(key)
+        source = (
+            SimpleNamespace(provider_asset_id="iuki4kda2u7l")
+            if isinstance(provider, IndexedEmbedProvider)
+            else None
+        )
+        assert provider.id == key
+        assert provider.supported_content == provider.capabilities.supported_content
+        assert provider.build_embed(identity, source=source).response_item() == provider.resolve(
+            identity, source=source
+        ).response_item()
+
+
+def test_vidlove_internal_server_aliases_are_not_dragon_provider_keys():
+    registry = build_provider_registry(
+        vidsrc_embed_url="https://vidsrc-embed.ru/embed",
+        vidlove_enabled=True,
+    )
+
+    assert registry.get("vidlove") is not None
+    for alias in ("auto", "thunder", "wave", "paris", "moviebox", "vidapi"):
+        assert registry.get(alias) is None
 
 
 def test_provider_registry_enables_videotube_only_with_an_authorized_endpoint():
@@ -184,6 +299,70 @@ def test_provider_registry_reuses_the_indexed_contract_for_every_requested_hoste
         assert asset_ids[key] in resolved.url
 
 
+def test_every_configured_embed_provider_uses_the_strict_safe_playback_sandbox():
+    registry = build_provider_registry(
+        vidsrc_embed_url="https://vidsrc-embed.ru/embed",
+        videotube_enabled=True,
+        videotube_embed_url="https://down.vidtube.one/embed-{asset_id}.html",
+        updown_enabled=True,
+        updown_embed_url="https://updown.icu/embed-{asset_id}-1280x640.html",
+        streamwish_enabled=True,
+        streamwish_embed_url="https://streamwish.com/e/{asset_id}",
+        mixdrop_enabled=True,
+        mixdrop_embed_url="https://mixdrop.ag/e/{asset_id}",
+        doodstream_enabled=True,
+        doodstream_embed_url="https://dood.to/e/{asset_id}",
+        filelions_enabled=True,
+        filelions_embed_url="https://filelions.to/v/{asset_id}",
+        ok_enabled=True,
+        ok_embed_url="https://ok.ru/videoembed/{asset_id}",
+        streamtape_enabled=True,
+        streamtape_embed_url="https://streamtape.com/e/{asset_id}",
+        lulustream_enabled=True,
+        lulustream_embed_url="https://lulustream.com/e/{asset_id}",
+        uqload_enabled=True,
+        uqload_embed_url="https://uqload.cx/embed-{asset_id}.html",
+        vidlove_enabled=True,
+        cinesrc_enabled=True,
+        vidcore_enabled=True,
+        vidzee_enabled=True,
+        videm_enabled=True,
+        multiembed_enabled=True,
+        multiembed_vip_enabled=True,
+    )
+    identity = PlaybackIdentity(movie_id="mov_1", tmdb_id="550", media_type="movie")
+    indexed_asset_ids = {
+        "videotube": "videotubeasset",
+        "updown": "updownasset",
+        "streamwish": "streamwish12",
+        "mixdrop": "mixdropasset",
+        "doodstream": "doodstreamasset",
+        "filelions": "filelionsasset",
+        "ok": "7593181055685",
+        "streamtape": "streamtapeasset",
+        "lulustream": "lulustream12",
+        "uqload": "uqloadasset",
+    }
+
+    for key in registry.keys():
+        provider = registry.require(key)
+        if key == "vidsrc":
+            resolved = provider.resolve(
+                PlaybackIdentity(movie_id="mov_1", imdb_id="tt0137523", media_type="movie")
+            )
+        elif key in indexed_asset_ids:
+            resolved = provider.resolve(
+                identity,
+                source=type("Source", (), {"provider_asset_id": indexed_asset_ids[key]})(),
+            )
+        else:
+            resolved = provider.resolve(identity)
+
+        assert resolved.sandbox == SAFE_EMBED_SANDBOX
+        assert "allow-popups" not in resolved.sandbox
+        assert "allow-top-navigation" not in resolved.sandbox
+
+
 def test_indexed_embed_provider_uses_only_valid_native_asset_ids():
     provider = IndexedEmbedProvider(
         IndexedEmbedProviderConfig(
@@ -200,6 +379,63 @@ def test_indexed_embed_provider_uses_only_valid_native_asset_ids():
         provider.resolve(
             PlaybackIdentity(movie_id="mov_1"),
             source=type("Source", (), {"provider_asset_id": "../../unsafe"})(),
+        )
+
+
+def test_indexed_embed_provider_uses_the_safe_playback_sandbox():
+    provider = IndexedEmbedProvider(
+        IndexedEmbedProviderConfig(
+            key="videotube",
+            embed_url_template="https://down.vidtube.one/embed-{asset_id}.html",
+        )
+    )
+
+    resolved = provider.resolve(
+        PlaybackIdentity(movie_id="mov_1"),
+        source=type("Source", (), {"provider_asset_id": "videoasset"})(),
+    )
+
+    assert resolved.sandbox == SAFE_EMBED_SANDBOX
+    assert "allow-popups" not in resolved.sandbox
+    assert "allow-top-navigation" not in resolved.sandbox
+
+
+@pytest.mark.parametrize(
+    "unsafe_sandbox",
+    [
+        "allow-scripts allow-same-origin allow-forms allow-popups",
+        "allow-scripts allow-same-origin allow-forms allow-top-navigation",
+        "allow-scripts allow-same-origin allow-forms allow-presentation allow-downloads",
+    ],
+)
+def test_embed_sandbox_rejects_popup_navigation_and_extra_permissions(unsafe_sandbox):
+    with pytest.raises(ValueError, match="safe playback|popups or top navigation"):
+        validate_embed_sandbox(unsafe_sandbox)
+
+
+def test_resolved_playback_boundary_canonicalizes_or_rejects_sandbox():
+    resolved = ResolvedPlayback(
+        provider="fixture",
+        label="Fixture",
+        url="https://fixture.example/embed",
+        provider_asset_id="asset",
+        source_type="embed",
+        playback_mode="embed",
+        match="indexed",
+        sandbox="",
+    )
+    assert resolved.sandbox == SAFE_EMBED_SANDBOX
+
+    with pytest.raises(ValueError, match="popups or top navigation"):
+        ResolvedPlayback(
+            provider="fixture",
+            label="Fixture",
+            url="https://fixture.example/embed",
+            provider_asset_id="asset",
+            source_type="embed",
+            playback_mode="embed",
+            match="indexed",
+            sandbox="allow-scripts allow-popups",
         )
 
 
@@ -226,6 +462,7 @@ def test_provider_metadata_renders_indexed_templates_exactly():
     ).url == "https://ok.ru/videoembed/7593181055685"
     assert DEFAULT_PROVIDER_PRIORITIES == {
         "videotube": 10,
+        "vidlove": 14,
         "cinesrc": 15,
         "vidcore": 16,
         "vidzee": 17,

@@ -8,7 +8,6 @@ from app.books.notion_sync import BookNotionSyncClient, _is_book_schema
 from app.books.repositories import BookRepository
 from app.books.services import BookService, book_item
 from app.extensions import db
-from app.shared.models import SnapshotRecord
 from app.movies.models import Movie, MovieProgress
 from app.reading.models import Article, ReadingSource
 from app.reading.services import (
@@ -18,6 +17,7 @@ from app.reading.services import (
     article_item,
 )
 from app.reading.text import article_paragraphs, normalize_article_text
+from app.shared.models import SnapshotRecord
 from app.shared.text import text_direction
 from app.today.services import TodayService
 from app.youtube.models import YouTubeVideo
@@ -433,7 +433,7 @@ def test_reading_status_and_status_projection(app):
         }
 
 
-def test_reading_sync_caps_feed_cache_at_200_articles(app):
+def test_reading_sync_caps_global_news_cache_at_50_articles(app):
     class Client:
         @staticmethod
         def fetch(url):
@@ -444,9 +444,8 @@ def test_reading_sync_caps_feed_cache_at_200_articles(app):
                         "external_id": f"article-{index:03d}",
                         "title": f"Article {index:03d}",
                         "url": f"https://example.test/{index:03d}",
-                        "published_at": datetime(
-                            2026, 7, 19, 12, index % 60, tzinfo=UTC
-                        ),
+                        "published_at": datetime(2026, 7, 19, 12, tzinfo=UTC)
+                        + timedelta(minutes=index),
                     }
                     for index in range(230)
                 ]
@@ -463,9 +462,58 @@ def test_reading_sync_caps_feed_cache_at_200_articles(app):
         counts = ReadingService.sync_sources(Client())
 
         articles = db.session.scalars(db.select(Article)).all()
-        assert len(articles) == 200
+        assert len(articles) == 50
         assert counts["created"] == 230
-        assert counts["trimmed"] == 30
+        assert counts["trimmed"] == 180
+        assert {article.title for article in articles} == {
+            f"Article {index:03d}" for index in range(180, 230)
+        }
+
+
+def test_reading_sync_deletes_old_articles_when_50_new_articles_arrive(app):
+    class Client:
+        @staticmethod
+        def fetch(url):
+            return {
+                "entries": [
+                    {
+                        "external_id": f"new-{index:02d}",
+                        "title": f"New article {index:02d}",
+                        "url": f"https://example.test/new/{index:02d}",
+                        "published_at": datetime(2026, 8, 1, 12, index, tzinfo=UTC),
+                    }
+                    for index in range(50)
+                ]
+            }
+
+    with app.app_context():
+        source = ReadingSource(
+            name="Example Journal",
+            feed_url="https://example.test/feed.xml",
+        )
+        db.session.add(source)
+        db.session.flush()
+        db.session.add_all(
+            [
+                Article(
+                    source=source,
+                    external_id=f"old-{index:02d}",
+                    title=f"Old article {index:02d}",
+                    url=f"https://example.test/old/{index:02d}",
+                    published_at=datetime(2026, 7, 1, 12, index, tzinfo=UTC),
+                )
+                for index in range(50)
+            ]
+        )
+        db.session.commit()
+
+        counts = ReadingService.sync_sources(Client())
+
+        articles = db.session.scalars(db.select(Article)).all()
+        assert len(articles) == 50
+        assert counts["created"] == 50
+        assert counts["trimmed"] == 50
+        assert all(article.title.startswith("New article") for article in articles)
 
 
 def test_book_progress_range_is_validated(app):
@@ -855,7 +903,13 @@ def test_watch_later_sync_keeps_pockettube_membership_separate(app):
 def test_pockettube_sync_uses_latest_video_from_each_exported_channel(app, tmp_path):
     export = tmp_path / "youtube_subscription_manager_2026-07-19-04_31.json"
     export.write_text(
-        '{"tech":["UCchannel111111"],"news":["UCchannel222222"],"ysc_settings":{}}',
+        json.dumps(
+            {
+                "Tech & AI": ["UCchannel111111"],
+                "News & Geopolitics": ["UCchannel222222"],
+                "ysc_settings": {},
+            }
+        ),
         encoding="utf-8",
     )
 
@@ -900,7 +954,10 @@ def test_pockettube_sync_uses_latest_video_from_each_exported_channel(app, tmp_p
             "Latest tech",
             "Latest news",
         ]
-        assert {video.group_name for video in videos} == {"tech", "news"}
+        assert {video.group_name for video in videos} == {
+            "Tech & AI",
+            "News & Geopolitics",
+        }
 
 
 def test_pockettube_sync_caps_each_group_at_200_videos(app, tmp_path):
@@ -977,7 +1034,9 @@ def test_pockettube_sync_fills_small_groups_with_multiple_uploads(app, tmp_path)
 def test_pockettube_sync_keeps_shared_channels_in_each_group(app, tmp_path):
     export = tmp_path / "youtube_subscription_manager_2026-07-19-04_31.json"
     export.write_text(
-        json.dumps({"news": ["UCshared0001"], "my favoret": ["UCshared0001"]}),
+        json.dumps(
+            {"News & Geopolitics": ["UCshared0001"], "my favoret": ["UCshared0001"]}
+        ),
         encoding="utf-8",
     )
 
@@ -1004,7 +1063,9 @@ def test_pockettube_sync_keeps_shared_channels_in_each_group(app, tmp_path):
 
     with app.app_context():
         counts = YouTubeService.sync_pockettube(Client(), export)
-        news = YouTubeService.feed(source="pockettube", group="news", limit=None)
+        news = YouTubeService.feed(
+            source="pockettube", group="News & Geopolitics", limit=None
+        )
         favorite = YouTubeService.feed(source="pockettube", group="my favoret", limit=None)
         all_groups = YouTubeService.feed(source="pockettube", limit=None)
 
@@ -1013,12 +1074,17 @@ def test_pockettube_sync_keeps_shared_channels_in_each_group(app, tmp_path):
         assert favorite["total"] == 200
         assert news["items"][0]["external_id"].startswith("shared-video-")
         assert all_groups["total"] == 200
-        assert all_groups["items"][0]["group_names"] == ["my favoret", "news"]
+        assert all_groups["items"][0]["group_names"] == [
+            "my favoret",
+            "News & Geopolitics",
+        ]
 
 
 def test_pockettube_sync_preserves_cached_group_fill_when_api_underfills(app, tmp_path):
     export = tmp_path / "youtube_subscription_manager_2026-07-19-04_31.json"
-    export.write_text(json.dumps({"news": ["UCnews0001"]}), encoding="utf-8")
+    export.write_text(
+        json.dumps({"News & Geopolitics": ["UCnews0001"]}), encoding="utf-8"
+    )
 
     class Client:
         def fetch_channel_uploads(self, channel_limits, *, maximum):
@@ -1045,7 +1111,7 @@ def test_pockettube_sync_preserves_cached_group_fill_when_api_underfills(app, tm
                 YouTubeVideo(
                     external_id=f"cached-{index}",
                     source="pockettube",
-                    group_name="news",
+                    group_name="News & Geopolitics",
                     title=f"Cached {index}",
                     position=index,
                     removed_from_source=index >= 50,
@@ -1056,7 +1122,9 @@ def test_pockettube_sync_preserves_cached_group_fill_when_api_underfills(app, tm
         db.session.commit()
 
         counts = YouTubeService.sync_pockettube(Client(), export)
-        feed = YouTubeService.feed(source="pockettube", group="news", limit=None)
+        feed = YouTubeService.feed(
+            source="pockettube", group="News & Geopolitics", limit=None
+        )
 
         assert counts["videos"] == 200
         assert feed["total"] == 200
@@ -1064,7 +1132,9 @@ def test_pockettube_sync_preserves_cached_group_fill_when_api_underfills(app, tm
 
 def test_pockettube_sync_skips_shorts(app, tmp_path):
     export = tmp_path / "youtube_subscription_manager_2026-07-19-04_31.json"
-    export.write_text(json.dumps({"news": ["UCnews0001"]}), encoding="utf-8")
+    export.write_text(
+        json.dumps({"News & Geopolitics": ["UCnews0001"]}), encoding="utf-8"
+    )
 
     class Client:
         def fetch_channel_uploads(self, channel_limits, *, maximum):
@@ -1096,7 +1166,9 @@ def test_pockettube_sync_skips_shorts(app, tmp_path):
 
     with app.app_context():
         counts = YouTubeService.sync_pockettube(Client(), export)
-        feed = YouTubeService.feed(source="pockettube", group="news", limit=None)
+        feed = YouTubeService.feed(
+            source="pockettube", group="News & Geopolitics", limit=None
+        )
 
         assert counts["shorts_skipped"] == 1
         assert feed["total"] == 1
@@ -1105,7 +1177,9 @@ def test_pockettube_sync_skips_shorts(app, tmp_path):
 
 def test_pockettube_sync_does_not_refill_from_cached_shorts(app, tmp_path):
     export = tmp_path / "youtube_subscription_manager_2026-07-19-04_31.json"
-    export.write_text(json.dumps({"news": ["UCnews0001"]}), encoding="utf-8")
+    export.write_text(
+        json.dumps({"News & Geopolitics": ["UCnews0001"]}), encoding="utf-8"
+    )
 
     class Client:
         def fetch_channel_uploads(self, channel_limits, *, maximum):
@@ -1120,14 +1194,14 @@ def test_pockettube_sync_does_not_refill_from_cached_shorts(app, tmp_path):
                 YouTubeVideo(
                     external_id="cached-short",
                     source="pockettube",
-                    group_name="news",
+                    group_name="News & Geopolitics",
                     title="Cached short",
                     duration_seconds=45,
                 ),
                 YouTubeVideo(
                     external_id="cached-long",
                     source="pockettube",
-                    group_name="news",
+                    group_name="News & Geopolitics",
                     title="Cached long",
                     duration_seconds=600,
                 ),
@@ -1136,7 +1210,9 @@ def test_pockettube_sync_does_not_refill_from_cached_shorts(app, tmp_path):
         db.session.commit()
 
         YouTubeService.sync_pockettube(Client(), export)
-        feed = YouTubeService.feed(source="pockettube", group="news", limit=None)
+        feed = YouTubeService.feed(
+            source="pockettube", group="News & Geopolitics", limit=None
+        )
 
         assert feed["total"] == 1
         assert feed["items"][0]["external_id"] == "cached-long"

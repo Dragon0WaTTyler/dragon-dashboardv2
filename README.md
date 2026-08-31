@@ -139,6 +139,8 @@ Typical optional integrations are:
 
 All `DRAGON_*` flags are documented in [.env.example](.env.example). Keep `.env`, `instance/`, exported data, OAuth tokens, and API keys out of Git.
 
+For the lightweight PythonAnywhere setup, see [docs/deployment/pythonanywhere.md](docs/deployment/pythonanywhere.md).
+
 ## How the project is organised
 
 ```text

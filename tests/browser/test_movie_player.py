@@ -4,7 +4,7 @@ import pytest
 
 from app.extensions import db
 from app.movies.models import Movie, MovieProgress
-from app.playback.models import PlaybackSource
+from app.playback.models import PlaybackAttempt, PlaybackSource
 from app.playback.services import PlaybackService
 
 pytestmark = pytest.mark.browser
@@ -171,7 +171,8 @@ def test_movie_player_switches_between_vidsrc_and_local_without_overflow(page, l
             viewportWidth: viewport.width,
             viewportHeight: viewport.height,
             pageWidth: document.documentElement.clientWidth,
-            pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+            pageOverflow: document.documentElement.scrollWidth -
+              document.documentElement.clientWidth,
           };
         }"""
     )
@@ -496,9 +497,26 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
                     "label": "VideoTube",
                     "url": "https://down.vidtube.one/embed-iuki4kda2u7l.html",
                     "match": "indexed",
-                    "sandbox": "allow-scripts allow-forms allow-popups allow-presentation",
+                    "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
                 },
             }
+        ),
+    )
+    popup_attempts = []
+    page.on("popup", lambda popup: popup_attempts.append(popup.url))
+    page.route(
+        "https://down.vidtube.one/embed-iuki4kda2u7l.html",
+        lambda route: route.fulfill(
+            body="""
+                <!doctype html>
+                <title>Safe embed fixture</title>
+                <script>
+                  window.open('https://example.invalid/new-tab', '_blank');
+                  try { parent.location = 'https://example.invalid/redirect'; } catch (_) {}
+                </script>
+                <button type="button">Play</button>
+            """,
+            content_type="text/html",
         ),
     )
     page.route(
@@ -511,7 +529,7 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
                     "label": "UpDown",
                     "url": "https://updown.icu/embed-updownasset-1280x640.html",
                     "match": "indexed",
-                    "sandbox": "allow-scripts allow-forms allow-popups allow-presentation",
+                    "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
                 },
             }
         ),
@@ -526,7 +544,7 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
                     "label": "OK.ru",
                     "url": "https://ok.ru/videoembed/7593181055685",
                     "match": "indexed",
-                    "sandbox": "allow-scripts allow-forms allow-popups allow-presentation",
+                    "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
                 },
             }
         ),
@@ -556,16 +574,18 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
     )
     assert (
         frame.get_attribute("sandbox")
-        == "allow-scripts allow-forms allow-popups allow-presentation"
+        == "allow-scripts allow-same-origin allow-forms allow-presentation"
     )
     assert frame.get_attribute("title") == "VideoTube · Arabic player"
-    assert page.get_by_role("link", name="Open separately").is_visible()
+    assert page.get_by_role("link", name="Open separately").count() == 0
+    assert page.locator("[data-player-server-help]").is_hidden()
     assert page.get_by_role("button", name="Change source").count() == 0
     assert page.get_by_role("button", name="Full screen").count() == 0
     page.set_viewport_size({"width": 390, "height": 844})
     page.wait_for_timeout(100)
-    assert page.locator("[data-player-external-toolbar]").bounding_box()["width"] < 190
-    assert page.get_by_role("link", name="Open separately").bounding_box()["width"] < 170
+    assert page.locator("[data-player-external-toolbar]").is_hidden()
+    assert popup_attempts == []
+    assert page.url == f"{live_app}/movies/{movie_id}"
 
     source_select.select_option(updown_id)
     page.wait_for_function(
@@ -597,7 +617,697 @@ def test_movie_player_switches_between_authorized_embeds(page, live_app, app):
     page.wait_for_function(
         "() => document.querySelector('[data-player-frame]')?.src === 'https://embed.vidsrc.example/tt2543164'"
     )
-    assert frame.get_attribute("sandbox") is None
+    assert frame.get_attribute("sandbox") == (
+        "allow-scripts allow-same-origin allow-forms allow-presentation"
+    )
+
+
+def test_vidlove_safe_embed_repeats_play_and_keeps_provider_servers_inside_player(
+    page, live_app, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="VidLove browser fixture",
+            normalized_title="vidlove browser fixture",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(DRAGON_PLAYBACK_ENABLED=True, DRAGON_VIDLOVE_ENABLED=True)
+    page.route(
+        f"**/playback/movie/{movie_id}/providers/vidlove",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "vidlove",
+                    "label": "VidLove",
+                    "url": "https://player.vidlove.cc/embed/movie/550",
+                    "match": "tmdb",
+                    "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
+                    "source_id": "src_vidlove_fixture",
+                },
+            }
+        ),
+    )
+    popup_attempts = []
+    provider_requests = []
+    page.on("popup", lambda popup: popup_attempts.append(popup.url))
+    page.on(
+        "request",
+        lambda request: provider_requests.append(request.url)
+        if "player.vidlove.cc" in request.url
+        else None,
+    )
+    page.route(
+        "https://player.vidlove.cc/embed/movie/550",
+        lambda route: route.fulfill(
+            body="""
+                <!doctype html>
+                <html><body data-server="Auto" data-fullscreen="false">
+                  <button type="button" id="play">Play</button>
+                  <button type="button" id="pause">Pause</button>
+                  <button type="button" data-server="Thunder">Thunder</button>
+                  <button type="button" data-server="Wave">Wave</button>
+                  <button type="button" data-server="Paris">Paris</button>
+                  <input id="seek" type="range" min="0" max="100" value="0">
+                  <button type="button" id="fullscreen">Fullscreen</button>
+                  <output id="status">paused</output>
+                  <script>
+                    const body = document.body;
+                    const status = document.querySelector('#status');
+                    document.querySelector('#play').onclick = () => {
+                      status.textContent = 'playing';
+                      parent.postMessage({ type: 'play' }, '*');
+                      window.open('https://example.invalid/new-tab', '_blank');
+                      try { parent.location = 'https://example.invalid/redirect'; } catch (_) {}
+                    };
+                    document.querySelector('#pause').onclick = () => {
+                      status.textContent = 'paused';
+                      parent.postMessage({ type: 'pause' }, '*');
+                    };
+                    document.querySelectorAll('[data-server]').forEach((button) => {
+                      button.onclick = () => { body.dataset.server = button.dataset.server; };
+                    });
+                    document.querySelector('#seek').oninput = (event) => {
+                      body.dataset.seek = event.target.value;
+                    };
+                    document.querySelector('#fullscreen').onclick = () => {
+                      body.dataset.fullscreen = 'requested';
+                      document.documentElement.requestFullscreen?.().catch(() => {});
+                    };
+                  </script>
+                </body></html>
+            """,
+            content_type="text/html",
+            headers={
+                "Content-Security-Policy": (
+                    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"
+                )
+            },
+        ),
+    )
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}")
+    source_select = page.get_by_label("Player source")
+    source_select.select_option("auto")
+    assert source_select.input_value() == "auto"
+    assert provider_requests == []
+    server_help = page.locator("[data-player-server-help]")
+    server_help.wait_for(state="visible")
+    assert server_help.inner_text() == "VidLove server picker is inside the player."
+    page.get_by_role("button", name="Play with VidLove").click()
+
+    frame = page.locator("[data-player-frame]")
+    frame.wait_for(state="visible")
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === "
+        "'https://player.vidlove.cc/embed/movie/550'"
+    )
+    assert provider_requests == ["https://player.vidlove.cc/embed/movie/550"]
+    page.frame_locator("[data-player-frame]").locator("#play").wait_for(state="visible")
+    provider_frame = page.frame(url="https://player.vidlove.cc/embed/movie/550")
+    assert provider_frame is not None
+    provider_frame.wait_for_function(
+        "() => typeof document.querySelector('#play')?.onclick === 'function'"
+    )
+    assert frame.get_attribute("sandbox") == (
+        "allow-scripts allow-same-origin allow-forms allow-presentation"
+    )
+    assert frame.get_attribute("allowfullscreen") == ""
+    assert "fullscreen" in (frame.get_attribute("allow") or "")
+    assert page.get_by_role("link", name="Open separately").count() == 0
+
+    for _ in range(5):
+        provider_frame.evaluate("document.querySelector('#play').click()")
+    assert provider_frame.locator("#status").text_content() == "playing"
+    provider_frame.evaluate("document.querySelector('#pause').click()")
+    assert provider_frame.locator("#status").text_content() == "paused"
+    provider_frame.evaluate("document.querySelector('#play').click()")
+    assert provider_frame.locator("#status").text_content() == "playing"
+
+    for server in ("Thunder", "Wave", "Paris"):
+        provider_frame.evaluate(
+            "server => document.querySelector(`button[data-server='${server}']`).click()",
+            server,
+        )
+        assert provider_frame.locator("body").get_attribute("data-server") == server
+
+    provider_frame.locator("#seek").fill("42")
+    assert provider_frame.locator("#seek").input_value() == "42"
+    provider_frame.evaluate("document.querySelector('#fullscreen').click()")
+    assert provider_frame.locator("body").get_attribute("data-fullscreen") == "requested"
+    assert popup_attempts == []
+    assert page.url == f"{live_app}/movies/{movie_id}"
+
+    provider_frame.evaluate("document.exitFullscreen?.()")
+    reload_button = page.locator("[data-player-external-reload]")
+    assert reload_button.count() == 1
+    page.keyboard.press("Escape")
+    reload_button.wait_for(state="visible")
+    with page.expect_request("https://player.vidlove.cc/embed/movie/550"):
+        reload_button.click()
+    frame.wait_for(state="visible")
+    assert popup_attempts == []
+    assert page.url == f"{live_app}/movies/{movie_id}"
+    with page.expect_request("https://player.vidlove.cc/embed/movie/550"):
+        reload_button.click()
+    frame.wait_for(state="visible")
+    assert provider_requests == [
+        "https://player.vidlove.cc/embed/movie/550",
+        "https://player.vidlove.cc/embed/movie/550",
+        "https://player.vidlove.cc/embed/movie/550",
+    ]
+
+    page.reload()
+    page.get_by_label("Player source").select_option("provider-vidlove")
+    page.get_by_role("button", name="Play with VidLove").click()
+    page.locator("[data-player-frame]").wait_for(state="visible")
+    assert provider_requests == [
+        "https://player.vidlove.cc/embed/movie/550",
+        "https://player.vidlove.cc/embed/movie/550",
+        "https://player.vidlove.cc/embed/movie/550",
+        "https://player.vidlove.cc/embed/movie/550",
+    ]
+    assert page.url == f"{live_app}/movies/{movie_id}"
+
+
+def test_auto_falls_back_when_lifecycle_playback_is_not_confirmed(page, live_app, app):
+    with app.app_context():
+        movie = Movie(
+            title="Lifecycle fallback",
+            normalized_title="lifecycle fallback",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDLOVE_ENABLED=True,
+        DRAGON_CINESRC_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=False,
+    )
+    resolver_requests = []
+    vidlove_url = "https://player.vidlove.cc/embed/movie/550"
+    cinesrc_url = "https://cinesrc.st/embed/movie/550"
+
+    def resolve_vidlove(route):
+        resolver_requests.append("vidlove")
+        route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "vidlove",
+                    "label": "VidLove",
+                    "url": vidlove_url,
+                    "match": "tmdb",
+                    "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
+                },
+            }
+        )
+
+    def resolve_cinesrc(route):
+        resolver_requests.append("cinesrc")
+        route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "cinesrc",
+                    "label": "CineSrc",
+                    "url": cinesrc_url,
+                    "match": "tmdb",
+                    "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
+                },
+            }
+        )
+
+    page.route(f"**/playback/movie/{movie_id}/providers/vidlove*", resolve_vidlove)
+    page.route(f"**/playback/movie/{movie_id}/providers/cinesrc*", resolve_cinesrc)
+    page.route(
+        vidlove_url,
+        lambda route: route.fulfill(
+            body="<html><body>No documented playback confirmation.</body></html>",
+            content_type="text/html",
+        ),
+    )
+    page.route(
+        cinesrc_url,
+        lambda route: route.fulfill(
+            body="<html><body>CineSrc fallback.</body></html>",
+            content_type="text/html",
+        ),
+    )
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}")
+    page.evaluate(
+        """() => {
+            const nativeSetTimeout = window.setTimeout;
+            window.setTimeout = (callback, delay, ...args) => nativeSetTimeout(
+                callback,
+                delay === 15000 ? 50 : delay,
+                ...args,
+            );
+        }"""
+    )
+    source = page.get_by_label("Player source")
+    source.select_option("auto")
+    page.get_by_role("button", name="Play with VidLove").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === "
+        f"'{cinesrc_url}'"
+    )
+    assert resolver_requests == ["vidlove", "cinesrc"]
+    assert source.locator("option:checked").get_attribute("data-auto-target-id") == (
+        "provider-cinesrc"
+    )
+    assert page.locator("[data-player-badge]").inner_text() == "CineSrc"
+
+
+def test_auto_ignores_stale_resolver_after_source_change(page, live_app, app):
+    with app.app_context():
+        movie = Movie(
+            title="Stale resolver fixture",
+            normalized_title="stale resolver fixture",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDLOVE_ENABLED=True,
+        DRAGON_CINESRC_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=False,
+    )
+    vidlove_url = "https://player.vidlove.cc/embed/movie/550"
+    cinesrc_url = "https://cinesrc.st/embed/movie/550"
+    page.route(
+        f"**/playback/movie/{movie_id}/providers/vidlove*",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "vidlove",
+                    "label": "VidLove",
+                    "url": vidlove_url,
+                    "match": "tmdb",
+                    "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
+                },
+            }
+        ),
+    )
+    page.route(
+        f"**/playback/movie/{movie_id}/providers/cinesrc*",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "cinesrc",
+                    "label": "CineSrc",
+                    "url": cinesrc_url,
+                    "match": "tmdb",
+                    "sandbox": "allow-scripts allow-same-origin allow-forms allow-presentation",
+                },
+            }
+        ),
+    )
+    page.route(vidlove_url, lambda route: route.fulfill(body="<html><body>old</body></html>"))
+    page.route(cinesrc_url, lambda route: route.fulfill(body="<html><body>new</body></html>"))
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}")
+    page.evaluate(
+        """() => {
+            const nativeFetch = window.fetch.bind(window);
+            window.__releaseDragonResolver = null;
+            window.fetch = (input, init) => {
+                const url = input instanceof Request ? input.url : String(input);
+                if (!url.includes('/providers/vidlove')) return nativeFetch(input, init);
+                return new Promise((resolve) => {
+                    window.__releaseDragonResolver = () => nativeFetch(input, init).then(resolve);
+                });
+            };
+        }"""
+    )
+
+    source = page.get_by_label("Player source")
+    source.select_option("auto")
+    page.get_by_role("button", name="Play with VidLove").click()
+    page.wait_for_function("() => typeof window.__releaseDragonResolver === 'function'")
+
+    cinesrc_id = source.locator("option[data-provider='cinesrc']").get_attribute("value")
+    assert cinesrc_id
+    source.select_option(cinesrc_id)
+    page.get_by_role("button", name="Play with CineSrc").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === "
+        f"'{cinesrc_url}'"
+    )
+
+    page.evaluate("window.__releaseDragonResolver()")
+    page.wait_for_timeout(100)
+    assert page.locator("[data-player-frame]").get_attribute("src") == cinesrc_url
+    assert page.locator("[data-player-badge]").inner_text() == "CineSrc"
+
+
+def test_vidlove_safe_embed_preserves_exact_tv_episode_scope(
+    page, live_app, app
+):
+    with app.app_context():
+        movie = Movie(
+            title="VidLove TV browser fixture",
+            normalized_title="vidlove tv browser fixture",
+            media_type="tv",
+            external_ids={"tmdb_id": "1399", "tmdb_type": "tv"},
+            metadata_state={
+                "tv_total_seasons": 2,
+                "tv_total_episodes": 1,
+                "tv_seasons": [
+                    {"season_number": 2, "name": "Season 2", "episode_count": 1}
+                ],
+                "tv_episodes": {
+                    "2": [
+                        {
+                            "season_number": 2,
+                            "episode_number": 5,
+                            "name": "Big Girls",
+                            "overview": "",
+                            "still_url": "",
+                            "runtime_minutes": 50,
+                        }
+                    ]
+                },
+            },
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDLOVE_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=False,
+    )
+    provider_url = "https://player.vidlove.cc/embed/tv/1399/2/5"
+    episode_url = f"{live_app}/movies/{movie_id}/seasons/2/episodes/5?season=2&episode=5"
+    attempt_reports = []
+    page.route(
+        "**/movies/api/tv/1399/seasons/2/episodes",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "items": [
+                    {
+                        "episode_number": 5,
+                        "name": "Big Girls",
+                        "runtime_minutes": 50,
+                    }
+                ],
+            }
+        ),
+    )
+    page.route(
+        f"**/playback/movie/{movie_id}/providers/vidlove*",
+        lambda route: route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "vidlove",
+                    "label": "VidLove",
+                    "url": provider_url,
+                    "match": "tmdb",
+                    "sandbox": (
+                        "allow-scripts allow-same-origin allow-forms allow-presentation"
+                    ),
+                    "source_id": "src_vidlove_tv_fixture",
+                },
+            }
+        ),
+    )
+    def handle_attempt_report(route):
+        attempt_reports.append(route.request.post_data_json)
+        route.fulfill(
+            json={
+                "ok": True,
+                "attempt": {"id": "attempt-browser", "outcome": "started"},
+            }
+        )
+
+    page.route(f"**/playback/movie/{movie_id}/attempts", handle_attempt_report)
+    popup_attempts = []
+    provider_requests = []
+    page.on("popup", lambda popup: popup_attempts.append(popup.url))
+    page.on(
+        "request",
+        lambda request: provider_requests.append(request.url)
+        if "player.vidlove.cc" in request.url
+        else None,
+    )
+    page.route(
+        provider_url,
+        lambda route: route.fulfill(
+            body="""
+                <!doctype html>
+                <html><body data-server="Auto" data-fullscreen="false">
+                  <button type="button" id="play">Play</button>
+                  <button type="button" id="pause">Pause</button>
+                  <button type="button" data-server="Thunder">Thunder</button>
+                  <button type="button" data-server="Wave">Wave</button>
+                  <button type="button" data-server="Paris">Paris</button>
+                  <input id="seek" type="range" min="0" max="100" value="0">
+                  <button type="button" id="fullscreen">Fullscreen</button>
+                  <output id="status">paused</output>
+                  <script>
+                    const body = document.body;
+                    const status = document.querySelector('#status');
+                    document.querySelector('#play').onclick = () => {
+                      status.textContent = 'playing';
+                      parent.postMessage({ type: 'play' }, '*');
+                      window.open('https://example.invalid/new-tab', '_blank');
+                      try { parent.location = 'https://example.invalid/redirect'; } catch (_) {}
+                    };
+                    document.querySelector('#pause').onclick = () => {
+                      status.textContent = 'paused';
+                      parent.postMessage({ type: 'pause' }, '*');
+                    };
+                    document.querySelectorAll('[data-server]').forEach((button) => {
+                      button.onclick = () => { body.dataset.server = button.dataset.server; };
+                    });
+                    document.querySelector('#seek').oninput = (event) => {
+                      body.dataset.seek = event.target.value;
+                    };
+                    document.querySelector('#fullscreen').onclick = () => {
+                      body.dataset.fullscreen = 'requested';
+                      document.documentElement.requestFullscreen?.().catch(() => {});
+                    };
+                  </script>
+                </body></html>
+            """,
+            content_type="text/html",
+            headers={
+                "Content-Security-Policy": (
+                    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'"
+                )
+            },
+        ),
+    )
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}/seasons/2/episodes/5")
+    assert page.locator("[data-player-selected-episode]").inner_text() == (
+        "Player episode selected: S2E05"
+    )
+    source_select = page.get_by_label("Player source")
+    source_select.select_option("provider-vidlove")
+    assert provider_requests == []
+    server_help = page.locator("[data-player-server-help]")
+    server_help.wait_for(state="visible")
+    assert server_help.inner_text() == "VidLove server picker is inside the player."
+    page.get_by_role("button", name="Play with VidLove").click()
+
+    frame = page.locator("[data-player-frame]")
+    frame.wait_for(state="visible")
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === "
+        f"'{provider_url}'"
+    )
+    assert provider_requests == [provider_url]
+    page.frame_locator("[data-player-frame]").locator("#play").wait_for(state="visible")
+    provider_frame = page.frame(url=provider_url)
+    assert provider_frame is not None
+    provider_frame.wait_for_function(
+        "() => typeof document.querySelector('#play')?.onclick === 'function'"
+    )
+    assert frame.get_attribute("sandbox") == (
+        "allow-scripts allow-same-origin allow-forms allow-presentation"
+    )
+    assert page.get_by_role("link", name="Open separately").count() == 0
+
+    for _ in range(5):
+        provider_frame.evaluate("document.querySelector('#play').click()")
+    assert provider_frame.locator("#status").text_content() == "playing"
+    provider_frame.evaluate("document.querySelector('#pause').click()")
+    assert provider_frame.locator("#status").text_content() == "paused"
+    provider_frame.evaluate("document.querySelector('#play').click()")
+    assert provider_frame.locator("#status").text_content() == "playing"
+
+    for server in ("Thunder", "Wave", "Paris"):
+        provider_frame.evaluate(
+            "server => document.querySelector(`button[data-server='${server}']`).click()",
+            server,
+        )
+        assert provider_frame.locator("body").get_attribute("data-server") == server
+
+    provider_frame.locator("#seek").fill("42")
+    provider_frame.evaluate("document.querySelector('#fullscreen').click()")
+    assert provider_frame.locator("body").get_attribute("data-fullscreen") == "requested"
+    assert popup_attempts == []
+    assert page.url == episode_url
+    provider_frame.evaluate("document.exitFullscreen?.()")
+    reload_button = page.locator("[data-player-external-reload]")
+    assert reload_button.count() == 1
+    page.keyboard.press("Escape")
+    reload_button.wait_for(state="visible")
+    with page.expect_request(provider_url):
+        reload_button.click()
+    frame.wait_for(state="visible")
+    assert provider_requests == [provider_url, provider_url]
+    assert popup_attempts == []
+    assert attempt_reports
+    assert {report["outcome"] for report in attempt_reports} >= {"started", "embed_ready", "success"}
+    assert all(
+        report["provider"] == "vidlove"
+        and report["season"] == 2
+        and report["episode"] == 5
+        for report in attempt_reports
+    )
+
+    page.reload()
+    page.get_by_label("Player source").select_option("provider-vidlove")
+    page.get_by_role("button", name="Play with VidLove").click()
+    page.locator("[data-player-frame]").wait_for(state="visible")
+    assert provider_requests == [provider_url, provider_url, provider_url]
+    assert page.url == episode_url
+
+
+def test_movie_player_auto_falls_back_once_and_manual_provider_does_not(page, live_app, app):
+    with app.app_context():
+        movie = Movie(
+            title="Auto Fallback",
+            normalized_title="auto fallback",
+            external_ids={"tmdb_id": "550"},
+        )
+        db.session.add(movie)
+        db.session.commit()
+        movie_id = movie.id
+
+    app.config.update(
+        DRAGON_PLAYBACK_ENABLED=True,
+        DRAGON_VIDLOVE_ENABLED=True,
+        DRAGON_CINESRC_ENABLED=True,
+        DRAGON_VIDSRC_ENABLED=False,
+    )
+    resolver_requests = []
+    cinesrc_url = "https://cinesrc.st/embed/movie/550"
+
+    def unavailable_vidlove(route):
+        resolver_requests.append("vidlove")
+        route.fulfill(
+            status=503,
+            json={"ok": False, "error": {"message": "VidLove is unavailable"}},
+        )
+
+    def available_cinesrc(route):
+        resolver_requests.append("cinesrc")
+        route.fulfill(
+            json={
+                "ok": True,
+                "source": {
+                    "provider": "cinesrc",
+                    "label": "CineSrc",
+                    "url": cinesrc_url,
+                    "match": "tmdb",
+                    "sandbox": (
+                        "allow-scripts allow-same-origin allow-forms allow-presentation"
+                    ),
+                },
+            }
+        )
+
+    page.route(f"**/playback/movie/{movie_id}/providers/vidlove*", unavailable_vidlove)
+    page.route(f"**/playback/movie/{movie_id}/providers/cinesrc*", available_cinesrc)
+    page.route(
+        cinesrc_url,
+        lambda route: route.fulfill(
+            body="""
+                <!doctype html><html><body><button id='play'>Play</button>
+                <script>parent.postMessage({ type: 'play' }, '*');</script>
+                </body></html>
+            """,
+            content_type="text/html",
+        ),
+    )
+
+    sign_in(page, live_app)
+    page.goto(f"{live_app}/movies/{movie_id}")
+    source = page.get_by_label("Player source")
+    source.evaluate(
+        """select => {
+            const original = select.querySelector('option[data-provider="vidlove"]');
+            const duplicate = original.cloneNode(true);
+            duplicate.value = 'provider-vidlove-duplicate';
+            original.parentElement.insertBefore(duplicate, original.nextSibling);
+        }"""
+    )
+    source.select_option("auto")
+    assert source.input_value() == "auto"
+    assert source.locator("option:checked").get_attribute("data-auto-target-id") == (
+        "provider-vidlove"
+    )
+    page.get_by_role("button", name="Play with VidLove").click()
+    page.locator("[data-player-frame]").wait_for(state="visible")
+    page.wait_for_function(
+        "() => document.querySelector('[data-player-frame]')?.src === "
+        f"'{cinesrc_url}'"
+    )
+    assert resolver_requests == ["vidlove", "cinesrc"]
+    assert source.input_value() == "auto"
+    assert source.locator("option:checked").get_attribute("data-auto-target-id") == (
+        "provider-cinesrc"
+    )
+    assert page.locator("[data-player-badge]").inner_text() == "CineSrc"
+    assert page.locator("[data-player-frame]").get_attribute("sandbox") == (
+        "allow-scripts allow-same-origin allow-forms allow-presentation"
+    )
+    page.wait_for_timeout(250)
+    with app.app_context():
+        cinesrc_attempts = list(
+            db.session.scalars(
+                db.select(PlaybackAttempt).where(
+                    PlaybackAttempt.movie_id == movie_id,
+                    PlaybackAttempt.provider == "cinesrc",
+                )
+            )
+        )
+    assert cinesrc_attempts
+    assert {attempt.outcome for attempt in cinesrc_attempts} <= {"started", "embed_ready"}
+
+    page.reload()
+    source = page.get_by_label("Player source")
+    source.select_option("provider-vidlove")
+    page.get_by_role("button", name="Play with VidLove").click()
+    page.wait_for_function(
+        "() => document.querySelector('[data-movie-player]')?.dataset.playbackState === 'failed'"
+    )
+    assert resolver_requests == ["vidlove", "cinesrc", "vidlove"]
+    assert page.locator("[data-player-recovery-message]").inner_text() == "VidLove is unavailable"
 
 
 def test_movie_player_offers_resume_from_saved_progress(page, live_app, app):
@@ -1458,7 +2168,11 @@ def test_episode_selector_stays_available_after_switching_from_season_pack(page,
     page.locator("[data-player-frame]").wait_for(state="visible")
     assert page.get_by_label("Player source").is_visible()
     assert page.locator("[data-player-pack-browser]").is_visible()
-    assert provider_requests and "season=1" in provider_requests[0] and "episode=1" in provider_requests[0]
+    assert (
+        provider_requests
+        and "season=1" in provider_requests[0]
+        and "episode=1" in provider_requests[0]
+    )
 
 
 def test_switching_pack_episode_stops_current_local_session_before_restart(page, live_app, app):
