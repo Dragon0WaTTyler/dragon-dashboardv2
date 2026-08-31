@@ -55,25 +55,18 @@ class TodayService:
         movie_bucket = _rotation_bucket(moment, MOVIE_ROTATION_SECONDS)
         youtube_bucket = _rotation_bucket(moment, YOUTUBE_ROTATION_SECONDS)
         reading_bucket = _rotation_bucket(moment, READING_ROTATION_SECONDS)
-        youtube_feed = YouTubeService.feed(
+        youtube_items = YouTubeService.rotation_window(
             source="watch_later",
-            order="shuffle",
-            limit=5000,
             seed=f"today:{moment.date().isoformat()}",
+            limit=YOUTUBE_ROTATION_SIZE,
+            offset=youtube_bucket * YOUTUBE_ROTATION_SIZE,
         )
-        youtube_items = youtube_feed["items"]
-        pockettube_favorite_group = YouTubeService.feed(
+        pockettube_favorite_group = YouTubeService.rotation_window(
             source="pockettube",
             group=POCKETTUBE_FAVORITE_GROUP,
-            order="shuffle",
-            limit=5000,
             seed=f"today:pockettube:{moment.date().isoformat()}",
-        )["items"]
-        youtube_start = (youtube_bucket * YOUTUBE_ROTATION_SIZE) % max(
-            len(youtube_items), 1
-        )
-        pockettube_start = (youtube_bucket * YOUTUBE_ROTATION_SIZE) % max(
-            len(pockettube_favorite_group), 1
+            limit=YOUTUBE_ROTATION_SIZE,
+            offset=youtube_bucket * YOUTUBE_ROTATION_SIZE,
         )
         reading_items = ReadingService.latest_news_mix(limit=READING_MIX_POOL_SIZE)
         news_mix = _seeded_random_window(
@@ -83,16 +76,8 @@ class TodayService:
         )
         return {
             "recommended_movie": MovieService.rotating_recommended(movie_bucket),
-            "latest_youtube": _cyclic_window(
-                youtube_items,
-                start=youtube_start,
-                limit=YOUTUBE_ROTATION_SIZE,
-            ),
-            "pockettube_favorite": _cyclic_window(
-                pockettube_favorite_group,
-                start=pockettube_start,
-                limit=YOUTUBE_ROTATION_SIZE,
-            ),
+            "latest_youtube": youtube_items,
+            "pockettube_favorite": pockettube_favorite_group,
             "news_mix": news_mix,
             "continue_reading": news_mix,
             "rotation": {

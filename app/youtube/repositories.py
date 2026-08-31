@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import re
 
 from sqlalchemy import func, or_
@@ -59,6 +60,54 @@ class YouTubeRepository:
         if offset:
             query = query.offset(offset)
         items = list(db.session.scalars(query))
+        return items, total
+
+    @staticmethod
+    def deterministic_window(
+        *,
+        source: str,
+        group: str = "",
+        q: str = "",
+        seed: str,
+        limit: int,
+        offset: int = 0,
+    ) -> tuple[list[YouTubeVideo], int]:
+        """Return a deterministic slice without materialising the whole feed.
+
+        The normal shuffle endpoint intentionally preserves its full-list ordering
+        contract.  Home-page rotation only needs a handful of adjacent items, so
+        use a deterministic database offset and wrap once at the end instead of
+        loading and hashing tens of thousands of videos on every request.
+        """
+
+        if limit <= 0:
+            return [], 0
+        _, total = YouTubeRepository.list(
+            source=source,
+            group=group,
+            q=q,
+            limit=1,
+        )
+        if total <= 0:
+            return [], 0
+        seed_digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+        start = (int(seed_digest, 16) + max(0, offset)) % total
+        items, _ = YouTubeRepository.list(
+            source=source,
+            group=group,
+            q=q,
+            limit=limit,
+            offset=start,
+        )
+        if len(items) < limit and start:
+            wrapped, _ = YouTubeRepository.list(
+                source=source,
+                group=group,
+                q=q,
+                limit=limit - len(items),
+                offset=0,
+            )
+            items.extend(wrapped)
         return items, total
 
     @staticmethod

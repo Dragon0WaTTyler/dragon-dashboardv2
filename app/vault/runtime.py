@@ -5,11 +5,12 @@ import json
 import os
 import re
 import sqlite3
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from flask import Flask, Response, abort, current_app, g, has_request_context
+from flask import Flask, Response, abort, current_app, g, has_request_context, request
 from flask_login import current_user
 from sqlalchemy import Engine, create_engine, insert, select
 
@@ -29,6 +30,15 @@ from app.vault.models import WorkspaceIntegration
 # generous bound for legacy/imported IDs while still constraining the value
 # before it is used as a filesystem path component.
 _WORKSPACE_ID = re.compile(r"^workspace_[A-Za-z0-9_-]{1,64}$")
+_MUTATING_GET_ENDPOINTS = frozenset(
+    {
+        # Live-TV playback records watch/health state even though the player URL
+        # is a GET.  Keep checksum-based persistence for these routes.
+        "mytv.direct",
+        "mytv.play",
+        "mytv.transcode_live",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +63,15 @@ class WorkspaceRuntime:
     def __init__(self, app: Flask):
         self.app = app
         self._engines: dict[str, Engine] = {}
+        # Google token refresh and Drive metadata probes are network round trips.
+        # Keep short-lived process-local caches so ordinary page views do not pay
+        # both costs on every request.  The cache is keyed by workspace, never by
+        # a browser session, so workspaces remain isolated.
+        self._access_tokens: dict[str, tuple[str, float]] = {}
+        self._remote_files: dict[str, tuple[DriveFile | None, float]] = {}
+        self._access_token_ttl_seconds = 240.0
+        self._remote_file_ttl_seconds = 15.0
+        self._read_probe_ttl_seconds = 60.0
 
     def cache_path(self, workspace_id: str) -> Path:
         if not _WORKSPACE_ID.fullmatch(workspace_id):
@@ -132,6 +151,13 @@ class WorkspaceRuntime:
             encoding="utf-8",
         )
         os.replace(temporary, path)
+
+    def _read_probe_is_fresh(self, state: dict[str, Any]) -> bool:
+        try:
+            probed_at = float(state.get("last_probe_at") or 0)
+        except (TypeError, ValueError):
+            return False
+        return probed_at > 0 and (time.time() - probed_at) < self._read_probe_ttl_seconds
 
     def _checkpoint(self, binding: WorkspaceBinding) -> None:
         engine = self._engines.get(binding.id)
@@ -226,17 +252,55 @@ class WorkspaceRuntime:
             raise GoogleOAuthError("Dragon cannot reopen this Google Drive workspace.")
         injected = self.app.extensions.get("dragon_google_oauth_client")
         client = injected if injected is not None else GoogleOAuthClient(self.app.config)
-        return client, client.refresh_access_token(refresh_token=refresh_token)
+        now = time.monotonic()
+        cached = self._access_tokens.get(workspace.id)
+        if cached is not None and cached[1] > now:
+            return client, cached[0]
+        access_token = client.refresh_access_token(refresh_token=refresh_token)
+        self._access_tokens[workspace.id] = (
+            access_token,
+            now + self._access_token_ttl_seconds,
+        )
+        return client, access_token
 
-    def prepare_google_sync(self, workspace: PersonalWorkspace) -> WorkspaceBinding:
+    def prepare_google_sync(
+        self, workspace: PersonalWorkspace, *, read_only: bool = False
+    ) -> WorkspaceBinding:
         binding = WorkspaceBinding(
             id=workspace.id,
             owner_user_id=workspace.owner_user_id,
             cache_path=self.cache_path(workspace.id),
         )
-        client, access_token = self._google_client_and_token(workspace)
         state = self._read_sync_state(binding)
-        remote = client.find_appdata_file(access_token=access_token, name=WORKSPACE_CACHE_FILENAME)
+        # A normal page view is read-only.  If this device has a known, recent
+        # Drive version, use its local SQLite cache immediately and defer the
+        # remote probe.  This avoids an OAuth refresh + Drive API round trip on
+        # every navigation while still checking for cross-device changes at a
+        # bounded interval.  Mutating requests always take the strict path.
+        if (
+            read_only
+            and binding.cache_path.is_file()
+            and state.get("remote_version")
+            and self._read_probe_is_fresh(state)
+        ):
+            engine = self.engine_for(binding)
+            g.dragon_workspace_binding = binding
+            g.dragon_workspace_engine = engine
+            return binding
+
+        client, access_token = self._google_client_and_token(workspace)
+        now = time.monotonic()
+        cached_remote = self._remote_files.get(workspace.id)
+        if cached_remote is not None and cached_remote[1] > now:
+            remote = cached_remote[0]
+        else:
+            remote = client.find_appdata_file(
+                access_token=access_token, name=WORKSPACE_CACHE_FILENAME
+            )
+            self._remote_files[workspace.id] = (
+                remote,
+                now + self._remote_file_ttl_seconds,
+            )
         if remote is None:
             if workspace.state == "needs_seed" and not binding.cache_path.exists():
                 self._seed_legacy_cache(binding)
@@ -248,11 +312,16 @@ class WorkspaceRuntime:
                 name=WORKSPACE_CACHE_FILENAME,
                 contents=contents,
             )
+            self._remote_files[workspace.id] = (
+                remote,
+                time.monotonic() + self._remote_file_ttl_seconds,
+            )
             state = {
                 "remote_version": remote.version,
                 "remote_etag": remote.etag,
                 "dirty": False,
                 "conflict": False,
+                "last_probe_at": time.time(),
             }
             self._write_sync_state(binding, state)
             if workspace.state == "needs_seed":
@@ -281,6 +350,7 @@ class WorkspaceRuntime:
                     "remote_etag": remote.etag,
                     "dirty": False,
                     "conflict": False,
+                    "last_probe_at": time.time(),
                 }
                 self._write_sync_state(binding, state)
             else:
@@ -290,6 +360,8 @@ class WorkspaceRuntime:
                     version=remote.version,
                     etag=str(state["remote_etag"]),
                 )
+                state["last_probe_at"] = time.time()
+                self._write_sync_state(binding, state)
         engine = self.engine_for(binding)
         g.dragon_workspace_binding = binding
         g.dragon_workspace_engine = engine
@@ -298,7 +370,10 @@ class WorkspaceRuntime:
             client=client,
             access_token=access_token,
             remote=remote,
-            initial_checksum=self._checksum(binding.cache_path),
+            # GET/HEAD requests are read-only in Dragon.  Avoid hashing the full
+            # SQLite cache on every page view; mutation requests still retain the
+            # checksum guard before an upload.
+            initial_checksum="" if read_only else self._checksum(binding.cache_path),
         )
         return binding
 
@@ -306,6 +381,8 @@ class WorkspaceRuntime:
         sync = getattr(g, "dragon_google_cache_sync", None)
         if not isinstance(sync, GoogleCacheSync):
             return "not-requested"
+        if not sync.initial_checksum:
+            return "unchanged"
         self._checkpoint(sync.binding)
         checksum = self._checksum(sync.binding.cache_path)
         if checksum == sync.initial_checksum:
@@ -331,7 +408,12 @@ class WorkspaceRuntime:
             "remote_etag": remote.etag,
             "dirty": False,
             "conflict": False,
+            "last_probe_at": time.time(),
         }
+        self._remote_files[sync.binding.id] = (
+            remote,
+            time.monotonic() + self._remote_file_ttl_seconds,
+        )
         self._write_sync_state(sync.binding, state)
         return "saved"
 
@@ -363,7 +445,13 @@ def install_workspace_runtime(app: Flask) -> None:
             return
         if app.config.get("DRAGON_GOOGLE_PERSONAL_VAULT_SYNC_ENABLED"):
             try:
-                runtime.prepare_google_sync(workspace)
+                runtime.prepare_google_sync(
+                    workspace,
+                    read_only=(
+                        request.method in {"GET", "HEAD", "OPTIONS"}
+                        and request.endpoint not in _MUTATING_GET_ENDPOINTS
+                    ),
+                )
             except GoogleVaultConflictError:
                 abort(
                     409,

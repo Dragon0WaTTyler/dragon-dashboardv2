@@ -234,6 +234,28 @@ def video_detail(video: YouTubeVideo) -> dict:
 
 class YouTubeService:
     @staticmethod
+    def rotation_window(
+        *,
+        source: str,
+        group: str = "",
+        seed: str,
+        limit: int = 4,
+        offset: int = 0,
+    ) -> list[dict]:
+        """Build a small deterministic home-page window efficiently."""
+
+        videos, _ = YouTubeRepository.deterministic_window(
+            source=source,
+            group=group,
+            seed=seed,
+            limit=limit,
+            offset=offset,
+        )
+        if source == "pockettube":
+            return _pockettube_feed_items(videos)
+        return [video_item(video) for video in videos]
+
+    @staticmethod
     def detail_page(video: YouTubeVideo) -> dict[str, object]:
         video_ids = YouTubeRepository.ordered_ids(
             source=video.source, group=video.group_name
