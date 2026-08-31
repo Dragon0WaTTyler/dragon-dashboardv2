@@ -16,6 +16,18 @@ def healthz():
     return {"status": "ok"}
 
 
+@bp.get("/privacy")
+def privacy():
+    """Public privacy notice required by OAuth providers."""
+    return render_template("legal.html", page="privacy")
+
+
+@bp.get("/terms")
+def terms():
+    """Public terms of use required by OAuth providers."""
+    return render_template("legal.html", page="terms")
+
+
 @bp.get("/")
 @login_required
 def index():

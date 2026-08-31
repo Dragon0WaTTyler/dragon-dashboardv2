@@ -1,0 +1,37 @@
+{% extends "layouts/auth.html" %}
+{% block content %}
+<section class="auth-intro" aria-labelledby="legal-title">
+  <a class="brand brand--large" href="{{ url_for('auth.login') }}">
+    <span class="brand__mark" aria-hidden="true"><span></span><span></span><span></span></span>
+    <span class="brand__wordmark">Dragon<small>Private index</small></span>
+  </a>
+  {% if page == "privacy" %}
+  <div>
+    <span class="eyebrow">Dragon Private Index</span>
+    <h1 id="legal-title">Privacy notice</h1>
+    <p>Your Dragon workspace is personal. We use your Google account only to sign you in and, when you choose Google sync, store this app's workspace data in its private Google Drive app-data area.</p>
+  </div>
+  {% else %}
+  <div>
+    <span class="eyebrow">Dragon Private Index</span>
+    <h1 id="legal-title">Terms of use</h1>
+    <p>Use Dragon for your own media, reading, learning, and planning workspace. You are responsible for the links, feeds, API keys, and other sources you add.</p>
+  </div>
+  {% endif %}
+</section>
+
+<section class="auth-form-panel" aria-label="Legal information">
+  {% if page == "privacy" %}
+  <h2>What we access</h2>
+  <p>With Google sign-in, Dragon receives your basic OpenID profile (name, email, and stable account identifier). With sync enabled, it requests only the Google Drive <code>appDataFolder</code> scope used for this app's private backup. We do not sell personal data or use it for advertising.</p>
+  <h2>Control and deletion</h2>
+  <p>You can disconnect Google from your workspace at any time. You can also remove Dragon's access from your Google Account security settings and delete the app-data file from Google Drive.</p>
+  {% else %}
+  <h2>Acceptable use</h2>
+  <p>Do not use the service to violate copyright, access another person's account, or abuse external services. External providers (including YouTube, RSS sources, and Google Drive) remain subject to their own terms.</p>
+  <h2>Availability</h2>
+  <p>This is a personal project and may change or become unavailable. Keep your own copy of anything important.</p>
+  {% endif %}
+  <p class="form-help"><a href="{{ url_for('auth.login') }}">Return to Dragon</a></p>
+</section>
+{% endblock %}
