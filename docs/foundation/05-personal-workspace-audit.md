@@ -21,7 +21,7 @@ is not shared there.
 | PocketTube | Imported groups, channel memberships, cached uploads | User uploads the extension JSON export from PocketTube |
 | News | RSS/Atom sources, article cache, saved/read state | User adds a source directly from News sources |
 | Books | Library, reading state, Notion destinations, Book Quotes state | Data and supported Notion settings are synchronised |
-| Kindle workflows | Clipping outbox and manual matching state | Queue is stored in the workspace cache |
+| Kindle workflows | Clipping outbox, manual matching, and Book Quotes sync readiness | Queue and Notion sync settings are stored in the workspace cache; personal workspaces never read legacy shared Kindle credentials |
 | Settings | Appearance, home layout, section choices, movie playback preferences | Stored in the workspace cache |
 
 ## Connected-user journey

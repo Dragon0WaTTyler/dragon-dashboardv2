@@ -46,6 +46,9 @@ which is what makes local and PythonAnywhere synchronisation possible.
   stored in the workspace. The token is never rendered in the form after saving.
 - Book Quotes review state and Kindle clipping queues are persisted in the
   workspace cache rather than a shared server file.
+- Kindle clipping validation and manual upload use that workspace's saved Notion
+  Book Quotes connection only; they never fall back to the legacy instance-wide
+  Kindle credential files.
 - The News sources screen accepts a user-owned RSS or Atom feed URL directly.
 
 ## Remaining limits
