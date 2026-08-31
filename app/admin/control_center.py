@@ -15,6 +15,11 @@ from app.extensions import db
 from app.playback.runtime import build_playback_manager
 from app.shared.freshness import get_freshness
 from app.shared.models import Operation
+from app.vault.integrations import (
+    integration_settings,
+    personal_workspace_active,
+    update_integration_settings,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -136,7 +141,9 @@ SECTIONS: tuple[SectionDefinition, ...] = (
         True,
         (
             FeatureDefinition(
-                "source_health", "Source health view", "Show feed health in the dedicated Sources view."
+                "source_health",
+                "Source health view",
+                "Show feed health in the dedicated Sources view.",
             ),
             FeatureDefinition(
                 "reader_mode", "Reader mode by default", "Open stories inside Dragon first."
@@ -329,11 +336,15 @@ class PreferenceStore:
         }
 
     def read(self) -> dict[str, Any]:
-        defaults = self.defaults()
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
-            return defaults
+            return self.defaults()
+        return self.normalise(raw)
+
+    @classmethod
+    def normalise(cls, raw: object) -> dict[str, Any]:
+        defaults = cls.defaults()
         if not isinstance(raw, dict) or not isinstance(raw.get("sections"), dict):
             return defaults
         general = raw.get("general")
@@ -592,7 +603,27 @@ class PreferenceStore:
         return self._write(payload)
 
 
+class WorkspacePreferenceStore(PreferenceStore):
+    """Store user-controlled appearance and section choices inside their vault."""
+
+    def __init__(self) -> None:
+        # PreferenceStore methods use read and _write, which are overridden below.
+        pass
+
+    def read(self) -> dict[str, Any]:
+        settings = integration_settings("preferences")
+        return self.normalise(settings.get("payload"))
+
+    def _write(self, payload: dict[str, Any]) -> dict[str, Any]:
+        settings = integration_settings("preferences")
+        settings["payload"] = payload
+        update_integration_settings("preferences", settings)
+        return payload
+
+
 def preference_store() -> PreferenceStore:
+    if personal_workspace_active():
+        return WorkspacePreferenceStore()
     root = current_app.config.get("DRAGON_CONTROL_CENTER_ROOT", current_app.instance_path)
     return PreferenceStore(root)
 

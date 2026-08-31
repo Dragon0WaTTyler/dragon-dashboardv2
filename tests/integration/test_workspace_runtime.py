@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy import func, select
 
+from app.admin.control_center import preference_store
 from app.auth.models import PersonalWorkspace, User
 from app.books.book_quotes import (
     BookQuotesSnapshot,
@@ -132,6 +133,19 @@ def test_workspace_integration_settings_are_private_and_portable(app):
                 )
             )
         )
+        preference_store().set_movie_preferences(
+            {
+                "autoplay_next": False,
+                "automatic_resume": True,
+                "default_subtitle_language": "fr",
+                "preferred_audio_language": "original",
+                "preferred_quality": "1080p",
+                "preferred_source": "vidsrc",
+                "preferred_region": "MA",
+                "reduced_effects": True,
+                "ambient_level": "normal",
+            }
+        )
         db.session.remove()
 
     with app.test_request_context("/"):
@@ -139,6 +153,9 @@ def test_workspace_integration_settings_are_private_and_portable(app):
         assert integration_settings("notion") == {}
         assert BookQuotesSnapshotService.store().load().items == ()
         assert workspace_aware_clippings_store("unused").load().pending == ()
+        assert preference_store().read()["sections"]["movies"]["movie_preferences"][
+            "preferred_region"
+        ] == "US"
 
     with app.test_request_context("/"):
         bind_workspace(first)
@@ -147,6 +164,17 @@ def test_workspace_integration_settings_are_private_and_portable(app):
             workspace_aware_clippings_store("unused").load().pending[0].unique_hash
             == "kindle-one"
         )
+        assert preference_store().read()["sections"]["movies"]["movie_preferences"] == {
+            "autoplay_next": False,
+            "automatic_resume": True,
+            "default_subtitle_language": "fr",
+            "preferred_audio_language": "original",
+            "preferred_quality": "1080p",
+            "preferred_source": "vidsrc",
+            "preferred_region": "MA",
+            "reduced_effects": True,
+            "ambient_level": "normal",
+        }
 
 
 def bind_workspace_for_test(workspace: PersonalWorkspace, app):
